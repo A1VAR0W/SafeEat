@@ -73,6 +73,7 @@ export class OpenFoodFactsProvider implements ProductProvider {
   constructor(
     private userAgent: string,
     private baseUrl = 'https://world.openfoodfacts.org',
+    private searchUrl = 'https://search.openfoodfacts.org',
   ) {}
   async getByBarcode(barcode: string) {
     this.reads.take();
@@ -99,27 +100,45 @@ export class OpenFoodFactsProvider implements ProductProvider {
     const cached = this.searchCache.get(key);
     if (cached && Date.now() - cached.at < 300000) return cached.items;
     this.searches.take();
-    // OFF's full-text search remains on the documented search.pl endpoint.
+    // The search index supplies discovery summaries, never current safety evidence.
     const params = new URLSearchParams({
-      search_terms: query,
-      search_simple: '1',
-      action: 'process',
-      json: '1',
+      q: query,
+      langs: 'es,en',
       page_size: '20',
-      fields,
+      fields: 'code,product_name,product_name_es,brands,image_front_small_url',
     });
-    const raw = await providerJson(`${this.baseUrl}/cgi/search.pl?${params}`, {
+    const raw = await providerJson(`${this.searchUrl}/search?${params}`, {
       headers: { 'User-Agent': this.userAgent },
     });
-    const result = z.object({ products: z.array(z.unknown()) }).safeParse(raw);
+    const result = z.object({ hits: z.array(z.unknown()) }).safeParse(raw);
     if (!result.success)
       throw new ApiError(503, 'PROVIDER_INVALID', 'La fuente ha enviado información no válida.');
-    const items = result.data.products
-      .map(normalizeOff)
+    const items = result.data.hits
+      .map(normalizeSearchHit)
       .filter((v): v is ExternalProduct => v !== null);
     if (this.searchCache.size >= 100)
       this.searchCache.delete(this.searchCache.keys().next().value!);
     this.searchCache.set(key, { at: Date.now(), items });
     return items;
   }
+}
+export function normalizeSearchHit(value: unknown): ExternalProduct | null {
+  const parsed = z
+    .object({
+      code: z.union([z.string(), z.number()]),
+      product_name: z.string().optional(),
+      product_name_es: z.string().optional(),
+      brands: z.union([z.string(), z.array(z.string())]).optional(),
+      image_front_small_url: z.string().optional(),
+    })
+    .safeParse(value);
+  if (!parsed.success) return null;
+  const p = parsed.data;
+  const item = normalizeOff({
+    ...p,
+    brands: Array.isArray(p.brands) ? p.brands.join(', ') : p.brands,
+  });
+  return item
+    ? { ...item, summaryOnly: true, source: 'Open Food Facts · índice de búsqueda · ODbL' }
+    : null;
 }

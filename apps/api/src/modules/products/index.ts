@@ -22,9 +22,22 @@ export function productService(
       assessment: assessGluten(external.gluten),
       quality: scoreNutrition(external.nutrition),
       fetchedAt: new Date().toISOString(),
-      stale: false,
+      stale: !!external.summaryOnly,
       userCreated: false,
     });
+    if (external.summaryOnly) {
+      await db.query(
+        'INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,$3,$4,now()) ON CONFLICT(id) DO NOTHING',
+        [item.id, item.barcode, 'openfoodfacts', JSON.stringify(item)],
+      );
+      const stored = (
+        await db.query<{ data: Product; expired: boolean }>(
+          'SELECT data,expires_at<now() AS expired FROM products WHERE id=$1',
+          [item.id],
+        )
+      ).rows[0]!;
+      return { ...ProductSchema.parse(stored.data), stale: stored.expired };
+    }
     await db.query(
       "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,$3,$4,now()+interval '24 hours') ON CONFLICT(id) DO UPDATE SET data=$4,fetched_at=now(),expires_at=now()+interval '24 hours'",
       [item.id, item.barcode, 'openfoodfacts', JSON.stringify(item)],

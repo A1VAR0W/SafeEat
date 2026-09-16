@@ -63,7 +63,16 @@ beforeAll(async () => {
           throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Provider unavailable');
         return code === '00000000' ? null : external;
       },
-      search: async () => [external],
+      search: async () =>
+        ['8410000000001', '8410000000002'].map((barcode) => ({
+          ...external,
+          barcode,
+          name: 'Index summary',
+          summaryOnly: true,
+          ingredients: undefined,
+          nutrition: {},
+          gluten: { source: 'Search index' },
+        })),
     },
     restaurants,
   });
@@ -165,6 +174,22 @@ describe.sequential('real PostgreSQL API', () => {
       (await app.inject({ url: '/api/v1/favorites/products', headers: bearer(two) })).json().items,
     ).toHaveLength(0);
     expect((await app.inject({ ...options, method: 'DELETE' })).statusCode).toBe(204);
+  });
+  it('search summaries never overwrite full product evidence and require detail refresh', async () => {
+    const response = await app.inject('/api/v1/products/search?q=arroz');
+    expect(response.statusCode).toBe(200);
+    const [full, summary] = response.json().items;
+    expect(full.name).toBe('Integration oats');
+    expect(full.assessment.status).toBe('GLUTEN_FREE');
+    expect(summary.assessment.status).toBe('UNKNOWN');
+    expect(summary.stale).toBe(true);
+    expect(summary.quality.score).toBeNull();
+    const row = (
+      await db.query(
+        "SELECT expires_at<now() AS expired FROM products WHERE id='off-8410000000002'",
+      )
+    ).rows[0];
+    expect(row.expired).toBe(true);
   });
   it('favorites restaurant IDs only', async () => {
     expect(

@@ -1,5 +1,20 @@
 import { it, expect } from 'vitest';
-import { normalizeOff } from './open-food-facts';
+import { normalizeOff, normalizeSearchHit } from './open-food-facts';
+it('treats search-index results as summaries without gluten or nutrition claims', () => {
+  const item = normalizeSearchHit({
+    code: '12345678',
+    product_name: 'Arroz',
+    brands: ['A', 'B'],
+    labels_tags: ['en:gluten-free'],
+    ingredients_text: 'Sin gluten',
+    nutriments: { sugars_100g: 0 },
+  });
+  expect(item?.summaryOnly).toBe(true);
+  expect(item?.brand).toBe('A, B');
+  expect(item?.gluten.declaration).toBeUndefined();
+  expect(item?.ingredients).toBeUndefined();
+  expect(item?.nutrition.sugars).toBeUndefined();
+});
 it('does not infer gluten freedom from ingredient analysis tags', () => {
   const p = normalizeOff({
     code: '12345678',

@@ -1,6 +1,7 @@
 import type { NutritionInput, Restaurant } from '@safeeat/contracts';
 import type { GlutenInput } from '@safeeat/gluten-engine';
 export type ExternalProduct = {
+  summaryOnly?: boolean;
   barcode: string;
   name: string;
   brand?: string;
