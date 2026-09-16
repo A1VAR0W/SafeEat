@@ -14,7 +14,6 @@ export default function Layout() {
   const reduced = useReducedMotion();
   const network = useNetInfo();
   useEffect(() => {
-    void restoreSession();
     const app = AppState.addEventListener('change', (state) =>
       focusManager.setFocused(state === 'active'),
     );
@@ -29,6 +28,7 @@ export default function Layout() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
+      onSuccess={() => restoreSession()}
       persistOptions={{
         persister,
         buster: 'v1',

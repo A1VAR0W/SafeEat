@@ -12,10 +12,10 @@ export function ItemActions({
   kind: 'products' | 'restaurants';
   item: Product | { id: string };
 }) {
-  const favorites = useFavorites(kind);
+  const favorites = useFavorites(kind, item.id);
   const [error, setError] = useState<unknown>(null);
   const [sharing, setSharing] = useState(false);
-  const saved = favorites.items.some((p) => p.id === item.id);
+  const saved = favorites.membership.data?.saved ?? false;
   async function share() {
     setSharing(true);
     setError(null);
@@ -37,7 +37,7 @@ export function ItemActions({
     <>
       <Button
         title={saved ? '♥  Quitar de favoritos' : '♡  Guardar en favoritos'}
-        disabled={favorites.mutation.isPending}
+        disabled={favorites.mutation.isPending || (!!favorites.user && !favorites.membership.data)}
         onPress={() => {
           if (!favorites.user) {
             router.push('/auth/login');
@@ -58,8 +58,11 @@ export function ItemActions({
           tu cuenta para revocar estos enlaces.
         </Copy>
       )}
-      {(error || favorites.mutation.error) && (
-        <ErrorNotice error={error || favorites.mutation.error} />
+      {(error || favorites.mutation.error || favorites.membership.error) && (
+        <ErrorNotice
+          error={error || favorites.mutation.error || favorites.membership.error}
+          retry={() => void favorites.membership.refetch()}
+        />
       )}
     </>
   );

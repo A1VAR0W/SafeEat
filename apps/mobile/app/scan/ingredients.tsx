@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react';
-import { View, Switch } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, View, Switch } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { extractTextFromImage, isSupported } from 'expo-text-extractor';
 import { File } from 'expo-file-system';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { assessGluten } from '@safeeat/gluten-engine';
 import { scoreNutrition } from '@safeeat/nutrition-engine';
 import type { Product } from '@safeeat/contracts';
@@ -13,6 +13,18 @@ export default function Ingredients() {
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
   const [capture, setCapture] = useState(false);
+  const [active, setActive] = useState(false);
+  const [foreground, setForeground] = useState(AppState.currentState === 'active');
+  useFocusEffect(
+    useCallback(() => {
+      setActive(true);
+      return () => setActive(false);
+    }, []),
+  );
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => setForeground(s === 'active'));
+    return () => sub.remove();
+  }, []);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [name, setName] = useState('Etiqueta escaneada');
@@ -70,7 +82,7 @@ export default function Ingredients() {
         Fotografía todos los ingredientes y las advertencias de alérgenos. La foto se procesa en
         este dispositivo y se elimina después.
       </Copy>
-      {capture && permission?.granted && (
+      {capture && active && foreground && permission?.granted && (
         <View style={{ height: 300, borderRadius: 20, overflow: 'hidden' }}>
           <CameraView
             ref={camera}

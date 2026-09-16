@@ -2,7 +2,6 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { ShareSchema } from '@safeeat/contracts';
 import { api } from './session';
-import { queryClient } from './query';
 import { Assessment, Button, Copy, ErrorNotice, Screen, Skeleton, Title } from './ui';
 export function SharedRoute({ type }: { type: 'product' | 'restaurant' }) {
   const { token } = useLocalSearchParams<{ token: string }>();
@@ -28,10 +27,9 @@ export function SharedRoute({ type }: { type: 'product' | 'restaurant' }) {
           <Button
             title="Ver todos los detalles"
             onPress={() => {
-              queryClient.setQueryData([data.type, data.item.id], data.item);
               router.replace(
                 data.type === 'product'
-                  ? `/product/${data.item.id}`
+                  ? `/product/${data.item.id}?shareToken=${encodeURIComponent(token)}`
                   : `/restaurant/${data.item.id}`,
               );
             }}

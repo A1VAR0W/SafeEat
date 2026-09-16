@@ -15,6 +15,16 @@ export function favoriteRoutes(
 ) {
   const guarded = { preHandler: auth.protect };
   const id = (params: unknown) => z.object({ id: z.string().min(1).max(200) }).parse(params).id;
+  for (const kind of ['products', 'restaurants'] as const) {
+    app.get(`/api/v1/favorites/${kind}/:id`, guarded, async (request) => {
+      const sql =
+        kind === 'products'
+          ? 'SELECT 1 FROM favorite_products WHERE user_id=$1 AND product_id=$2'
+          : 'SELECT 1 FROM favorite_restaurants WHERE user_id=$1 AND restaurant_id=$2';
+      const result = await db.query(sql, [request.user.sub, id(request.params)]);
+      return { saved: !!result.rowCount };
+    });
+  }
   app.get('/api/v1/favorites/products', guarded, async (request) => {
     const { cursor } = z.object({ cursor: z.string().max(200).optional() }).parse(request.query);
     const rows = await db.query<{ data: Product; id: string; expired: boolean }>(

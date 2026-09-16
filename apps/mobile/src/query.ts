@@ -22,6 +22,16 @@ export async function clearPrivateCache() {
   await persister.removeClient();
 }
 export function shouldPersist(query: { queryKey: readonly unknown[]; state: { status: string } }) {
+  const cached = queryClient
+    .getQueryCache()
+    .getAll()
+    .filter((q) => ['product', 'barcode'].includes(String(q.queryKey[0])))
+    .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+  if (
+    ['product', 'barcode'].includes(String(query.queryKey[0])) &&
+    !cached.slice(0, 100).some((q) => q.queryKey === query.queryKey)
+  )
+    return false;
   return (
     query.state.status === 'success' &&
     ['product', 'barcode', 'recent', 'favorites-products', 'favorites-restaurants'].includes(

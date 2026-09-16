@@ -3,26 +3,34 @@ import { Linking } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { ProductSchema, type Product } from '@safeeat/contracts';
+import { ProductSchema, ShareSchema, type Product } from '@safeeat/contracts';
 import { api } from '../../src/session';
 import { queryClient } from '../../src/query';
 import { ItemActions } from '../../src/actions';
 import { Assessment, Button, Card, Copy, ErrorNotice, Screen, Skeleton, Title } from '../../src/ui';
 import { es } from '../../src/i18n';
 export default function ProductDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, shareToken } = useLocalSearchParams<{ id: string; shareToken?: string }>();
   const query = useQuery({
-    queryKey: ['product', id],
-    queryFn: async () => ProductSchema.parse(await api(`/products/${encodeURIComponent(id)}`)),
+    queryKey: shareToken ? ['shared-product', id, shareToken] : ['product', id],
+    gcTime: shareToken ? 0 : 7 * 86400000,
+    queryFn: async () => {
+      if (!shareToken) return ProductSchema.parse(await api(`/products/${encodeURIComponent(id)}`));
+      const share = ShareSchema.parse(
+        await api(`/public/shares/${encodeURIComponent(shareToken)}`),
+      );
+      if (share.type !== 'product' || share.item.id !== id) throw new Error('Enlace no válido.');
+      return share.item;
+    },
   });
   const p = query.data;
   useEffect(() => {
-    if (!p) return;
+    if (!p || shareToken) return;
     queryClient.setQueryData<Product[]>(['recent'], (old) =>
       [p, ...(old ?? []).filter((x) => x.id !== p.id)].slice(0, 20),
     );
     if (p.barcode) queryClient.setQueryData(['barcode', p.barcode], p);
-  }, [p]);
+  }, [p, shareToken]);
   return (
     <Screen>
       {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}{' '}
@@ -96,7 +104,7 @@ export default function ProductDetail() {
               <Copy>{p.ingredients}</Copy>
             </Card>
           )}
-          <ItemActions kind="products" item={p} />
+          {!(shareToken && p.userCreated) && <ItemActions kind="products" item={p} />}
           <Copy muted size={12}>
             {p.source} · Consultado el {new Date(p.fetchedAt).toLocaleDateString('es')}
           </Copy>
