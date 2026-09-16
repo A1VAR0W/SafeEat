@@ -68,10 +68,10 @@ export async function acceptSession(input: unknown) {
 export async function refresh() {
   if (refreshing) return refreshing;
   refreshing = (async () => {
-    const stored = await SecureStore.getItemAsync(storageKey);
-    if (!stored) throw new RequestError('UNAUTHORIZED', 'Inicia sesión para continuar.', 401);
-    const saved = JSON.parse(stored) as Pick<Session, 'refreshToken' | 'user'>;
     try {
+      const stored = await SecureStore.getItemAsync(storageKey);
+      if (!stored) throw new RequestError('UNAUTHORIZED', 'Inicia sesión para continuar.', 401);
+      const saved = JSON.parse(stored) as Pick<Session, 'refreshToken' | 'user'>;
       const data = SessionSchema.parse(
         await raw('/auth/refresh', {
           method: 'POST',
@@ -133,7 +133,7 @@ export async function api<T>(
     })) as T;
   } catch (error) {
     if (error instanceof RequestError && error.status === 401 && state.user) {
-      token = await refresh();
+      token = state.accessToken && state.accessToken !== token ? state.accessToken : await refresh();
       return (await raw(path, {
         ...init,
         headers: { ...init.headers, Authorization: `Bearer ${token}` },

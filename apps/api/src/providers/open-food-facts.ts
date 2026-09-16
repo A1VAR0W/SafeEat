@@ -41,7 +41,7 @@ export function normalizeOff(value: unknown): ExternalProduct | null {
       ingredients,
       allergens: p.allergens_tags?.join(', '),
       traces: p.traces_tags?.join(', '),
-      declaration: p.labels_tags?.some((t) => ['en:gluten-free', 'es:sin-gluten'].includes(t))
+      declaration: p.labels_tags?.some((t) => ['en:gluten-free', 'en:no-gluten', 'es:sin-gluten'].includes(t))
         ? 'sin gluten'
         : undefined,
       source: 'Open Food Facts (datos comunitarios)',
