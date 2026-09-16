@@ -57,6 +57,15 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
         /\b(no contiene gluten|does not contain gluten)\b/g,
         'sin gluten',
       );
+      // A recipe, historical statement or unverified/absent declaration is not a product claim.
+      if (
+        /\b(segun receta|receta|recipe|antes|formerly|previously|no declara|no pone|no indica|no consta|sin comprobar|sin evaluar|sin certificar|no se ha comprobado|no se ha verificado|not tested|not verified|not certified|cereales|cereals)\b/.test(
+          claimContext,
+        )
+      ) {
+        ambiguous = true;
+        add(clause.trim(), 'uncertainty');
+      }
       if (
         uncertainty.test(claimContext) ||
         /\b(no verificado|no evaluado|no apt[oa]s?|not suitable|sin verificar)\b/.test(claimContext)
