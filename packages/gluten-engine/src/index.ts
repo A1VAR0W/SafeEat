@@ -53,15 +53,22 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
     const normalized = normalize(raw);
     for (const clause of normalized.split(/[.;\n]+/).filter(Boolean)) {
       let rest = clause.replace(/\b(trigo sarraceno|buckwheat)\b/g, ' ');
-      const claimContext = clause.replace(/\b(no contiene gluten|does not contain gluten)\b/g, 'sin gluten');
-      if (uncertainty.test(claimContext) || /\b(no verificado|no evaluado|no apt[oa]s?|not suitable|sin verificar)\b/.test(claimContext)) {
+      const claimContext = clause.replace(
+        /\b(no contiene gluten|does not contain gluten)\b/g,
+        'sin gluten',
+      );
+      if (
+        uncertainty.test(claimContext) ||
+        /\b(no verificado|no evaluado|no apt[oa]s?|not suitable|sin verificar)\b/.test(claimContext)
+      ) {
         ambiguous = true;
         add(clause.trim(), 'uncertainty');
       }
       const free = [...clause.matchAll(freeClaim)];
       if (free.length) {
         const unclear =
-          uncertainty.test(claimContext) || /\b(no|not|never|nunca|fals[oa]|fake|without)\b/.test(claimContext) ||
+          uncertainty.test(claimContext) ||
+          /\b(no|not|never|nunca|fals[oa]|fake|without)\b/.test(claimContext) ||
           /\b(no|not|without)\s+(?:es\s+|is\s+|a\s+|un\s+)?(?:sin gluten|gluten free|libre de gluten)\b/.test(
             clause,
           );
@@ -89,7 +96,10 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
           if (scope.match(hazards)) {
             traces = true;
             add(scope.trim(), 'trace');
-          } else if (/\b(cereales|cereals|alergenos|allergens)\b/.test(scope) || /\b(contener|contain|trazas de|traces of)\s*$/.test(scope)) {
+          } else if (
+            /\b(cereales|cereals|alergenos|allergens)\b/.test(scope) ||
+            /\b(contener|contain|trazas de|traces of)\s*$/.test(scope)
+          ) {
             ambiguous = true;
             add(scope.trim(), 'uncertainty');
           }
