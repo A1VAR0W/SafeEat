@@ -66,6 +66,7 @@ export async function createApp(
     max: 100,
     timeWindow: '1 minute',
     errorResponseBuilder: () => ({
+      statusCode: 429,
       error: {
         code: 'RATE_LIMIT',
         message: 'Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.',

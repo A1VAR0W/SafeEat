@@ -106,6 +106,16 @@ export function authService(app: FastifyInstance, db: Database, env: Env) {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      const family = (
+        await client.query<{ family_id: string }>(
+          'SELECT family_id FROM refresh_sessions WHERE token_hash=$1',
+          [hash(body.refreshToken)],
+        )
+      ).rows[0];
+      if (family)
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+          family.family_id,
+        ]);
       const rows = await client.query<SessionRow>(
         'SELECT * FROM refresh_sessions WHERE token_hash=$1 FOR UPDATE',
         [hash(body.refreshToken)],
@@ -146,10 +156,32 @@ export function authService(app: FastifyInstance, db: Database, env: Env) {
   });
   app.post('/api/v1/auth/logout', limited, async (request, reply) => {
     const body = refreshSchema.parse(request.body);
-    await db.query(
-      'UPDATE refresh_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id IN (SELECT family_id FROM refresh_sessions WHERE token_hash=$1)',
-      [hash(body.refreshToken)],
-    );
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const family = (
+        await client.query<{ family_id: string }>(
+          'SELECT family_id FROM refresh_sessions WHERE token_hash=$1',
+          [hash(body.refreshToken)],
+        )
+      ).rows[0];
+      if (family) {
+        // Serialize the whole family: a rotation cannot escape concurrent logout/replay revocation.
+        await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+          family.family_id,
+        ]);
+        await client.query(
+          'UPDATE refresh_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=$1',
+          [family.family_id],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
     return reply.code(204).send();
   });
   app.get(

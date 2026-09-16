@@ -8,6 +8,7 @@ import { migrate } from '../src/db/migrate';
 import { loadEnv } from '../src/config/env';
 import type { ExternalProduct, RestaurantProvider } from '../src/providers/types';
 import type { Session } from '@safeeat/contracts';
+import { ApiError } from '../src/plugins/errors';
 const url = process.env.TEST_DATABASE_URL;
 if (!url)
   throw new Error('TEST_DATABASE_URL is required: use an isolated PostgreSQL test database');
@@ -16,6 +17,7 @@ let app: FastifyInstance;
 let one: Session;
 let two: Session;
 const suffix = randomUUID();
+let providerUnavailable = false;
 const external: ExternalProduct = {
   barcode: '8410000000001',
   name: 'Integration oats',
@@ -56,7 +58,11 @@ beforeAll(async () => {
     db,
     logging: false,
     products: {
-      getByBarcode: async (code) => (code === '00000000' ? null : external),
+      getByBarcode: async (code) => {
+        if (providerUnavailable)
+          throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Provider unavailable');
+        return code === '00000000' ? null : external;
+      },
       search: async () => [external],
     },
     restaurants,
@@ -184,6 +190,148 @@ describe.sequential('real PostgreSQL API', () => {
       ).statusCode,
     ).toBe(204);
   });
+  it('checks favorite membership beyond the first page and isolates users', async () => {
+    const ids = Array.from(
+      { length: 51 },
+      (_, n) => `page-${suffix}-${String(n).padStart(3, '0')}`,
+    );
+    const template = (await app.inject('/api/v1/products/barcode/8410000000001')).json();
+    for (const id of ids) {
+      await db.query(
+        "INSERT INTO products(id,provider,data,expires_at) VALUES($1,'test',$2,now()+interval '1 day')",
+        [id, { ...template, id }],
+      );
+      await db.query('INSERT INTO favorite_products(user_id,product_id) VALUES($1,$2)', [
+        one.user.id,
+        id,
+      ]);
+    }
+    const page = (
+      await app.inject({ url: '/api/v1/favorites/products', headers: bearer(one) })
+    ).json();
+    expect(page.items).toHaveLength(50);
+    expect(page.items.some((p: { id: string }) => p.id === ids[50])).toBe(false);
+    const url = `/api/v1/favorites/products/${ids[50]}`;
+    expect((await app.inject({ url, headers: bearer(one) })).json()).toEqual({ saved: true });
+    expect((await app.inject({ url, headers: bearer(two) })).json()).toEqual({ saved: false });
+    const next = (
+      await app.inject({
+        url: `/api/v1/favorites/products?cursor=${encodeURIComponent(page.nextCursor)}`,
+        headers: bearer(one),
+      })
+    ).json();
+    expect(next.items.map((p: { id: string }) => p.id)).toEqual([ids[50]]);
+    await db.query('DELETE FROM products WHERE id=ANY($1::text[])', [ids]);
+  });
+  it('returns stale cached products during outages, but 503 for uncached products', async () => {
+    await db.query(
+      "UPDATE products SET expires_at=now()-interval '1 second' WHERE id='off-8410000000001'",
+    );
+    providerUnavailable = true;
+    try {
+      const cached = await app.inject('/api/v1/products/barcode/8410000000001');
+      expect(cached.statusCode).toBe(200);
+      expect(cached.json().stale).toBe(true);
+      const uncached = await app.inject('/api/v1/products/barcode/99999999');
+      expect(uncached.statusCode).toBe(503);
+      expect(uncached.json().error.code).toBe('PROVIDER_UNAVAILABLE');
+    } finally {
+      providerUnavailable = false;
+    }
+  });
+  it('rejects expired or tampered JWTs, SQL-shaped IDs and oversized payloads', async () => {
+    const expired = app.jwt.sign({ sub: one.user.id, sid: randomUUID() }, { expiresIn: -1 });
+    for (const token of [expired, one.accessToken + 'tampered']) {
+      expect(
+        (
+          await app.inject({
+            url: '/api/v1/auth/me',
+            headers: { authorization: `Bearer ${token}` },
+          })
+        ).statusCode,
+      ).toBe(401);
+    }
+    expect(
+      (
+        await app.inject({
+          url: `/api/v1/favorites/products/${encodeURIComponent("' OR 1=1 --")}`,
+          headers: bearer(one),
+        })
+      ).json(),
+    ).toEqual({ saved: false });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/products/analyze-text',
+          headers: bearer(one),
+          payload: { name: 'x', text: 'x'.repeat(40000), reviewed: true },
+        })
+      ).statusCode,
+    ).toBe(413);
+    const cors = await app.inject({
+      method: 'OPTIONS',
+      url: '/api/v1/auth/me',
+      headers: { origin: 'https://evil.example', 'access-control-request-method': 'GET' },
+    });
+    expect(cors.headers['access-control-allow-origin']).not.toBe('https://evil.example');
+  });
+  it('shares restaurants anonymously with non-enumerable tokens', async () => {
+    const share = await app.inject({
+      method: 'POST',
+      url: '/api/v1/shares/restaurants/restaurant-1',
+    });
+    expect(share.statusCode).toBe(201);
+    expect(share.json().token).toMatch(/^[a-f0-9]{48}$/);
+    const publicItem = await app.inject(`/api/v1/public/shares/${share.json().token}`);
+    expect(publicItem.statusCode).toBe(200);
+    expect(publicItem.json().type).toBe('restaurant');
+    expect(publicItem.body).not.toContain(one.user.id);
+  });
+  it('handles missing restaurant credentials without invented results', async () => {
+    const unconfigured = await createApp(
+      loadEnv({
+        NODE_ENV: 'test',
+        DATABASE_URL: url,
+        JWT_ACCESS_SECRET: 'test-access-'.repeat(5),
+        JWT_REFRESH_SECRET: 'test-refresh-'.repeat(5),
+      }),
+      { db, logging: false },
+    );
+    try {
+      const response = await unconfigured.inject('/api/v1/restaurants/search?q=Madrid');
+      expect(response.statusCode).toBe(503);
+      expect(response.json().error.code).toBe('RESTAURANT_PROVIDER_NOT_CONFIGURED');
+    } finally {
+      await unconfigured.close();
+    }
+  });
+  it('cannot retain an active family during concurrent rotation and logout', async () => {
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: one.user.email, password: 'a-strong-password-123' },
+    });
+    const s: Session = login.json();
+    const [rotated, loggedOut] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/refresh',
+        payload: { refreshToken: s.refreshToken },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/logout',
+        payload: { refreshToken: s.refreshToken },
+      }),
+    ]);
+    expect(loggedOut.statusCode).toBe(204);
+    expect([200, 401]).toContain(rotated.statusCode);
+    if (rotated.statusCode === 200)
+      expect(
+        (await app.inject({ url: '/api/v1/auth/me', headers: bearer(rotated.json()) })).statusCode,
+      ).toBe(401);
+  });
   it('protects private OCR data and shares only an explicit public contract', async () => {
     const created = await app.inject({
       method: 'POST',
@@ -264,6 +412,20 @@ describe.sequential('real PostgreSQL API', () => {
     expect((await app.inject({ url: '/api/v1/auth/me', headers: bearer(one) })).statusCode).toBe(
       401,
     );
+  });
+  it('rate limits repeated login attempts', async () => {
+    const statuses: number[] = [];
+    for (let n = 0; n < 11; n++) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/auth/login',
+        remoteAddress: '192.0.2.50',
+        payload: { email: 'absent@example.org', password: 'not-the-password' },
+      });
+      statuses.push(response.statusCode);
+    }
+    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(401));
+    expect(statuses[10]).toBe(429);
   });
   it('deletes accounts and associated shares', async () => {
     const login = await app.inject({
