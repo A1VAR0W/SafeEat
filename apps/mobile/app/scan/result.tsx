@@ -16,7 +16,7 @@ export default function Result() {
   async function save() {
     if (!data) return;
     if (!user) {
-      router.push('/auth/login');
+      router.push('/auth/login?returnTo=label');
       return;
     }
     setBusy(true);

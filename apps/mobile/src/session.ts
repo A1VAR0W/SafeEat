@@ -47,7 +47,10 @@ async function raw(path: string, init: RequestInit = {}) {
     response = await fetch(`${apiUrl}/api/v1${path}`, {
       ...init,
       signal: AbortSignal.timeout(15000),
-      headers: { 'Content-Type': 'application/json', ...init.headers },
+      headers: {
+        ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
     });
   } catch {
     throw new RequestError('NETWORK_UNAVAILABLE', es.network);

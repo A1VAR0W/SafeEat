@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { router } from 'expo-router';
-import { api, acceptSession } from './session';
-import { clearPrivateCache } from './query';
+import { router, useLocalSearchParams } from 'expo-router';
+import { api, acceptSession, getSession } from './session';
+import { queryClient } from './query';
 import { Button, Copy, ErrorNotice, Field, Screen, Title } from './ui';
 export function AuthForm({ register = false }: { register?: boolean }) {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   async function submit() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -16,9 +18,13 @@ export function AuthForm({ register = false }: { register?: boolean }) {
         method: 'POST',
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      await clearPrivateCache();
+      const draft =
+        !getSession().user && returnTo === 'label'
+          ? queryClient.getQueryData(['local-label'])
+          : undefined;
       await acceptSession(data);
-      router.replace('/(tabs)/home');
+      if (draft) queryClient.setQueryData(['local-label'], draft);
+      router.replace(draft ? '/scan/result' : '/(tabs)/home');
     } catch (e) {
       setError(e);
     } finally {
@@ -67,7 +73,12 @@ export function AuthForm({ register = false }: { register?: boolean }) {
       <Button
         secondary
         title={register ? 'Ya tengo cuenta' : 'Crear una cuenta'}
-        onPress={() => router.replace(register ? '/auth/login' : '/auth/register')}
+        onPress={() =>
+          router.replace({
+            pathname: register ? '/auth/login' : '/auth/register',
+            params: { returnTo },
+          })
+        }
       />
     </Screen>
   );

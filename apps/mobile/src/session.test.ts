@@ -33,6 +33,15 @@ beforeEach(() => {
   mocks.fetch.mockReset();
   vi.stubGlobal('fetch', mocks.fetch);
 });
+it('omits JSON content type for bodyless favorites and account deletion', async () => {
+  const s = await import('./session');
+  await s.acceptSession(session(1));
+  mocks.fetch.mockImplementation(async () => new Response(null, { status: 204 }));
+  await s.api('/favorites/products/off-1', { method: 'POST' }, true);
+  await s.api('/auth/me', { method: 'DELETE' }, true);
+  for (const [, init] of mocks.fetch.mock.calls)
+    expect(init.headers['Content-Type']).toBeUndefined();
+});
 it('coalesces concurrent refresh and recovers after missing credentials', async () => {
   const s = await import('./session');
   await expect(s.refresh()).rejects.toMatchObject({ status: 401 });

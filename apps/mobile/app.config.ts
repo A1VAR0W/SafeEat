@@ -7,9 +7,25 @@ if (
   production &&
   (!process.env.API_PUBLIC_URL ||
     !process.env.PUBLIC_APP_URL ||
-    ![apiUrl, publicUrl].every((v) => new URL(v).protocol === 'https:'))
+    ![apiUrl, publicUrl].every((v) => {
+      const u = new URL(v);
+      return (
+        u.protocol === 'https:' &&
+        !u.username &&
+        !u.password &&
+        u.pathname === '/' &&
+        !u.search &&
+        !u.hash &&
+        !/^(localhost|.*\.localhost|.*\.local|.*\.lan|\d+\.\d+\.\d+\.\d+|\[.*\])$/i.test(
+          u.hostname,
+        ) &&
+        u.hostname.includes('.')
+      );
+    }))
 )
-  throw new Error('Native release requires HTTPS API_PUBLIC_URL and PUBLIC_APP_URL');
+  throw new Error(
+    'Native release requires public HTTPS origins in API_PUBLIC_URL and PUBLIC_APP_URL',
+  );
 const host = new URL(publicUrl).hostname;
 const config: ExpoConfig = {
   name: 'SafeEat',

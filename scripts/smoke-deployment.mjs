@@ -15,7 +15,7 @@ async function request(path, { method = 'GET', token, body, expected = 200 } = {
     method,
     signal: AbortSignal.timeout(20000),
     headers: {
-      'content-type': 'application/json',
+      ...(body ? { 'content-type': 'application/json' } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
