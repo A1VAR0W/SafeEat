@@ -1,0 +1,60 @@
+name: Android Builder
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        type: choice
+        options: [preproduction, production]
+        default: preproduction
+        description: URLs and signing environment
+      production_signing:
+        type: boolean
+        default: false
+        description: Use production keystore secrets
+  workflow_call:
+    inputs:
+      target_environment: { type: string, default: preproduction }
+      production_signing: { type: boolean, default: false }
+    secrets:
+      ANDROID_KEYSTORE_BASE64: { required: false }
+      ANDROID_KEYSTORE_PASSWORD: { required: false }
+      ANDROID_KEY_ALIAS: { required: false }
+      ANDROID_KEY_PASSWORD: { required: false }
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.target_environment || 'preproduction' }}
+    env:
+      APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.22.3', cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx expo prebuild --platform android --no-install
+        working-directory: apps/mobile
+      - name: Build, sign and validate APK and AAB
+        run: bash scripts/build-android.sh
+        env:
+          PRODUCTION_SIGNING: ${{ inputs.production_signing }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeEat-Android-${{ inputs.target_environment || 'preproduction' }}
+          path: artifacts/SafeEat-*
+          if-no-files-found: error
+          retention-days: 14

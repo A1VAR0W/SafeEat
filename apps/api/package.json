@@ -1,0 +1,31 @@
+{
+  "name": "@safeeat/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=../../.env src/server.ts",
+    "build": "node build.mjs",
+    "start": "node dist/server.js",
+    "migrate": "tsx --env-file=../../.env src/db/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@safeeat/contracts": "*",
+    "@safeeat/gluten-engine": "*",
+    "@safeeat/nutrition-engine": "*",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/jwt": "^10.0.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "argon2": "^0.44.0",
+    "fastify": "^5.6.2",
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.6",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.20.6"
+  }
+}

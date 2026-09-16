@@ -1,0 +1,25 @@
+appId: com.a1var0w.safeeat
+---
+- launchApp
+- assertVisible: '¿Qué vas.*'
+- tapOn: 'Perfil'
+- tapOn: 'Crear cuenta'
+- tapOn: 'Correo electrónico'
+- inputText: ${TEST_EMAIL}
+- tapOn: 'Contraseña'
+- inputText: ${TEST_PASSWORD}
+- hideKeyboard
+- tapOn: 'Crear cuenta'
+- assertVisible: '¿Qué vas.*'
+- tapOn: 'Escanear'
+- tapOn: 'O escribe el código de barras'
+- inputText: ${TEST_BARCODE}
+- hideKeyboard
+- tapOn: 'Consultar código'
+- assertVisible: '¿En qué se basa?'
+- scrollUntilVisible:
+    element: '.*Guardar en favoritos'
+- tapOn: '.*Guardar en favoritos'
+- back
+- tapOn: 'Favoritos'
+- assertVisible: 'Tu selección'

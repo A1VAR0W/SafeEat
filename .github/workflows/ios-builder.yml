@@ -1,0 +1,50 @@
+name: iOS Builder
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        type: choice
+        options: [preproduction, production]
+        default: preproduction
+        description: Public URLs for the unsigned build
+  workflow_call:
+    inputs:
+      target_environment: { type: string, default: preproduction }
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: ${{ inputs.target_environment || 'preproduction' }}
+    env:
+      APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+      PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.22.3', cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx expo prebuild --platform ios --no-install
+        working-directory: apps/mobile
+      - name: Install native dependencies
+        run: pod install
+        working-directory: apps/mobile/ios
+      - name: Build unsigned Release app
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace apps/mobile/ios/SafeEat.xcworkspace -scheme SafeEat \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build > "$RUNNER_TEMP/safeeat-xcode.log" 2>&1 || { tail -100 "$RUNNER_TEMP/safeeat-xcode.log"; exit 1; }
+      - name: Package and verify unsigned IPA
+        run: bash scripts/package-ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeEat-iOS-unsigned-${{ inputs.target_environment || 'preproduction' }}
+          path: artifacts/SafeEat-*.ipa*
+          if-no-files-found: error
+          retention-days: 14

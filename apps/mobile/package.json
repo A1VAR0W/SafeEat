@@ -1,0 +1,43 @@
+{
+  "name": "@safeeat/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "expo": "55.0.31",
+    "react": "19.2.0",
+    "react-native": "0.83.10",
+    "@safeeat/contracts": "*",
+    "@safeeat/gluten-engine": "*",
+    "@safeeat/nutrition-engine": "*",
+    "@tanstack/react-query": "^5.90.7",
+    "@tanstack/react-query-persist-client": "^5.90.7",
+    "@tanstack/query-async-storage-persister": "^5.90.7",
+    "expo-text-extractor": "2.0.0",
+    "expo-router": "~55.0.18",
+    "expo-camera": "~55.0.23",
+    "expo-secure-store": "~55.0.18",
+    "expo-image": "~55.0.11",
+    "expo-location": "~55.1.14",
+    "expo-haptics": "~55.0.18",
+    "expo-file-system": "~55.0.26",
+    "expo-dev-client": "~55.0.40",
+    "expo-constants": "~55.0.17",
+    "expo-linking": "~55.0.17",
+    "expo-status-bar": "~55.0.6",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.5.2",
+    "@expo/vector-icons": "^15.0.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2"
+  }
+}

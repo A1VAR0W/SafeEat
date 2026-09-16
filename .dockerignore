@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/.next
+**/dist
+**/.expo
+apps/mobile/android
+apps/mobile/ios
+.env
+**/.env
+**/.env.production
+.local
+artifacts
+backups
+*.log

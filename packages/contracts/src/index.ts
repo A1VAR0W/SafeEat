@@ -1,0 +1,140 @@
+import { z } from 'zod';
+
+export const GlutenStatusSchema = z.enum([
+  'GLUTEN_FREE',
+  'MAY_CONTAIN_TRACES',
+  'CONTAINS_GLUTEN',
+  'UNKNOWN',
+]);
+export type GlutenStatus = z.infer<typeof GlutenStatusSchema>;
+export const EvidenceSchema = z.object({
+  source: z.string(),
+  text: z.string(),
+  kind: z.enum(['claim', 'ingredient', 'allergen', 'trace', 'uncertainty']),
+  url: z.string().url().optional(),
+});
+export type EvidenceItem = z.infer<typeof EvidenceSchema>;
+export const AssessmentSchema = z.object({
+  status: GlutenStatusSchema,
+  confidence: z.number().min(0).max(1),
+  reasons: z.array(z.object({ code: z.string(), message: z.string() })),
+  evidence: z.array(EvidenceSchema),
+  engineVersion: z.string(),
+});
+export type GlutenAssessment = z.infer<typeof AssessmentSchema>;
+export const NutritionInputSchema = z.object({
+  energyKcal: z.number().finite().min(0).max(900).optional(),
+  saturatedFat: z.number().finite().min(0).max(100).optional(),
+  sugars: z.number().finite().min(0).max(100).optional(),
+  salt: z.number().finite().min(0).max(100).optional(),
+  fibre: z.number().finite().min(0).max(100).optional(),
+  protein: z.number().finite().min(0).max(100).optional(),
+});
+export type NutritionInput = z.infer<typeof NutritionInputSchema>;
+export const NutritionScoreSchema = z.object({
+  score: z.number().int().min(0).max(100).nullable(),
+  breakdown: z.array(z.object({ label: z.string(), points: z.number() })),
+  explanation: z.string(),
+  version: z.string(),
+});
+export type NutritionScore = z.infer<typeof NutritionScoreSchema>;
+export const ProductSchema = z.object({
+  id: z.string(),
+  barcode: z.string().optional(),
+  name: z.string(),
+  brand: z.string().optional(),
+  imageUrl: z.string().url().optional(),
+  ingredients: z.string().optional(),
+  assessment: AssessmentSchema,
+  nutrition: NutritionInputSchema,
+  quality: NutritionScoreSchema,
+  nutriScore: z.enum(['A', 'B', 'C', 'D', 'E']).optional(),
+  source: z.string(),
+  sourceUrl: z.string().url().optional(),
+  fetchedAt: z.string(),
+  stale: z.boolean().default(false),
+  userCreated: z.boolean().default(false),
+});
+export type Product = z.infer<typeof ProductSchema>;
+export const RestaurantSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  address: z.string(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  website: z.string().url().optional(),
+  phone: z.string().optional(),
+  mapsUrl: z.string().url(),
+  glutenSupport: z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'UNKNOWN']),
+  evidence: z.array(EvidenceSchema),
+  source: z.string(),
+  attributions: z.array(z.string()).default([]),
+  fetchedAt: z.string(),
+});
+export type Restaurant = z.infer<typeof RestaurantSchema>;
+export const credentialsSchema = z
+  .object({
+    email: z
+      .email()
+      .max(254)
+      .transform((v) => v.trim().toLowerCase()),
+    password: z.string().min(12).max(128),
+  })
+  .strict();
+export const loginSchema = z
+  .object({
+    email: z
+      .email()
+      .max(254)
+      .transform((v) => v.trim().toLowerCase()),
+    password: z.string().min(1).max(128),
+  })
+  .strict();
+export const refreshSchema = z
+  .object({ refreshToken: z.string().regex(/^[a-f0-9]{96}$/) })
+  .strict();
+export const analyzeSchema = z
+  .object({
+    name: z.string().trim().min(1).max(160).default('Etiqueta escaneada'),
+    text: z.string().trim().min(3).max(12000),
+    reviewed: z.boolean().default(false),
+  })
+  .strict();
+export const UserSchema = z.object({ id: z.string().uuid(), email: z.email() });
+export type User = z.infer<typeof UserSchema>;
+export const SessionSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  user: UserSchema,
+});
+export type Session = z.infer<typeof SessionSchema>;
+export const ShareSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('product'), item: ProductSchema }),
+  z.object({ type: z.literal('restaurant'), item: RestaurantSchema }),
+]);
+export type PublicShare = z.infer<typeof ShareSchema>;
+export const statusLabels: Record<GlutenStatus, { icon: string; label: string }> = {
+  GLUTEN_FREE: { icon: '✓', label: 'SIN GLUTEN DECLARADO' },
+  MAY_CONTAIN_TRACES: { icon: '!', label: 'PUEDE CONTENER TRAZAS' },
+  CONTAINS_GLUTEN: { icon: '×', label: 'CONTIENE GLUTEN' },
+  UNKNOWN: { icon: '?', label: 'NO CONCLUYENTE' },
+};
+export const restaurantDisclaimer =
+  'Confirma siempre con el restaurante sus protocolos y posibles contaminaciones cruzadas.';
+export const productDisclaimer =
+  'Comprueba la etiqueta actual. La información puede estar incompleta o haber cambiado. La confianza refleja la evidencia disponible, no una probabilidad de seguridad.';
+export function parseShareLink(
+  value: string,
+  publicAppUrl: string,
+): { type: 'product' | 'restaurant'; token: string } | null {
+  try {
+    const url = new URL(value);
+    const custom = url.protocol === 'safeeat:';
+    if (!custom && url.origin !== new URL(publicAppUrl).origin) return null;
+    const path = custom ? `/${url.hostname}${url.pathname}` : url.pathname;
+    const match = /^\/(p|r)\/([a-f0-9]{48})$/.exec(path);
+    return match ? { type: match[1] === 'p' ? 'product' : 'restaurant', token: match[2]! } : null;
+  } catch {
+    return null;
+  }
+}

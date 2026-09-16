@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.9-alpine
+        env:
+          POSTGRES_USER: safeeat
+          POSTGRES_PASSWORD: ci-only-isolated
+          POSTGRES_DB: safeeat_test
+        ports: ['5432:5432']
+        options: --health-cmd='pg_isready -U safeeat -d safeeat_test' --health-interval=5s --health-timeout=3s --health-retries=15
+    env:
+      TEST_DATABASE_URL: postgres://safeeat:ci-only-isolated@localhost:5432/safeeat_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.22.3', cache: npm }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build
+      - run: npm run mobile:check
+      - run: npx expo-doctor
+        working-directory: apps/mobile
+      - name: Validate infrastructure and workflows
+        run: |
+          bash -n scripts/deploy-server.sh scripts/backup-postgres.sh scripts/build-android.sh scripts/package-ios.sh
+          docker compose config --quiet
+          cp infrastructure/production/.env.example infrastructure/production/.env
+          docker compose -f infrastructure/production/docker-compose.yml config --quiet
+          node scripts/check-workflows.mjs
+      - name: Export native JavaScript bundles
+        run: npx expo export --platform ios --platform android
+        working-directory: apps/mobile
+        env:
+          APP_ENV: production
+          API_PUBLIC_URL: https://safeeat.example.org
+          PUBLIC_APP_URL: https://safeeat.example.org

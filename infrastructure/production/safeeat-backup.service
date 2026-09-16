@@ -1,0 +1,8 @@
+[Unit]
+Description=SafeEat PostgreSQL backup
+Requires=docker.service
+After=docker.service
+[Service]
+Type=oneshot
+User=server
+ExecStart=/bin/bash /opt/safeeat/scripts/backup-postgres.sh
