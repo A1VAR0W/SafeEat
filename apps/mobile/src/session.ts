@@ -43,6 +43,11 @@ export function useSession() {
   );
 }
 async function raw(path: string, init: RequestInit = {}) {
+  if (!/^https?:\/\//.test(apiUrl))
+    throw new RequestError(
+      'CONFIGURATION_INVALID',
+      'Esta versión de SafeEat no tiene una conexión configurada. Instala la versión actualizada.',
+    );
   let response: Response;
   const controller = new AbortController();
   let timedOut = false;
