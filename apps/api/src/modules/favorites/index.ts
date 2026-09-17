@@ -14,6 +14,30 @@ export function favoriteRoutes(
   restaurants: Restaurants,
 ) {
   const guarded = { preHandler: auth.protect };
+  app.delete('/api/v1/saved', guarded, async (request, reply) => {
+    z.object({ confirmation: z.literal('BORRAR') })
+      .strict()
+      .parse(request.body);
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [request.user.sub]);
+      await client.query('DELETE FROM favorite_products WHERE user_id=$1', [request.user.sub]);
+      await client.query('DELETE FROM favorite_restaurants WHERE user_id=$1', [request.user.sub]);
+      await client.query(
+        "DELETE FROM shares WHERE kind='product' AND resource_id IN (SELECT id FROM products WHERE owner_id=$1)",
+        [request.user.sub],
+      );
+      await client.query('DELETE FROM products WHERE owner_id=$1', [request.user.sub]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    return reply.code(204).send();
+  });
   const id = (params: unknown) => z.object({ id: z.string().min(1).max(200) }).parse(params).id;
   for (const kind of ['products', 'restaurants'] as const) {
     app.get(`/api/v1/favorites/${kind}/:id`, guarded, async (request) => {

@@ -70,7 +70,13 @@ export function SearchField({ label, ...props }: TextInputProps & { label: strin
         placeholderTextColor={t.muted}
         returnKeyType="search"
         autoCorrect={false}
-        style={{ flex: 1, minHeight: 48, paddingVertical: 12, color: t.text, fontSize: 16 }}
+        style={{
+          flex: 1,
+          minHeight: 48,
+          paddingVertical: 12,
+          color: t.text,
+          fontSize: 16 * t.textScale,
+        }}
       />
     </View>
   );

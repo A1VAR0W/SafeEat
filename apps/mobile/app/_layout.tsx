@@ -8,6 +8,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { queryClient, persister, shouldPersist } from '../src/query';
 import { restoreSession } from '../src/session';
 import { ProfileButton } from '../src/compact';
+import { loadPreferences } from '../src/preferences';
 import { Copy, useReducedMotion, useTheme } from '../src/ui';
 import { useNetInfo } from '@react-native-community/netinfo';
 export default function Layout() {
@@ -15,6 +16,7 @@ export default function Layout() {
   const reduced = useReducedMotion();
   const network = useNetInfo();
   useEffect(() => {
+    void loadPreferences();
     const app = AppState.addEventListener('change', (state) =>
       focusManager.setFocused(state === 'active'),
     );
@@ -62,6 +64,8 @@ export default function Layout() {
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="account-edit" options={{ title: 'Editar cuenta' }} />
+        <Stack.Screen name="delete-account" options={{ title: 'Eliminar cuenta' }} />
         <Stack.Screen name="profile" options={{ title: 'Tu perfil' }} />
         <Stack.Screen
           name="scan/index"

@@ -39,7 +39,7 @@ try {
   record(`Environment: ${metadata.environment}, version: ${metadata.version}`);
   session = await request('/api/v1/auth/register', {
     method: 'POST',
-    body: credentials,
+    body: { ...credentials, firstName: 'Validation', dateOfBirth: '1990-06-15' },
     expected: 201,
   });
   record('Register');
@@ -78,7 +78,12 @@ try {
     (await request('/api/v1/favorites/products', { token: session.accessToken })).items.length,
     1,
   );
-  await request(favorite, { method: 'DELETE', token: session.accessToken, expected: 204 });
+  await request(favorite, {
+    method: 'DELETE',
+    token: session.accessToken,
+    body: { currentPassword: credentials.password, confirmation: 'ELIMINAR' },
+    expected: 204,
+  });
   assert.equal((await request(favorite, { token: session.accessToken })).saved, false);
   record('Reviewed text analysis, private label and favorites');
   const share = await request(`/api/v1/shares/products/${label.id}`, {
@@ -154,6 +159,7 @@ try {
   if (session)
     await request('/api/v1/auth/me', {
       method: 'DELETE',
+      body: { currentPassword: credentials.password, confirmation: 'ELIMINAR' },
       token: session.accessToken,
       expected: 204,
     });

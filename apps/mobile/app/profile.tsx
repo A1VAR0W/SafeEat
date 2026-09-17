@@ -1,22 +1,29 @@
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { api, clearSession, logout, useSession } from '../src/session';
-import { clearPrivateCache } from '../src/query';
-import { Button, Card, Copy, ErrorNotice, Screen, Title } from '../src/ui';
+import { useQuery } from '@tanstack/react-query';
+import { UserSchema } from '@safeeat/contracts';
+import { api, logout, useSession } from '../src/session';
+import { Button, Card, Copy, ErrorNotice, Screen, useTheme } from '../src/ui';
+import { SettingRow } from '../src/compact';
 export default function Profile() {
-  const { user } = useSession();
-  const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  async function exit(remove = false) {
+  const { user } = useSession(),
+    t = useTheme();
+  const [error, setError] = useState<unknown>(null),
+    [busy, setBusy] = useState(false);
+  const profile = useQuery({
+    queryKey: ['profile', user?.id],
+    enabled: !!user,
+    queryFn: async () => UserSchema.parse(await api('/auth/me', {}, true)),
+  });
+  const p = profile.data ?? user;
+  async function exit() {
     setBusy(true);
     setError(null);
     try {
-      if (remove) {
-        await api('/auth/me', { method: 'DELETE' }, true);
-        await clearSession();
-      } else await logout();
-      await clearPrivateCache();
+      await logout();
+      router.replace('/auth/login');
     } catch (e) {
       setError(e);
     } finally {
@@ -25,39 +32,88 @@ export default function Profile() {
   }
   return (
     <Screen>
-      <Title>Tu perfil</Title>
-      {user ? (
+      {p ? (
         <>
           <Card>
-            <Copy bold>{user.email}</Copy>
-            <Copy muted>Tu cuenta sincroniza favoritos y etiquetas guardadas.</Copy>
+            {[
+              ['Nombre', p.firstName],
+              ['Apellidos', p.lastName],
+              ['Fecha de nacimiento', p.dateOfBirth?.split('-').reverse().join('/')],
+            ].map(([label, value]) => (
+              <View
+                key={label}
+                style={{ flexDirection: 'row', gap: 10, alignItems: 'center', minHeight: 48 }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Copy muted size={12}>
+                    {label} · solo lectura
+                  </Copy>
+                  <Copy>{value || 'Sin indicar'}</Copy>
+                </View>
+                <Ionicons name="lock-closed-outline" color={t.muted} size={16} />
+              </View>
+            ))}
+            {!p.firstName && !p.dateOfBirth && (
+              <Button
+                title="Completar mis datos"
+                secondary
+                onPress={() => router.push('/account-edit?mode=complete')}
+              />
+            )}
           </Card>
-          <Button secondary title="Cerrar sesión" disabled={busy} onPress={() => void exit()} />
-          <Button
-            destructive
-            title="Eliminar mi cuenta"
-            disabled={busy}
-            onPress={() =>
-              Alert.alert(
-                'Eliminar cuenta',
-                'Se eliminarán tus favoritos, etiquetas y enlaces de etiquetas personales. Esta acción no se puede deshacer.',
-                [
-                  { text: 'Cancelar', style: 'cancel' },
-                  { text: 'Eliminar cuenta', style: 'destructive', onPress: () => void exit(true) },
-                ],
-              )
-            }
+          <SettingRow
+            icon="mail-outline"
+            title="Correo electrónico"
+            subtitle={p.email}
+            onPress={() => router.push('/account-edit?mode=email')}
           />
+          <SettingRow
+            icon="key-outline"
+            title="Cambiar contraseña"
+            onPress={() => router.push('/account-edit?mode=password')}
+          />
+          <Button title="Cerrar sesión" secondary disabled={busy} onPress={() => void exit()} />
+          <View
+            style={{
+              marginTop: 36,
+              paddingTop: 20,
+              borderTopWidth: 1,
+              borderTopColor: t.line,
+              gap: 10,
+            }}
+          >
+            <Copy bold>Zona de peligro</Copy>
+            <Copy muted size={13}>
+              Eliminar tu cuenta es permanente y revoca los enlaces de tus etiquetas personales.
+            </Copy>
+            <Button
+              title="Eliminar cuenta"
+              destructive
+              onPress={() =>
+                Alert.alert(
+                  'Eliminar cuenta',
+                  'Se borrarán tu cuenta, favoritos y etiquetas privadas. Se revocarán todas las sesiones y los enlaces de tus etiquetas. Tendrás que confirmar tu contraseña antes de eliminarla.',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Continuar',
+                      style: 'destructive',
+                      onPress: () => router.push('/delete-account'),
+                    },
+                  ],
+                )
+              }
+            />
+          </View>
         </>
       ) : (
         <>
           <Copy muted>Guarda tus descubrimientos en un solo lugar.</Copy>
           <Button title="Iniciar sesión" onPress={() => router.push('/auth/login')} />
-          <Button secondary title="Crear cuenta" onPress={() => router.push('/auth/register')} />
+          <Button title="Crear cuenta" secondary onPress={() => router.push('/auth/register')} />
         </>
       )}
-      {!!error && <ErrorNotice error={error} />}
-      <Button title="Ajustes y privacidad" secondary onPress={() => router.push('/settings')} />
+      {!!(error || profile.error) && <ErrorNotice error={error || profile.error} />}
     </Screen>
   );
 }

@@ -1,12 +1,20 @@
 import { useState } from 'react';
+import { Pressable, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { registrationSchema } from '@safeeat/contracts';
 import { router, useLocalSearchParams } from 'expo-router';
 import { api, acceptSession, getSession } from './session';
 import { queryClient } from './query';
-import { Button, Copy, ErrorNotice, Field, Screen, Title } from './ui';
+import { Button, Copy, ErrorNotice, Field, Screen, useTheme } from './ui';
 export function AuthForm({ register = false }: { register?: boolean }) {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [consent, setConsent] = useState(false);
+  const t = useTheme();
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   async function submit() {
@@ -14,9 +22,18 @@ export function AuthForm({ register = false }: { register?: boolean }) {
     setBusy(true);
     setError(null);
     try {
+      const payload = {
+        email: email.trim(),
+        password,
+        ...(register ? { firstName, lastName, dateOfBirth, productUpdatesConsent: consent } : {}),
+      };
+      if (register && !registrationSchema.safeParse(payload).success)
+        throw new Error(
+          'Revisa el nombre, la fecha de nacimiento (AAAA-MM-DD), el correo y la contraseña de al menos 12 caracteres.',
+        );
       const data = await api(`/auth/${register ? 'register' : 'login'}`, {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify(payload),
       });
       const draft =
         !getSession().user && returnTo === 'label'
@@ -33,12 +50,37 @@ export function AuthForm({ register = false }: { register?: boolean }) {
   }
   return (
     <Screen>
-      <Title>{register ? 'Tu espacio,\nsin dudas.' : 'Hola de nuevo.'}</Title>
       <Copy muted>
         {register
           ? 'Guarda productos y restaurantes para encontrarlos cuando los necesites.'
           : 'Accede a tus favoritos y etiquetas guardadas.'}
       </Copy>
+      {register && (
+        <>
+          <Field
+            label="Nombre"
+            value={firstName}
+            onChangeText={setFirstName}
+            autoComplete="given-name"
+            maxLength={80}
+          />
+          <Field
+            label="Apellidos (opcional)"
+            value={lastName}
+            onChangeText={setLastName}
+            autoComplete="family-name"
+            maxLength={120}
+          />
+          <Field
+            label="Fecha de nacimiento"
+            value={dateOfBirth}
+            onChangeText={setDateOfBirth}
+            placeholder="AAAA-MM-DD"
+            maxLength={10}
+            autoCapitalize="none"
+          />
+        </>
+      )}
       <Field
         label="Correo electrónico"
         value={email}
@@ -60,9 +102,22 @@ export function AuthForm({ register = false }: { register?: boolean }) {
         onSubmitEditing={() => void submit()}
       />
       {register && (
-        <Copy muted size={13}>
-          Utiliza al menos 12 caracteres.
-        </Copy>
+        <>
+          <Copy muted size={13}>
+            Utiliza al menos 12 caracteres.
+          </Copy>
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: consent }}
+            onPress={() => setConsent(!consent)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 }}
+          >
+            <Ionicons name={consent ? 'checkbox' : 'square-outline'} size={24} color={t.accent} />
+            <View style={{ flex: 1 }}>
+              <Copy size={14}>Quiero recibir novedades y mejoras de SafeEat (opcional)</Copy>
+            </View>
+          </Pressable>
+        </>
       )}
       {!!error && <ErrorNotice error={error} />}
       <Button

@@ -92,14 +92,24 @@ describe.sequential('real PostgreSQL API', () => {
     const r = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
-      payload: { email: `one-${suffix}@example.org`, password: 'a-strong-password-123' },
+      payload: {
+        firstName: 'Integration',
+        dateOfBirth: '1990-06-15',
+        email: `one-${suffix}@example.org`,
+        password: 'a-strong-password-123',
+      },
     });
     expect(r.statusCode).toBe(201);
     one = r.json();
     const s = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/register',
-      payload: { email: `two-${suffix}@example.org`, password: 'another-password-456' },
+      payload: {
+        firstName: 'Integration',
+        dateOfBirth: '1990-06-15',
+        email: `two-${suffix}@example.org`,
+        password: 'another-password-456',
+      },
     });
     two = s.json();
     const stored = (await db.query('SELECT password_hash FROM users WHERE id=$1', [one.user.id]))
@@ -116,7 +126,12 @@ describe.sequential('real PostgreSQL API', () => {
         await app.inject({
           method: 'POST',
           url: '/api/v1/auth/register',
-          payload: { email: one.user.email, password: 'a-strong-password-123' },
+          payload: {
+            firstName: 'Integration',
+            dateOfBirth: '1990-06-15',
+            email: one.user.email,
+            password: 'a-strong-password-123',
+          },
         })
       ).statusCode,
     ).toBe(409);
@@ -125,7 +140,12 @@ describe.sequential('real PostgreSQL API', () => {
         await app.inject({
           method: 'POST',
           url: '/api/v1/auth/register',
-          payload: { email: 'invalid', password: 'x' },
+          payload: {
+            firstName: 'Integration',
+            dateOfBirth: '1990-06-15',
+            email: 'invalid',
+            password: 'x',
+          },
         })
       ).statusCode,
     ).toBe(400);
@@ -460,8 +480,14 @@ describe.sequential('real PostgreSQL API', () => {
     });
     const s: Session = login.json();
     expect(
-      (await app.inject({ method: 'DELETE', url: '/api/v1/auth/me', headers: bearer(s) }))
-        .statusCode,
+      (
+        await app.inject({
+          method: 'DELETE',
+          url: '/api/v1/auth/me',
+          headers: bearer(s),
+          payload: { currentPassword: 'a-strong-password-123', confirmation: 'ELIMINAR' },
+        })
+      ).statusCode,
     ).toBe(204);
     expect((await db.query('SELECT 1 FROM shares WHERE owner_id=$1', [one.user.id])).rowCount).toBe(
       0,

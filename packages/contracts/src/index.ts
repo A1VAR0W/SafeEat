@@ -90,6 +90,35 @@ export const loginSchema = z
     password: z.string().min(1).max(128),
   })
   .strict();
+export const dateOfBirthSchema = z.iso
+  .date()
+  .refine(
+    (value) => value >= '1900-01-01' && value < new Date().toISOString().slice(0, 10),
+    'Introduce una fecha de nacimiento válida y anterior a hoy.',
+  );
+export const profileFieldsSchema = z
+  .object({
+    firstName: z.string().trim().min(1).max(80),
+    lastName: z.string().trim().max(120).optional(),
+    dateOfBirth: dateOfBirthSchema,
+  })
+  .strict();
+export const registrationSchema = credentialsSchema.extend({
+  ...profileFieldsSchema.shape,
+  productUpdatesConsent: z.boolean().default(false),
+});
+export const emailChangeSchema = z
+  .object({ email: credentialsSchema.shape.email, currentPassword: loginSchema.shape.password })
+  .strict();
+export const passwordChangeSchema = z
+  .object({
+    currentPassword: loginSchema.shape.password,
+    newPassword: credentialsSchema.shape.password,
+  })
+  .strict();
+export const deleteAccountSchema = z
+  .object({ currentPassword: loginSchema.shape.password, confirmation: z.literal('ELIMINAR') })
+  .strict();
 export const refreshSchema = z
   .object({ refreshToken: z.string().regex(/^[a-f0-9]{96}$/) })
   .strict();
@@ -100,7 +129,16 @@ export const analyzeSchema = z
     reviewed: z.boolean().default(false),
   })
   .strict();
-export const UserSchema = z.object({ id: z.string().uuid(), email: z.email() });
+export const UserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.email(),
+  firstName: z.string().nullable().default(null),
+  lastName: z.string().nullable().default(null),
+  dateOfBirth: z.iso.date().nullable().default(null),
+  productUpdatesConsent: z.boolean().default(false),
+  productUpdatesConsentAt: z.string().nullable().default(null),
+  productUpdatesConsentVersion: z.string().nullable().default(null),
+});
 export type User = z.infer<typeof UserSchema>;
 export const SessionSchema = z.object({
   accessToken: z.string(),

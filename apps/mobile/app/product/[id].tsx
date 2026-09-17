@@ -102,7 +102,10 @@ export default function ProductDetail() {
                 { icon: 'documents-outline', title: 'Fuentes', section: 'sources' },
               ] as const
             ).map((action) => (
-              <View key={action.section} style={{ width: fontScale > 1.2 ? '100%' : '50%' }}>
+              <View
+                key={action.section}
+                style={{ width: fontScale * t.textScale > 1.2 ? '100%' : '50%' }}
+              >
                 <SettingRow
                   compact
                   icon={action.icon}

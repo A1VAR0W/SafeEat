@@ -18,10 +18,15 @@ import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { type Product, statusLabels, productDisclaimer } from '@safeeat/contracts';
 import { es } from './i18n';
+import { usePreferences, textScales } from './preferences';
 export function useTheme() {
-  const dark = useColorScheme() === 'dark';
+  const preferences = usePreferences();
+  const system = useColorScheme();
+  const dark =
+    preferences.theme === 'dark' || (preferences.theme === 'system' && system === 'dark');
   return {
     dark,
+    textScale: textScales[preferences.textSize],
     bg: dark ? '#101815' : '#F4F7F3',
     card: dark ? '#1B2721' : '#FFFFFF',
     text: dark ? '#F0F6F1' : '#173C2A',
@@ -52,8 +57,8 @@ export function Copy({
     <Text
       style={{
         color: muted ? t.muted : t.text,
-        fontSize: size,
-        lineHeight: size * 1.45,
+        fontSize: size * t.textScale,
+        lineHeight: size * 1.45 * t.textScale,
         fontWeight: bold ? '700' : '400',
       }}
     >
@@ -67,8 +72,8 @@ export function Title({ children }: PropsWithChildren) {
     <Text
       accessibilityRole="header"
       style={{
-        fontSize: 24,
-        lineHeight: 29,
+        fontSize: 24 * t.textScale,
+        lineHeight: 29 * t.textScale,
         fontWeight: '800',
         letterSpacing: -0.4,
         color: t.text,
@@ -145,7 +150,7 @@ export function Button({
     >
       <Text
         style={{
-          fontSize: 16,
+          fontSize: 16 * t.textScale,
           fontWeight: '700',
           color: secondary ? t.text : t.onAccent,
           textAlign: 'center',
@@ -174,7 +179,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
             borderColor: t.line,
             backgroundColor: t.card,
             color: t.text,
-            fontSize: 17,
+            fontSize: 17 * t.textScale,
           },
           props.multiline ? { minHeight: 190, textAlignVertical: 'top' } : {},
           props.style,
@@ -267,7 +272,10 @@ export function Assessment({ product }: { product: Product }) {
         : t.accent;
   return (
     <Card style={{ borderWidth: 2, borderColor: color }}>
-      <Text accessibilityRole="header" style={{ fontSize: 23, fontWeight: '800', color }}>
+      <Text
+        accessibilityRole="header"
+        style={{ fontSize: 23 * t.textScale, fontWeight: '800', color }}
+      >
         {label.icon} {label.label}
       </Text>
       <Copy muted size={13}>

@@ -57,6 +57,7 @@ export async function clearPrivateCache() {
       const kind = String(q.queryKey[0]);
       return (
         [
+          'profile',
           'favorite',
           'favorites-products',
           'favorites-restaurants',
