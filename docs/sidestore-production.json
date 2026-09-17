@@ -11,6 +11,11 @@
       "localizedDescription": "Consulta ingredientes, evidencias sobre gluten y calidad nutricional de forma independiente.",
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
+      "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-0.2.0-production.ipa",
+      "version": "0.2.0",
+      "versionDate": "2026-09-18",
+      "versionDescription": "V2 con perfil, ajustes, navegación compacta y nueva identidad visual.",
+      "size": 12801974,
       "versions": [
         {
           "version": "0.2.0",

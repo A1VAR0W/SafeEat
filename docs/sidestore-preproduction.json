@@ -11,6 +11,11 @@
       "localizedDescription": "Canal de preproducción para validar cambios antes de usarlos en producción.",
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
+      "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-0.2.0-preproduction.ipa",
+      "version": "0.2.0",
+      "versionDate": "2026-09-18",
+      "versionDescription": "V2 de preproducción con la nueva identidad visual.",
+      "size": 12801984,
       "versions": [
         {
           "version": "0.2.0",
