@@ -1,0 +1,25 @@
+{
+  "name": "SafeEat",
+  "identifier": "org.safeeat.production",
+  "sourceURL": "https://raw.githubusercontent.com/A1VAR0W/SafeEat/main/docs/sidestore-production.json",
+  "apps": [
+    {
+      "name": "SafeEat",
+      "bundleIdentifier": "com.a1var0w.safeeat",
+      "developerName": "A1VAR0W",
+      "subtitle": "Consulta lo que comes con confianza",
+      "localizedDescription": "Consulta ingredientes, evidencias sobre gluten y calidad nutricional de forma independiente.",
+      "iconURL": "https://raw.githubusercontent.com/A1VAR0W/SafeEat/af911c3d03d5e85a8d069286235eb6266eab7ac7/apps/web/public/brand/safeeat-mark.png",
+      "tintColor": "#006B4E",
+      "versions": [
+        {
+          "version": "0.2.0",
+          "date": "2026-09-18",
+          "downloadURL": "https://github.com/A1VAR0W/SafeEat/releases/download/v0.2.0-sidestore/SafeEat-0.2.0-production.ipa",
+          "size": 12801974,
+          "localizedDescription": "V2 con perfil, ajustes, navegación compacta y nueva identidad visual."
+        }
+      ]
+    }
+  ]
+}
