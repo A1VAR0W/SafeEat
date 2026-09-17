@@ -216,10 +216,11 @@ export function Skeleton() {
 }
 export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => void }) {
   const t = useTheme();
+  const needsDetail = item.stale && item.informationSource === 'unknown';
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${item.name}. ${statusLabels[item.assessment.status].label}`}
+      accessibilityLabel={`${item.name}. ${needsDetail ? 'Toca para comprobar los ingredientes' : statusLabels[item.assessment.status].label}`}
       onPress={() => {
         onOpen?.();
         router.push(`/product/${item.id}`);
@@ -239,7 +240,7 @@ export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => voi
           source={item.imageUrl}
           style={{ width: 62, height: 76, borderRadius: 12 }}
           contentFit="contain"
-          cachePolicy="disk"
+          cachePolicy="memory-disk"
         />
       ) : (
         <View style={{ width: 62, justifyContent: 'center', alignItems: 'center' }}>
@@ -254,8 +255,17 @@ export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => voi
           </Copy>
         )}
         <Copy size={12}>
-          {statusLabels[item.assessment.status].icon} {statusLabels[item.assessment.status].label}
+          {needsDetail
+            ? '○ Toca para comprobar los ingredientes'
+            : `${statusLabels[item.assessment.status].icon} ${statusLabels[item.assessment.status].label}`}
         </Copy>
+        {item.informationSource !== 'unknown' && (
+          <Copy muted size={11}>
+            {item.informationSource === 'community'
+              ? '👤 Etiqueta revisada por usuario'
+              : '🌐 Datos de API'}
+          </Copy>
+        )}
       </View>
     </Pressable>
   );
@@ -314,36 +324,11 @@ export function RecentProducts() {
   return (
     <View>
       {query.data?.length ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 10 }}
-        >
-          {query.data.slice(0, 8).map((p) => (
-            <Pressable
-              key={p.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${p.name}. ${statusLabels[p.assessment.status].label}`}
-              onPress={() => router.push(`/product/${p.id}`)}
-              style={{ width: 136, gap: 6, paddingVertical: 8 }}
-            >
-              {p.imageUrl && (
-                <Image
-                  source={p.imageUrl}
-                  contentFit="contain"
-                  cachePolicy="disk"
-                  style={{ height: 66, borderRadius: 12 }}
-                />
-              )}
-              <Copy size={13} bold>
-                {p.name.length > 44 ? `${p.name.slice(0, 44)}…` : p.name}
-              </Copy>
-              <Copy size={11}>
-                {statusLabels[p.assessment.status].icon} {statusLabels[p.assessment.status].label}
-              </Copy>
-            </Pressable>
+        <View>
+          {query.data.slice(0, 12).map((p) => (
+            <ProductRow key={p.id} item={p} />
           ))}
-        </ScrollView>
+        </View>
       ) : (
         <Copy muted>Los productos que consultes aparecerán aquí, también sin conexión.</Copy>
       )}

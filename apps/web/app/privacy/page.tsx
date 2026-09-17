@@ -5,17 +5,21 @@ export default function Privacy() {
       <p>
         SafeEat almacena el correo electrónico, una contraseña cifrada mediante hash y las sesiones
         de acceso necesarias para tu cuenta. Puedes eliminarla desde Perfil; se eliminarán sus
-        favoritos, etiquetas y enlaces personales.
+        favoritos, grupos, etiquetas, fotos aportadas y enlaces personales.
       </p>
       <p>
-        El reconocimiento de etiquetas se realiza en el dispositivo. Las imágenes se eliminan
-        después de la lectura; no se suben. Si guardas una etiqueta, se envía el texto revisado. Si
-        la compartes, cualquier persona con el enlace podrá leerlo.
+        La lectura de una etiqueta personal se realiza en el dispositivo y su foto se elimina
+        después. Si decides aportar la foto de ingredientes de un producto con código de barras,
+        enviamos al servidor la imagen y el texto que has revisado. Otros usuarios podrán
+        consultarlos hasta que elimines tu cuenta. La imagen se reduce y se vuelve a codificar sin
+        metadatos antes de guardarse. Si compartes una etiqueta personal, cualquier persona con el
+        enlace podrá leerla.
       </p>
       <p>
         No incorporamos publicidad ni herramientas de analítica. Las consultas de productos se
-        envían a Open Food Facts. Las consultas de restaurantes se envían a Google Maps, incluida tu
-        ubicación solo si eliges buscar cerca de ti.
+        envían a Open Food Facts y, cuando esté configurado, a USDA FoodData Central. Las consultas
+        de restaurantes se envían a OpenStreetMap/Photon o a Google Maps según la configuración. Tu
+        ubicación solo se comparte si eliges buscar cerca de ti.
       </p>
       <p>
         La caché local puede borrarse desde Ajustes. Los datos eliminados pueden permanecer hasta 14

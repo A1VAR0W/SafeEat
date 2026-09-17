@@ -6,6 +6,7 @@ export type ExternalProduct = {
   name: string;
   brand?: string;
   imageUrl?: string;
+  informationSource?: 'api' | 'community' | 'unknown';
   ingredients?: string;
   gluten: GlutenInput;
   nutrition: NutritionInput;
@@ -18,7 +19,15 @@ export interface ProductProvider {
   search(query: string): Promise<ExternalProduct[]>;
 }
 export type RestaurantSearch = { query: string; latitude?: number; longitude?: number };
+export type RestaurantSuggestion = {
+  label: string;
+  kind: 'restaurant' | 'city';
+  query: string;
+  latitude?: number;
+  longitude?: number;
+};
 export interface RestaurantProvider {
   search(params: RestaurantSearch): Promise<Restaurant[]>;
   getById(id: string): Promise<Restaurant | null>;
+  suggest?(query: string): Promise<RestaurantSuggestion[]>;
 }

@@ -58,7 +58,9 @@ export default async function Page({ params }: Props) {
           </a>
         </p>
       )}
-      <p className="muted">Google Maps · {r.attributions.join(' · ')}</p>
+      <p className="muted">
+        {r.source} · {r.attributions.join(' · ')}
+      </p>
     </>
   );
 }

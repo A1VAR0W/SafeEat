@@ -1,4 +1,5 @@
 import { Linking } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
 import { useProduct } from '../src/product';
 import { SheetHeader } from '../src/compact';
@@ -35,7 +36,40 @@ export default function ProductInfo() {
           {section === 'why' && <Assessment product={p} />}
           {section === 'ingredients' && (
             <>
-              <Copy>{p.ingredients || 'No hay una lista de ingredientes disponible.'}</Copy>
+              <Card>
+                <Copy bold>Lista de ingredientes</Copy>
+                <Copy>
+                  {p.ingredients
+                    ? p.ingredients
+                        .replace(/\\_/g, ' ')
+                        .replace(/_/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                    : 'No hay una lista de ingredientes disponible.'}
+                </Copy>
+                {p.informationSource !== 'unknown' && (
+                  <Copy muted size={12}>
+                    {p.informationSource === 'community'
+                      ? 'Texto revisado por un usuario'
+                      : 'Texto de la API externa'}
+                  </Copy>
+                )}
+              </Card>
+              {p.ingredientsImageUrl && (
+                <Card>
+                  <Copy bold>Foto de la etiqueta</Copy>
+                  <Image
+                    source={p.ingredientsImageUrl}
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    style={{ width: '100%', height: 280, borderRadius: 12 }}
+                    accessibilityLabel="Foto de los ingredientes aportada por un usuario"
+                  />
+                  <Copy muted size={12}>
+                    Foto aportada por la comunidad. Comprueba que coincida con el envase actual.
+                  </Copy>
+                </Card>
+              )}
               {p.assessment.evidence
                 .filter((e) => ['ingredient', 'allergen', 'trace'].includes(e.kind))
                 .map((e, i) => (

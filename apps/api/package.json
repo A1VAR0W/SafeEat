@@ -11,16 +11,17 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@safeeat/contracts": "*",
-    "@safeeat/gluten-engine": "*",
-    "@safeeat/nutrition-engine": "*",
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/jwt": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
+    "@safeeat/contracts": "*",
+    "@safeeat/gluten-engine": "*",
+    "@safeeat/nutrition-engine": "*",
     "argon2": "^0.44.0",
     "fastify": "^5.6.2",
     "pg": "^8.16.3",
+    "sharp": "^0.35.4",
     "zod": "^4.1.12"
   },
   "devDependencies": {

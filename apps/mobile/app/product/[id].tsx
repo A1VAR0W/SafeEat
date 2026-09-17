@@ -9,6 +9,7 @@ import { ItemActions } from '../../src/actions';
 import { SettingRow } from '../../src/compact';
 import { Card, Copy, ErrorNotice, Screen, Skeleton, Title, useTheme } from '../../src/ui';
 import { es } from '../../src/i18n';
+import { CollectionPicker } from '../../src/collections';
 export default function ProductDetail() {
   const { id, shareToken } = useLocalSearchParams<{ id: string; shareToken?: string }>();
   const query = useProduct(id, shareToken),
@@ -38,7 +39,7 @@ export default function ProductDetail() {
                 source={p.imageUrl}
                 contentFit="contain"
                 style={{ width: 76, height: 92, borderRadius: 16 }}
-                cachePolicy="disk"
+                cachePolicy="memory-disk"
               />
             )}
             <View style={{ flex: 1, gap: 2 }}>
@@ -51,6 +52,19 @@ export default function ProductDetail() {
             </View>
           </View>
           {!(shareToken && p.userCreated) && <ItemActions kind="products" item={p} compact />}
+          {p.informationSource !== 'unknown' && (
+            <Copy muted size={12}>
+              {p.informationSource === 'community'
+                ? '👤 Ingredientes revisados por un usuario · Comprueba la foto y la etiqueta actual'
+                : '🌐 Información de la API · Comprueba la etiqueta actual'}
+            </Copy>
+          )}
+          {p.communityContribution && p.informationSource === 'api' && (
+            <Copy muted size={12}>
+              👤 También hay una foto de ingredientes aportada por la comunidad.
+            </Copy>
+          )}
+          {!shareToken && <CollectionPicker productId={p.id} />}
           {(p.stale ||
             query.isError ||
             Date.now() - new Date(p.fetchedAt).getTime() > 86400000) && (
@@ -117,8 +131,14 @@ export default function ProductDetail() {
           </View>
           <SettingRow
             icon="camera-outline"
-            title="Revisar mi etiqueta"
-            onPress={() => router.push('/scan/ingredients')}
+            title={p.barcode ? 'Aportar foto de ingredientes' : 'Revisar mi etiqueta'}
+            subtitle={p.barcode ? 'Otros usuarios podrán consultar la etiqueta' : undefined}
+            onPress={() =>
+              router.push({
+                pathname: '/scan/ingredients',
+                params: p.barcode ? { barcode: p.barcode } : {},
+              })
+            }
           />
           <Copy muted size={12}>
             {productDisclaimer}

@@ -39,6 +39,13 @@ export default async function Page({ params }: Props) {
       <p className="eyebrow">Producto compartido</p>
       <h1>{p.name}</h1>
       <p className="muted">{p.brand}</p>
+      {p.informationSource !== 'unknown' && (
+        <p className="muted">
+          {p.informationSource === 'community'
+            ? '👤 Ingredientes revisados por un usuario'
+            : '🌐 Datos de API'}
+        </p>
+      )}
       {(p.stale || Date.now() - new Date(p.fetchedAt).getTime() > 86400000) && (
         <p className="notice">
           Información guardada que puede estar desactualizada. Comprueba la etiqueta actual.
@@ -92,7 +99,14 @@ export default async function Page({ params }: Props) {
       {p.ingredients && (
         <section className="card">
           <h2>Ingredientes</h2>
-          <p>{p.ingredients}</p>
+          <p>{p.ingredients.replace(/\\_/g, ' ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim()}</p>
+          {p.ingredientsImageUrl && (
+            <img
+              src={p.ingredientsImageUrl}
+              alt="Etiqueta de ingredientes aportada por un usuario"
+              style={{ maxWidth: '100%', borderRadius: 12 }}
+            />
+          )}
         </section>
       )}
       <a className="button" href={`safeeat://p/${token}`}>

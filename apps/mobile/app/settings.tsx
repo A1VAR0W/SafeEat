@@ -25,7 +25,7 @@ export default function Settings() {
         true,
       );
       await clearPrivateCache();
-      setMessage('Marcadores y etiquetas personales eliminados.');
+      setMessage('Marcadores, grupos y etiquetas personales eliminados.');
     } catch (e) {
       setError(e);
     } finally {
@@ -86,7 +86,7 @@ export default function Settings() {
             onPress={() =>
               Alert.alert(
                 '¿Borrar todos los marcadores?',
-                'Se eliminarán tus favoritos de productos y restaurantes y todas tus etiquetas personales. Los enlaces públicos de esas etiquetas dejarán de funcionar. Se conservará tu cuenta.',
+                'Se eliminarán tus favoritos, grupos y etiquetas personales. Los enlaces públicos de esas etiquetas dejarán de funcionar. Las fotos que hayas aportado a productos seguirán visibles hasta que elimines tu cuenta.',
                 [
                   { text: 'Cancelar', style: 'cancel' },
                   {
@@ -105,8 +105,9 @@ export default function Settings() {
       <Card>
         <Copy bold>Privacidad</Copy>
         <Copy size={14}>
-          Las fotos de etiquetas se procesan en el dispositivo y se eliminan tras leerlas. Solo
-          enviamos el texto que decides guardar. No usamos publicidad ni analítica.
+          Las etiquetas personales se leen en el dispositivo. Si aportas una foto a un producto con
+          código de barras, se guarda en el servidor para otros usuarios. No usamos publicidad ni
+          analítica.
         </Copy>
         <SettingRow
           icon="shield-checkmark-outline"

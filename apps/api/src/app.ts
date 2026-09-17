@@ -9,6 +9,8 @@ import { createPool, type Database } from './db/pool';
 import type { ProductProvider, RestaurantProvider } from './providers/types';
 import { OpenFoodFactsProvider } from './providers/open-food-facts';
 import { GooglePlacesProvider } from './providers/google-places';
+import { OpenStreetMapProvider } from './providers/openstreetmap';
+import { EnrichedProductProvider, FoodDataCentralProvider } from './providers/food-data-central';
 import { authService } from './modules/auth';
 import { productService } from './modules/products';
 import { restaurantService } from './modules/restaurants';
@@ -106,7 +108,11 @@ export async function createApp(
       .send({ error: { code: 'NOT_FOUND', message: 'No hemos encontrado este recurso.' } }),
   );
   app.addHook('onSend', async (request, reply, payload) => {
-    if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
+    if (
+      request.url.startsWith('/api/') &&
+      !(request.method === 'GET' && request.url.split('?')[0]?.endsWith('/ingredients-photo'))
+    )
+      reply.header('Cache-Control', 'no-store');
     return payload;
   });
   const metadata = () => ({ status: 'ok', environment: env.APP_ENV, version });
@@ -121,16 +127,23 @@ export async function createApp(
     }
   });
   const auth = authService(app, db, env);
+  const off = new OpenFoodFactsProvider(env.OPENFOODFACTS_USER_AGENT, env.OPENFOODFACTS_BASE_URL);
   const products = productService(
     app,
     db,
     options.products ??
-      new OpenFoodFactsProvider(env.OPENFOODFACTS_USER_AGENT, env.OPENFOODFACTS_BASE_URL),
+      (env.USDA_FDC_API_KEY
+        ? new EnrichedProductProvider(off, new FoodDataCentralProvider(env.USDA_FDC_API_KEY))
+        : off),
     auth,
+    env.API_PUBLIC_URL,
   );
   const restaurants = restaurantService(
     app,
-    options.restaurants ?? new GooglePlacesProvider(env.GOOGLE_PLACES_API_KEY),
+    options.restaurants ??
+      (env.GOOGLE_PLACES_API_KEY
+        ? new GooglePlacesProvider(env.GOOGLE_PLACES_API_KEY)
+        : new OpenStreetMapProvider(env.OPENFOODFACTS_USER_AGENT)),
   );
   favoriteRoutes(app, db, auth, products, restaurants);
   sharingRoutes(app, db, auth, products, restaurants, env.PUBLIC_APP_URL.replace(/\/$/, ''));

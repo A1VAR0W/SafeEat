@@ -9,6 +9,7 @@ import { loadEnv } from '../src/config/env';
 import type { ExternalProduct, RestaurantProvider } from '../src/providers/types';
 import type { Session } from '@safeeat/contracts';
 import { ApiError } from '../src/plugins/errors';
+import sharp from 'sharp';
 const url = process.env.TEST_DATABASE_URL;
 if (!url)
   throw new Error('TEST_DATABASE_URL is required: use an isolated PostgreSQL test database');
@@ -333,23 +334,73 @@ describe.sequential('real PostgreSQL API', () => {
     expect(publicItem.json().type).toBe('restaurant');
     expect(publicItem.body).not.toContain(one.user.id);
   });
-  it('handles missing restaurant credentials without invented results', async () => {
-    const unconfigured = await createApp(
-      loadEnv({
-        NODE_ENV: 'test',
-        DATABASE_URL: url,
-        JWT_ACCESS_SECRET: 'test-access-'.repeat(5),
-        JWT_REFRESH_SECRET: 'test-refresh-'.repeat(5),
-      }),
-      { db, logging: false },
-    );
-    try {
-      const response = await unconfigured.inject('/api/v1/restaurants/search?q=Madrid');
-      expect(response.statusCode).toBe(503);
-      expect(response.json().error.code).toBe('RESTAURANT_PROVIDER_NOT_CONFIGURED');
-    } finally {
-      await unconfigured.close();
-    }
+  it('stores reviewed ingredient photos and shares product evidence by barcode', async () => {
+    const photo = await sharp({
+      create: { width: 20, height: 20, channels: 3, background: '#ffffff' },
+    })
+      .jpeg()
+      .toBuffer();
+    const url = '/api/v1/products/00000000/ingredients-photo';
+    const payload = {
+      name: 'Producto de prueba',
+      ingredients: 'Harina de trigo',
+      imageBase64: photo.toString('base64'),
+    };
+    expect((await app.inject({ method: 'POST', url, payload })).statusCode).toBe(401);
+    const saved = await app.inject({ method: 'POST', url, payload, headers: bearer(one) });
+    expect(saved.statusCode).toBe(201);
+    expect(saved.json().informationSource).toBe('community');
+    expect(saved.json().assessment.status).toBe('CONTAINS_GLUTEN');
+    const otherUser = await app.inject('/api/v1/products/barcode/00000000');
+    expect(otherUser.json().ingredients).toBe('Harina de trigo');
+    const image = await app.inject(url);
+    expect(image.statusCode).toBe(200);
+    expect(image.headers['content-type']).toContain('image/jpeg');
+    expect(image.rawPayload.length).toBeGreaterThan(100);
+  });
+  it('creates groups, classifies saved products and isolates membership', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/collections',
+      headers: bearer(one),
+      payload: { name: 'Desayunos' },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/v1/collections/${id}/products/off-00000000`,
+          headers: bearer(one),
+        })
+      ).statusCode,
+    ).toBe(204);
+    expect(
+      (await app.inject({ url: `/api/v1/collections/${id}/products`, headers: bearer(one) })).json()
+        .items,
+    ).toHaveLength(1);
+    expect(
+      (await app.inject({ url: `/api/v1/collections/${id}/products`, headers: bearer(two) })).json()
+        .items,
+    ).toHaveLength(0);
+    expect(
+      (
+        await app.inject({
+          url: '/api/v1/collections/for-product/off-00000000',
+          headers: bearer(one),
+        })
+      ).json().ids,
+    ).toContain(id);
+    expect(
+      (
+        await app.inject({
+          method: 'DELETE',
+          url: `/api/v1/collections/${id}`,
+          headers: bearer(one),
+        })
+      ).statusCode,
+    ).toBe(204);
   });
   it('cannot retain an active family during concurrent rotation and logout', async () => {
     const login = await app.inject({

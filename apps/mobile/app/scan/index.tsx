@@ -1,16 +1,25 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { AppState, View, StyleSheet, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  AppState,
+  View,
+  StyleSheet,
+  ScrollView,
+  Platform,
+  StatusBar as NativeStatusBar,
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useFocusEffect } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { ProductSchema, type Product } from '@safeeat/contracts';
-import { api } from '../../src/session';
+import { api, RequestError } from '../../src/session';
 import { queryClient } from '../../src/query';
 import { Button, Copy, ErrorNotice, Field, useTheme } from '../../src/ui';
 import { IconButton } from '../../src/compact';
 export default function Scan() {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [active, setActive] = useState(false);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
@@ -63,13 +72,16 @@ export default function Scan() {
       queryClient.setQueryData(['product', item.id], item);
       router.replace(`/product/${item.id}`);
     } catch (e) {
-      if (alive.current) setError(e);
+      if (alive.current && e instanceof RequestError && e.code === 'PRODUCT_NOT_FOUND') {
+        router.replace({ pathname: '/scan/ingredients', params: { barcode: code } });
+      } else if (alive.current) setError(e);
     } finally {
       if (alive.current) setBusy(false);
     }
   }
   return (
     <View style={{ flex: 1, backgroundColor: t.brandDeep }}>
+      <StatusBar style="light" />
       {permission?.granted && active && foreground && !busy && !error && !manualOpen && (
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -81,7 +93,18 @@ export default function Scan() {
           accessibilityLabel="Cámara para escanear códigos de barras"
         />
       )}
-      <SafeAreaView style={{ flex: 1, padding: 16 }}>
+      <View
+        style={{
+          flex: 1,
+          paddingTop:
+            Math.max(
+              insets.top,
+              Platform.OS === 'ios' ? 59 : (NativeStatusBar.currentHeight ?? 24),
+            ) + 12,
+          paddingBottom: Math.max(insets.bottom, 12) + 12,
+          paddingHorizontal: 16 + Math.max(insets.left, insets.right),
+        }}
+      >
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <IconButton label="Cerrar escáner" icon="close" onPress={() => router.back()} />
           <IconButton
@@ -158,7 +181,7 @@ export default function Scan() {
             onPress={() => router.replace('/scan/ingredients')}
           />
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

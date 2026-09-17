@@ -14,6 +14,7 @@ const schema = z.object({
     .default('SafeEat/0.1 (https://github.com/A1VAR0W/SafeEat)'),
   OPENFOODFACTS_BASE_URL: z.url().default('https://world.openfoodfacts.org'),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
+  USDA_FDC_API_KEY: z.string().optional(),
   TRUST_PROXY: z.coerce.number().int().min(0).max(2).default(0),
 });
 export type Env = z.infer<typeof schema>;

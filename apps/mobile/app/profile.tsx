@@ -82,9 +82,9 @@ export default function Profile() {
               gap: 10,
             }}
           >
-            <Copy bold>Zona de peligro</Copy>
             <Copy muted size={13}>
-              Eliminar tu cuenta es permanente y revoca los enlaces de tus etiquetas personales.
+              Eliminar tu cuenta es permanente; borra tus fotos aportadas y revoca los enlaces de
+              tus etiquetas personales.
             </Copy>
             <Button
               title="Eliminar cuenta"
@@ -92,7 +92,7 @@ export default function Profile() {
               onPress={() =>
                 Alert.alert(
                   'Eliminar cuenta',
-                  'Se borrarán tu cuenta, favoritos y etiquetas privadas. Se revocarán todas las sesiones y los enlaces de tus etiquetas. Tendrás que confirmar tu contraseña antes de eliminarla.',
+                  'Se borrarán tu cuenta, grupos, favoritos, fotos aportadas y etiquetas privadas. Se revocarán todas las sesiones y los enlaces de tus etiquetas. Tendrás que confirmar tu contraseña antes de eliminarla.',
                   [
                     { text: 'Cancelar', style: 'cancel' },
                     {

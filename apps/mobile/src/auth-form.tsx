@@ -6,6 +6,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { api, acceptSession, getSession } from './session';
 import { queryClient } from './query';
 import { Button, Copy, ErrorNotice, Field, Screen, useTheme } from './ui';
+import { BirthDateField } from './birth-date-field';
 export function AuthForm({ register = false }: { register?: boolean }) {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
@@ -29,7 +30,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
       };
       if (register && !registrationSchema.safeParse(payload).success)
         throw new Error(
-          'Revisa el nombre, la fecha de nacimiento (AAAA-MM-DD), el correo y la contraseña de al menos 12 caracteres.',
+          'Revisa el nombre, la fecha de nacimiento, el correo y la contraseña de al menos 12 caracteres.',
         );
       const data = await api(`/auth/${register ? 'register' : 'login'}`, {
         method: 'POST',
@@ -41,7 +42,16 @@ export function AuthForm({ register = false }: { register?: boolean }) {
           : undefined;
       await acceptSession(data);
       if (draft) queryClient.setQueryData(['local-label'], draft);
-      router.replace(draft ? '/scan/result' : '/(tabs)/home');
+      router.replace(
+        draft
+          ? '/scan/result'
+          : returnTo?.startsWith('ingredients:')
+            ? {
+                pathname: '/scan/ingredients',
+                params: { barcode: returnTo.slice('ingredients:'.length) },
+              }
+            : '/(tabs)/home',
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -71,14 +81,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
             autoComplete="family-name"
             maxLength={120}
           />
-          <Field
-            label="Fecha de nacimiento"
-            value={dateOfBirth}
-            onChangeText={setDateOfBirth}
-            placeholder="AAAA-MM-DD"
-            maxLength={10}
-            autoCapitalize="none"
-          />
+          <BirthDateField value={dateOfBirth} onChange={setDateOfBirth} />
         </>
       )}
       <Field

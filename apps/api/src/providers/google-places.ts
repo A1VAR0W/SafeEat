@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Restaurant } from '@safeeat/contracts';
-import type { RestaurantProvider, RestaurantSearch } from './types';
+import type { RestaurantProvider, RestaurantSearch, RestaurantSuggestion } from './types';
 import { providerJson, safeHttpUrl, ProviderBudget } from './http';
 import { ApiError } from '../plugins/errors';
 const place = z.object({
@@ -90,6 +90,47 @@ export class GooglePlacesProvider implements RestaurantProvider {
     });
     const parsed = z.object({ places: z.array(z.unknown()).default([]) }).parse(result);
     return parsed.places.map(normalize);
+  }
+  async suggest(query: string): Promise<RestaurantSuggestion[]> {
+    const result = await providerJson('https://places.googleapis.com/v1/places:autocomplete', {
+      method: 'POST',
+      headers: this.headers(
+        'suggestions.placePrediction.text,suggestions.placePrediction.types,suggestions.queryPrediction.text',
+      ),
+      body: JSON.stringify({ input: query, languageCode: 'es', includeQueryPredictions: true }),
+    });
+    const parsed = z
+      .object({
+        suggestions: z
+          .array(
+            z.object({
+              placePrediction: z
+                .object({
+                  text: z.object({ text: z.string() }),
+                  types: z.array(z.string()).optional(),
+                })
+                .optional(),
+              queryPrediction: z.object({ text: z.object({ text: z.string() }) }).optional(),
+            }),
+          )
+          .default([]),
+      })
+      .parse(result);
+    return parsed.suggestions.flatMap((s) => {
+      const label = s.placePrediction?.text.text ?? s.queryPrediction?.text.text;
+      if (!label) return [];
+      return [
+        {
+          label,
+          query: label,
+          kind: s.placePrediction?.types?.some((t) =>
+            ['locality', 'administrative_area_level_1', 'administrative_area_level_2'].includes(t),
+          )
+            ? ('city' as const)
+            : ('restaurant' as const),
+        },
+      ];
+    });
   }
   async getById(id: string) {
     const raw = await providerJson(

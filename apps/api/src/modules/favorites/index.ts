@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { ProductSchema, type Product } from '@safeeat/contracts';
+import type { Product } from '@safeeat/contracts';
 import type { Database } from '../../db/pool';
 import type { Auth } from '../auth';
 import type { Products } from '../products';
@@ -23,6 +24,7 @@ export function favoriteRoutes(
       await client.query('BEGIN');
       await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [request.user.sub]);
       await client.query('DELETE FROM favorite_products WHERE user_id=$1', [request.user.sub]);
+      await client.query('DELETE FROM saved_collections WHERE user_id=$1', [request.user.sub]);
       await client.query('DELETE FROM favorite_restaurants WHERE user_id=$1', [request.user.sub]);
       await client.query(
         "DELETE FROM shares WHERE kind='product' AND resource_id IN (SELECT id FROM products WHERE owner_id=$1)",
@@ -39,6 +41,80 @@ export function favoriteRoutes(
     return reply.code(204).send();
   });
   const id = (params: unknown) => z.object({ id: z.string().min(1).max(200) }).parse(params).id;
+  const collectionId = (params: unknown) =>
+    z.object({ collectionId: z.string().uuid() }).parse(params).collectionId;
+  app.get('/api/v1/collections', guarded, async (request) => {
+    const result = await db.query<{ id: string; name: string; count: number }>(
+      'SELECT c.id,c.name,count(cp.product_id)::int AS count FROM saved_collections c LEFT JOIN saved_collection_products cp ON cp.collection_id=c.id WHERE c.user_id=$1 GROUP BY c.id ORDER BY c.created_at DESC',
+      [request.user.sub],
+    );
+    return { items: result.rows };
+  });
+  app.post('/api/v1/collections', guarded, async (request, reply) => {
+    const { name } = z
+      .object({ name: z.string().trim().min(1).max(60) })
+      .strict()
+      .parse(request.body);
+    const collection = { id: randomUUID(), name, count: 0 };
+    await db.query('INSERT INTO saved_collections(id,user_id,name) VALUES($1,$2,$3)', [
+      collection.id,
+      request.user.sub,
+      name,
+    ]);
+    return reply.code(201).send(collection);
+  });
+  app.get('/api/v1/collections/for-product/:id', guarded, async (request) => {
+    const result = await db.query<{ id: string }>(
+      'SELECT c.id FROM saved_collections c JOIN saved_collection_products cp ON cp.collection_id=c.id WHERE c.user_id=$1 AND cp.product_id=$2',
+      [request.user.sub, id(request.params)],
+    );
+    return { ids: result.rows.map((r) => r.id) };
+  });
+  app.delete('/api/v1/collections/:collectionId', guarded, async (request, reply) => {
+    await db.query('DELETE FROM saved_collections WHERE id=$1 AND user_id=$2', [
+      collectionId(request.params),
+      request.user.sub,
+    ]);
+    return reply.code(204).send();
+  });
+  app.get('/api/v1/collections/:collectionId/products', guarded, async (request) => {
+    const result = await db.query<{ data: Product; expired: boolean }>(
+      'SELECT p.data,p.expires_at<now() AS expired FROM saved_collection_products cp JOIN saved_collections c ON c.id=cp.collection_id JOIN products p ON p.id=cp.product_id WHERE c.id=$1 AND c.user_id=$2 ORDER BY cp.added_at DESC LIMIT 100',
+      [collectionId(request.params), request.user.sub],
+    );
+    return {
+      items: await Promise.all(result.rows.map((r) => products.hydrateStored(r.data, r.expired))),
+    };
+  });
+  app.get('/api/v1/collections/:collectionId/products/:id', guarded, async (request) => {
+    const collection = collectionId(request.params),
+      product = id(request.params);
+    const result = await db.query(
+      'SELECT 1 FROM saved_collection_products cp JOIN saved_collections c ON c.id=cp.collection_id WHERE c.id=$1 AND c.user_id=$2 AND cp.product_id=$3',
+      [collection, request.user.sub, product],
+    );
+    return { saved: !!result.rowCount };
+  });
+  app.post('/api/v1/collections/:collectionId/products/:id', guarded, async (request, reply) => {
+    const collection = collectionId(request.params),
+      item = await products.get(id(request.params), request.user.sub);
+    await db.query(
+      'INSERT INTO saved_collection_products(collection_id,product_id) SELECT id,$3 FROM saved_collections WHERE id=$1 AND user_id=$2 ON CONFLICT DO NOTHING',
+      [collection, request.user.sub, item.id],
+    );
+    await db.query(
+      'INSERT INTO favorite_products(user_id,product_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
+      [request.user.sub, item.id],
+    );
+    return reply.code(204).send();
+  });
+  app.delete('/api/v1/collections/:collectionId/products/:id', guarded, async (request, reply) => {
+    await db.query(
+      'DELETE FROM saved_collection_products cp USING saved_collections c WHERE cp.collection_id=c.id AND c.id=$1 AND c.user_id=$2 AND cp.product_id=$3',
+      [collectionId(request.params), request.user.sub, id(request.params)],
+    );
+    return reply.code(204).send();
+  });
   for (const kind of ['products', 'restaurants'] as const) {
     app.get(`/api/v1/favorites/${kind}/:id`, guarded, async (request) => {
       const sql =
@@ -57,7 +133,7 @@ export function favoriteRoutes(
     );
     const page = rows.rows.slice(0, 50);
     return {
-      items: page.map((r) => ({ ...ProductSchema.parse(r.data), stale: r.expired })),
+      items: await Promise.all(page.map((r) => products.hydrateStored(r.data, r.expired))),
       nextCursor: rows.rows.length > 50 ? page.at(-1)!.id : null,
     };
   });
@@ -70,6 +146,10 @@ export function favoriteRoutes(
     return reply.code(204).send();
   });
   app.delete('/api/v1/favorites/products/:id', guarded, async (request, reply) => {
+    await db.query(
+      'DELETE FROM saved_collection_products cp USING saved_collections c WHERE cp.collection_id=c.id AND c.user_id=$1 AND cp.product_id=$2',
+      [request.user.sub, id(request.params)],
+    );
     await db.query('DELETE FROM favorite_products WHERE user_id=$1 AND product_id=$2', [
       request.user.sub,
       id(request.params),

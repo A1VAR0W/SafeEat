@@ -46,7 +46,9 @@ export default function RestaurantDetail() {
             />
           )}
           <ItemActions kind="restaurants" item={r} />
-          <Copy muted>Google Maps · {r.attributions.join(' · ')}</Copy>
+          <Copy muted>
+            {r.source} · {r.attributions.join(' · ')}
+          </Copy>
         </>
       )}
     </Screen>

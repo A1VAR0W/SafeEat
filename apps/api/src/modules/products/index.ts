@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { analyzeSchema, ProductSchema, type Product } from '@safeeat/contracts';
@@ -13,8 +14,78 @@ export function productService(
   db: Database,
   provider: ProductProvider,
   auth: Auth,
+  apiPublicUrl: string,
 ) {
   const pending = new Map<string, Promise<Product>>();
+  type Contribution = { id: string; product_name: string; ingredients: string };
+  async function latest(code: string) {
+    const result = await db.query<Contribution>(
+      'SELECT id,product_name,ingredients FROM product_contributions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 1',
+      [code],
+    );
+    return result.rows[0];
+  }
+  function contributed(item: Product, contribution?: Contribution): Product {
+    if (!contribution) return item;
+    const communityAssessment = assessGluten({
+      ingredients: contribution.ingredients,
+      source: 'Etiqueta revisada por un usuario',
+      origin: 'ocr',
+      reviewed: true,
+    });
+    const risk = (status: Product['assessment']['status']) =>
+      status === 'CONTAINS_GLUTEN'
+        ? 3
+        : status === 'MAY_CONTAIN_TRACES'
+          ? 2
+          : status === 'GLUTEN_FREE'
+            ? 1
+            : 0;
+    const useCommunity =
+      !item.ingredients ||
+      item.assessment.status === 'UNKNOWN' ||
+      risk(communityAssessment.status) > risk(item.assessment.status);
+    return ProductSchema.parse({
+      ...item,
+      name: item.name.startsWith('Producto ') ? contribution.product_name : item.name,
+      ingredients: useCommunity ? contribution.ingredients : item.ingredients,
+      assessment: useCommunity ? communityAssessment : item.assessment,
+      informationSource: useCommunity ? 'community' : item.informationSource,
+      communityContribution: true,
+      ingredientsImageUrl: `${apiPublicUrl.replace(/\/$/, '')}/api/v1/products/${encodeURIComponent(item.barcode!)}/ingredients-photo?v=${contribution.id}`,
+    });
+  }
+  function communityProduct(code: string, c: Contribution): Product {
+    return ProductSchema.parse({
+      id: `off-${code}`,
+      barcode: code,
+      name: c.product_name,
+      ingredients: c.ingredients,
+      assessment: assessGluten({
+        ingredients: c.ingredients,
+        source: 'Etiqueta revisada por un usuario',
+        origin: 'ocr',
+        reviewed: true,
+      }),
+      nutrition: {},
+      quality: scoreNutrition({}),
+      source: 'Comunidad SafeEat',
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      userCreated: false,
+      informationSource: 'community',
+      communityContribution: true,
+      ingredientsImageUrl: `${apiPublicUrl.replace(/\/$/, '')}/api/v1/products/${code}/ingredients-photo?v=${c.id}`,
+    });
+  }
+  async function hydrateStored(data: Product, expired: boolean): Promise<Product> {
+    const item = ProductSchema.parse({ ...data, stale: expired });
+    if (!item.barcode) return item;
+    const c = await latest(item.barcode);
+    return c && item.source === 'Comunidad SafeEat'
+      ? communityProduct(item.barcode, c)
+      : contributed(item, c);
+  }
   async function save(external: ExternalProduct): Promise<Product> {
     const item = ProductSchema.parse({
       id: `off-${external.barcode}`,
@@ -39,33 +110,53 @@ export function productService(
       return { ...ProductSchema.parse(stored.data), stale: stored.expired };
     }
     await db.query(
-      "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,$3,$4,now()+interval '24 hours') ON CONFLICT(id) DO UPDATE SET data=$4,fetched_at=now(),expires_at=now()+interval '24 hours'",
+      "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,$3,$4,now()+interval '24 hours') ON CONFLICT(id) DO UPDATE SET provider=$3,data=$4,fetched_at=now(),expires_at=now()+interval '24 hours'",
       [item.id, item.barcode, 'openfoodfacts', JSON.stringify(item)],
     );
     return item;
   }
   async function barcode(code: string): Promise<Product> {
-    const cached = await db.query<{ data: Product; expires_at: Date }>(
-      'SELECT data,expires_at FROM products WHERE barcode=$1 AND owner_id IS NULL',
+    const cached = await db.query<{ data: Product; expires_at: Date; provider: string }>(
+      'SELECT data,expires_at,provider FROM products WHERE barcode=$1 AND owner_id IS NULL',
       [code],
     );
     const row = cached.rows[0];
-    if (row && row.expires_at.getTime() > Date.now()) return ProductSchema.parse(row.data);
+    const contribution = await latest(code);
+    if (
+      row &&
+      row.expires_at.getTime() > Date.now() &&
+      (row.provider !== 'community' || contribution)
+    )
+      return row.provider === 'community'
+        ? communityProduct(code, contribution!)
+        : contributed(ProductSchema.parse(row.data), contribution);
     const existing = pending.get(code);
     if (existing) return existing;
     const request = (async () => {
       try {
         const external = await provider.getByBarcode(code);
-        if (!external)
+        if (!external) {
+          const c = await latest(code);
+          if (c) return communityProduct(code, c);
           throw new ApiError(
             404,
             'PRODUCT_NOT_FOUND',
-            'No hemos encontrado este producto. Puedes escanear sus ingredientes.',
+            'No hemos encontrado este producto. Puedes fotografiar sus ingredientes.',
           );
-        return await save(external);
+        }
+        return contributed(await save(external), await latest(code));
       } catch (error) {
-        if (row && error instanceof ApiError && error.statusCode === 503)
-          return { ...ProductSchema.parse(row.data), stale: true };
+        if (
+          row &&
+          (row.provider !== 'community' || contribution) &&
+          error instanceof ApiError &&
+          error.statusCode === 503
+        )
+          return contributed({ ...ProductSchema.parse(row.data), stale: true }, contribution);
+        if (error instanceof ApiError && error.statusCode === 503) {
+          const c = await latest(code);
+          if (c) return communityProduct(code, c);
+        }
         throw error;
       } finally {
         pending.delete(code);
@@ -99,7 +190,30 @@ export function productService(
     async (request) => {
       const { q } = z.object({ q: z.string().trim().min(2).max(100) }).parse(request.query);
       const items = await provider.search(q);
-      return { items: await Promise.all(items.map(save)) };
+      const external = await Promise.all(
+        items.map(async (item) => {
+          const stored = await save(item);
+          return hydrateStored(stored, stored.stale);
+        }),
+      );
+      const community = await db.query<{
+        barcode: string;
+        product_name: string;
+        ingredients: string;
+        id: string;
+      }>(
+        'SELECT DISTINCT ON (barcode) barcode,product_name,ingredients,id FROM product_contributions WHERE product_name ILIKE $1 ORDER BY barcode,created_at DESC LIMIT 20',
+        [`%${q.replace(/[\\%_]/g, '\\$&')}%`],
+      );
+      const known = new Set(external.map((p) => p.barcode));
+      return {
+        items: [
+          ...external,
+          ...community.rows
+            .filter((c) => !known.has(c.barcode))
+            .map((c) => communityProduct(c.barcode, c)),
+        ],
+      };
     },
   );
   app.post(
@@ -123,6 +237,8 @@ export function productService(
         fetchedAt: new Date().toISOString(),
         stale: false,
         userCreated: true,
+        informationSource: 'community',
+        communityContribution: false,
       };
       await db.query(
         "INSERT INTO products(id,provider,owner_id,data,expires_at) VALUES($1,$2,$3,$4,now()+interval '30 days')",
@@ -135,6 +251,81 @@ export function productService(
     const { id } = z.object({ id: z.string().max(80) }).parse(request.params);
     return get(id, await auth.optionalUser(request));
   });
-  return { get, barcode };
+  app.post(
+    '/api/v1/products/:barcode/ingredients-photo',
+    {
+      preHandler: auth.protect,
+      bodyLimit: 2200000,
+      config: { rateLimit: { max: 6, timeWindow: '1 hour' } },
+    },
+    async (request, reply) => {
+      const { barcode: code } = z
+        .object({ barcode: z.string().regex(/^(?:\d{8}|\d{12,14})$/) })
+        .parse(request.params);
+      const body = z
+        .object({
+          name: z.string().trim().min(1).max(160),
+          ingredients: z.string().trim().min(3).max(12000),
+          imageBase64: z.string().min(100).max(2000000),
+        })
+        .strict()
+        .parse(request.body);
+      const input = Buffer.from(body.imageBase64, 'base64');
+      if (
+        input.length > 1500000 ||
+        input.length < 100 ||
+        input[0] !== 0xff ||
+        input[1] !== 0xd8 ||
+        input[2] !== 0xff ||
+        input.toString('base64').replace(/=+$/, '') !== body.imageBase64.replace(/=+$/, '')
+      )
+        throw new ApiError(400, 'INVALID_IMAGE', 'La foto debe ser JPEG y ocupar menos de 1,5 MB.');
+      let photo: Buffer;
+      try {
+        photo = await sharp(input, { limitInputPixels: 10000000 })
+          .rotate()
+          .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 78 })
+          .toBuffer();
+      } catch {
+        throw new ApiError(
+          400,
+          'INVALID_IMAGE',
+          'No hemos podido leer la foto. Haz una nueva captura.',
+        );
+      }
+      const id = randomUUID();
+      await db.query(
+        'INSERT INTO product_contributions(id,barcode,product_name,user_id,ingredients,photo,photo_mime) VALUES($1,$2,$3,$4,$5,$6,$7)',
+        [id, code, body.name, request.user.sub, body.ingredients, photo, 'image/jpeg'],
+      );
+      await db.query(
+        "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,'community',$3,now()+interval '24 hours') ON CONFLICT(barcode) DO NOTHING",
+        [
+          `off-${code}`,
+          code,
+          JSON.stringify(
+            communityProduct(code, { id, product_name: body.name, ingredients: body.ingredients }),
+          ),
+        ],
+      );
+      return reply.code(201).send(await barcode(code));
+    },
+  );
+  app.get('/api/v1/products/:barcode/ingredients-photo', async (request, reply) => {
+    const { barcode: code } = z
+      .object({ barcode: z.string().regex(/^(?:\d{8}|\d{12,14})$/) })
+      .parse(request.params);
+    const result = await db.query<{ photo: Buffer }>(
+      'SELECT photo FROM product_contributions WHERE barcode=$1 ORDER BY created_at DESC LIMIT 1',
+      [code],
+    );
+    if (!result.rows[0]) throw notFound();
+    return reply
+      .header('Content-Type', 'image/jpeg')
+      .header('Cache-Control', 'public, max-age=300')
+      .send(result.rows[0].photo);
+  });
+  return { get, barcode, hydrateStored };
 }
 export type Products = ReturnType<typeof productService>;

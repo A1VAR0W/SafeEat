@@ -5,15 +5,38 @@ import * as Location from 'expo-location';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { RestaurantSchema, restaurantDisclaimer } from '@safeeat/contracts';
+import { useDebounced } from '../../src/use-debounced';
+import { SearchField } from '../../src/compact';
 import { api } from '../../src/session';
-import { Button, Card, Copy, ErrorNotice, Field, Screen, Skeleton, Title } from '../../src/ui';
+import { Button, Card, Copy, ErrorNotice, Screen, Skeleton, Title, useTheme } from '../../src/ui';
 export default function Restaurants() {
+  const theme = useTheme();
   const [text, setText] = useState('');
   const [params, setParams] = useState<{ q: string; latitude?: number; longitude?: number } | null>(
     null,
   );
   const [locationError, setLocationError] = useState<unknown>(null);
   const [locating, setLocating] = useState(false);
+  const settled = useDebounced(text.trim());
+  const suggestions = useQuery({
+    queryKey: ['restaurant-suggestions', settled],
+    enabled: settled.length >= 3 && !params,
+    queryFn: async ({ signal }) =>
+      z
+        .object({
+          items: z.array(
+            z.object({
+              label: z.string(),
+              kind: z.enum(['restaurant', 'city']),
+              query: z.string(),
+              latitude: z.number().optional(),
+              longitude: z.number().optional(),
+            }),
+          ),
+        })
+        .parse(await api(`/restaurants/suggest?q=${encodeURIComponent(settled)}`, { signal })),
+    staleTime: 3600000,
+  });
   const search = useQuery({
     queryKey: ['restaurants', params],
     enabled: !!params,
@@ -39,7 +62,7 @@ export default function Restaurants() {
         throw new Error('Puedes seguir buscando por nombre y ciudad sin compartir tu ubicación.');
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setParams({
-        q: text.trim() || 'restaurantes',
+        q: 'restaurantes',
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
       });
@@ -68,7 +91,7 @@ export default function Restaurants() {
               <Copy muted>{item.address}</Copy>
               <Copy>? Información sobre gluten no verificada</Copy>
               <Copy size={12} muted>
-                Google Maps
+                {item.source}
               </Copy>
             </Card>
           </Pressable>
@@ -77,18 +100,42 @@ export default function Restaurants() {
           <View style={{ gap: 18, paddingBottom: 18 }}>
             <Title>Comer fuera</Title>
             <Copy muted>{restaurantDisclaimer}</Copy>
-            <Field
+            <SearchField
               label="Restaurante o ciudad"
               value={text}
-              onChangeText={setText}
+              onChangeText={(value) => {
+                setText(value);
+                setParams(null);
+              }}
               placeholder="Nombre del restaurante, Madrid…"
-              onSubmitEditing={() => setParams({ q: text.trim() })}
+              onSubmitEditing={() => {
+                if (text.trim().length >= 2) setParams({ q: text.trim() });
+              }}
             />
-            <Button
-              title="Buscar restaurantes"
-              disabled={text.trim().length < 2 || search.isFetching}
-              onPress={() => setParams({ q: text.trim() })}
-            />
+            {!params && !!suggestions.data?.items.length && (
+              <View style={{ backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }}>
+                {suggestions.data.items.map((suggestion, index) => (
+                  <Pressable
+                    key={`${suggestion.kind}-${suggestion.label}-${index}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Buscar ${suggestion.label}`}
+                    onPress={() => {
+                      setText(suggestion.label);
+                      setParams({
+                        q: suggestion.query,
+                        latitude: suggestion.latitude,
+                        longitude: suggestion.longitude,
+                      });
+                    }}
+                    style={{ padding: 14, minHeight: 48 }}
+                  >
+                    <Copy>
+                      {suggestion.kind === 'city' ? '⌖' : '⌕'} {suggestion.label}
+                    </Copy>
+                  </Pressable>
+                ))}
+              </View>
+            )}
             <Button
               secondary
               title={locating ? 'Buscando ubicación…' : 'Buscar cerca de mí'}
@@ -97,8 +144,8 @@ export default function Restaurants() {
             />
             {!!locationError && <ErrorNotice error={locationError} />}
             <Copy muted size={12}>
-              La búsqueda se envía a Google Maps. La ubicación solo se comparte al pulsar “Buscar
-              cerca de mí”.
+              Datos de OpenStreetMap o Google Maps según disponibilidad. La ubicación solo se
+              comparte al pulsar “Buscar cerca de mí”.
             </Copy>
             {search.isFetching && <Skeleton />}
             {search.error && (

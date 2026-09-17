@@ -10,6 +10,14 @@ export function restaurantService(app: FastifyInstance, provider: RestaurantProv
     return item;
   };
   app.get(
+    '/api/v1/restaurants/suggest',
+    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request) => {
+      const { q } = z.object({ q: z.string().trim().min(2).max(120) }).parse(request.query);
+      return { items: provider.suggest ? await provider.suggest(q) : [] };
+    },
+  );
+  app.get(
     '/api/v1/restaurants/search',
     { config: { rateLimit: { max: 15, timeWindow: '1 minute' } } },
     async (request) => {

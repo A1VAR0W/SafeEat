@@ -4,6 +4,7 @@ import { emailChangeSchema, passwordChangeSchema, profileFieldsSchema } from '@s
 import { api, acceptSession, refresh, useSession } from '../src/session';
 import { queryClient } from '../src/query';
 import { Button, Copy, ErrorNotice, Field, Screen } from '../src/ui';
+import { BirthDateField } from '../src/birth-date-field';
 export default function AccountEdit() {
   const { mode } = useLocalSearchParams<{ mode: 'email' | 'password' | 'complete' }>();
   const { user } = useSession();
@@ -29,7 +30,7 @@ export default function AccountEdit() {
             : passwordChangeSchema.safeParse({ currentPassword, newPassword });
       if (!parsed.success)
         throw new Error(
-          'Revisa los datos. La fecha usa AAAA-MM-DD y la nueva contraseña debe tener al menos 12 caracteres.',
+          'Revisa los datos. Selecciona una fecha válida y usa una contraseña de al menos 12 caracteres.',
         );
       if (mode === 'password' && newPassword !== confirmPassword)
         throw new Error('Las nuevas contraseñas no coinciden.');
@@ -74,13 +75,7 @@ export default function AccountEdit() {
             onChangeText={setLastName}
             maxLength={120}
           />
-          <Field
-            label="Fecha de nacimiento"
-            placeholder="AAAA-MM-DD"
-            value={dateOfBirth}
-            onChangeText={setDateOfBirth}
-            maxLength={10}
-          />
+          <BirthDateField value={dateOfBirth} onChange={setDateOfBirth} />
         </>
       ) : (
         <>

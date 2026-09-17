@@ -9,22 +9,24 @@ const productSchema = z.object({
   brands: z.string().optional(),
   ingredients_text: z.string().optional(),
   ingredients_text_es: z.string().optional(),
+  ingredients_text_en: z.string().optional(),
   allergens_tags: z.array(z.string()).optional(),
   traces_tags: z.array(z.string()).optional(),
   labels_tags: z.array(z.string()).optional(),
   image_front_small_url: z.string().optional(),
+  image_front_thumb_url: z.string().optional(),
   nutriments: z.record(z.string(), z.unknown()).optional(),
   nutrition_grades: z.string().optional(),
 });
 const fields =
-  'code,product_name,product_name_es,brands,ingredients_text,ingredients_text_es,allergens_tags,traces_tags,labels_tags,image_front_small_url,nutriments,nutrition_grades';
+  'code,product_name,product_name_es,brands,ingredients_text,ingredients_text_es,ingredients_text_en,allergens_tags,traces_tags,labels_tags,image_front_small_url,image_front_thumb_url,nutriments,nutrition_grades';
 export function normalizeOff(value: unknown): ExternalProduct | null {
   const result = productSchema.safeParse(value);
   if (!result.success) return null;
   const p = result.data;
   if (!/^\d{8,14}$/.test(p.code)) return null;
   const sourceUrl = `https://world.openfoodfacts.org/product/${p.code}`;
-  const ingredients = p.ingredients_text_es || p.ingredients_text;
+  const ingredients = p.ingredients_text_es || p.ingredients_text || p.ingredients_text_en;
   const n = p.nutriments ?? {};
   const number = (key: string, max: number) =>
     typeof n[key] === 'number' && Number.isFinite(n[key]) && n[key] >= 0 && n[key] <= max
@@ -35,7 +37,11 @@ export function normalizeOff(value: unknown): ExternalProduct | null {
     barcode: p.code,
     name: p.product_name_es || p.product_name || `Producto ${p.code}`,
     brand: p.brands,
-    imageUrl: safeHttpUrl(p.image_front_small_url),
+    imageUrl: safeHttpUrl(p.image_front_small_url || p.image_front_thumb_url),
+    informationSource:
+      ingredients || p.allergens_tags?.length || p.traces_tags?.length || p.labels_tags?.length
+        ? 'api'
+        : 'unknown',
     ingredients,
     gluten: {
       ingredients,
@@ -105,7 +111,8 @@ export class OpenFoodFactsProvider implements ProductProvider {
       q: query,
       langs: 'es,en',
       page_size: '20',
-      fields: 'code,product_name,product_name_es,brands,image_front_small_url',
+      fields:
+        'code,product_name,product_name_es,brands,image_front_thumb_url,image_front_small_url',
     });
     const raw = await providerJson(`${this.searchUrl}/search?${params}`, {
       headers: { 'User-Agent': this.userAgent },
@@ -130,12 +137,14 @@ export function normalizeSearchHit(value: unknown): ExternalProduct | null {
       product_name_es: z.string().optional(),
       brands: z.union([z.string(), z.array(z.string())]).optional(),
       image_front_small_url: z.string().optional(),
+      image_front_thumb_url: z.string().optional(),
     })
     .safeParse(value);
   if (!parsed.success) return null;
   const p = parsed.data;
   const item = normalizeOff({
     ...p,
+    image_front_small_url: p.image_front_thumb_url || p.image_front_small_url,
     brands: Array.isArray(p.brands) ? p.brands.join(', ') : p.brands,
   });
   return item

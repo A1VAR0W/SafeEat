@@ -7,7 +7,6 @@ import { focusManager, onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { queryClient, persister, shouldPersist } from '../src/query';
 import { restoreSession } from '../src/session';
-import { ProfileButton } from '../src/compact';
 import { loadPreferences } from '../src/preferences';
 import { Copy, useReducedMotion, useTheme } from '../src/ui';
 import { useNetInfo } from '@react-native-community/netinfo';
@@ -58,7 +57,6 @@ export default function Layout() {
           headerTintColor: t.text,
           headerShadowVisible: false,
           headerBackTitle: 'Atrás',
-          headerRight: () => <ProfileButton />,
           animation: reduced ? 'none' : 'default',
           contentStyle: { backgroundColor: t.bg },
         }}
