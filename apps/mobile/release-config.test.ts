@@ -25,3 +25,9 @@ it('accepts a verified HTTPS domain with an explicit port', async () => {
   vi.stubEnv('PUBLIC_APP_URL', 'https://example.org:10000');
   expect((await import('./app.config')).default.extra?.apiUrl).toBe('https://example.org:10000');
 });
+it('accepts the isolated preproduction base path', async () => {
+  vi.stubEnv('APP_ENV', 'preproduction');
+  vi.stubEnv('API_PUBLIC_URL', 'https://example.org:10000/preproduction');
+  vi.stubEnv('PUBLIC_APP_URL', 'https://example.org:10000/preproduction');
+  expect((await import('./app.config')).default.extra?.environment).toBe('preproduction');
+});

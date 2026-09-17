@@ -1,6 +1,9 @@
 import type { ExpoConfig } from 'expo/config';
 import { version } from '../../package.json';
-const production = process.env.APP_ENV === 'production' || process.env.APP_ENV === 'preproduction';
+const environment = process.env.APP_ENV ?? 'development';
+if (!['development', 'preproduction', 'production'].includes(environment))
+  throw new Error('Invalid APP_ENV');
+const production = environment !== 'development';
 const apiUrl = process.env.API_PUBLIC_URL ?? 'http://localhost:4000';
 const publicUrl = process.env.PUBLIC_APP_URL ?? 'http://localhost:3000';
 if (
@@ -13,7 +16,8 @@ if (
         u.protocol === 'https:' &&
         !u.username &&
         !u.password &&
-        u.pathname === '/' &&
+        (u.pathname === '/' ||
+          (environment === 'preproduction' && u.pathname === '/preproduction')) &&
         !u.search &&
         !u.hash &&
         !/^(localhost|.*\.localhost|.*\.local|.*\.lan|\d+\.\d+\.\d+\.\d+|\[.*\])$/i.test(
@@ -82,6 +86,6 @@ const config: ExpoConfig = {
       },
     ],
   ],
-  extra: { apiUrl, publicUrl, environment: process.env.APP_ENV ?? 'development' },
+  extra: { apiUrl, publicUrl, environment },
 };
 export default config;

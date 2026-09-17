@@ -1,4 +1,8 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 const mocks = vi.hoisted(() => ({
   stored: null as string | null,
   clear: vi.fn(async () => {}),
@@ -18,6 +22,9 @@ vi.mock('expo-constants', () => ({
   default: { expoConfig: { extra: { apiUrl: 'https://example.org' } } },
 }));
 vi.mock('./query', () => ({ clearPrivateCache: mocks.clear }));
+vi.mock('@react-native-community/netinfo', () => ({
+  default: { fetch: async () => ({ isConnected: true, isInternetReachable: true }) },
+}));
 const session = (n: number) => ({
   user: {
     id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -41,6 +48,26 @@ it('omits JSON content type for bodyless favorites and account deletion', async 
   await s.api('/auth/me', { method: 'DELETE' }, true);
   for (const [, init] of mocks.fetch.mock.calls)
     expect(init.headers['Content-Type']).toBeUndefined();
+});
+it('sends requests on React Native where AbortSignal.timeout is unavailable', async () => {
+  vi.stubGlobal('AbortSignal', {});
+  const s = await import('./session');
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ environment: 'production' })));
+  expect(await s.api('/meta')).toEqual({ environment: 'production' });
+  expect(mocks.fetch).toHaveBeenCalledTimes(1);
+});
+it('reports request timeout separately from an HTTP or authentication error', async () => {
+  const s = await import('./session');
+  vi.useFakeTimers();
+  mocks.fetch.mockImplementation(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      }),
+  );
+  const pending = expect(s.api('/meta')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' });
+  await vi.advanceTimersByTimeAsync(15000);
+  await pending;
 });
 it('coalesces concurrent refresh and recovers after missing credentials', async () => {
   const s = await import('./session');

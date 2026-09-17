@@ -50,6 +50,11 @@ export async function clearPrivateCache() {
   queryClient.setQueryData<Product[]>(['recent'], (items) => items?.filter((p) => !p.userCreated));
   await persister.removeClient();
 }
+export async function clearAllCache() {
+  await queryClient.cancelQueries();
+  queryClient.clear();
+  await persister.removeClient();
+}
 export function shouldPersist(query: { queryKey: readonly unknown[]; state: { status: string } }) {
   return (
     query.state.status === 'success' &&

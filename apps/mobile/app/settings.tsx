@@ -1,13 +1,36 @@
 import { useState } from 'react';
 import { Appearance } from 'react-native';
 import { Button, Card, Copy, ErrorNotice, Screen, Title } from '../src/ui';
-import { clearPrivateCache } from '../src/query';
+import { clearAllCache } from '../src/query';
+import { api } from '../src/session';
+import Constants from 'expo-constants';
 export default function Settings() {
   const [error, setError] = useState<unknown>(null);
   const [cleared, setCleared] = useState(false);
+  const [connection, setConnection] = useState('');
   return (
     <Screen>
       <Title>A tu manera</Title>
+      <Button
+        secondary
+        title="Comprobar conexión con SafeEat"
+        onPress={() => {
+          setConnection('Comprobando…');
+          void api<{ environment: string; version: string }>('/meta')
+            .then((meta) => {
+              const expected = Constants.expoConfig?.extra?.environment;
+              setConnection(
+                meta.environment === expected
+                  ? `Conexión correcta · ${meta.environment} · ${meta.version}`
+                  : `El servidor responde como ${meta.environment}; esta app es ${expected}. Instala la versión correspondiente.`,
+              );
+            })
+            .catch((e: unknown) =>
+              setConnection(e instanceof Error ? e.message : 'No se puede contactar con SafeEat.'),
+            );
+        }}
+      />
+      {!!connection && <Copy>{connection}</Copy>}
       <Copy bold>Apariencia</Copy>
       <Button secondary title="Sistema" onPress={() => Appearance.setColorScheme('unspecified')} />
       <Button secondary title="Modo claro" onPress={() => Appearance.setColorScheme('light')} />
@@ -32,7 +55,7 @@ export default function Settings() {
         secondary
         title="Borrar información guardada en este dispositivo"
         onPress={() => {
-          void clearPrivateCache()
+          void clearAllCache()
             .then(() => setCleared(true))
             .catch(setError);
         }}

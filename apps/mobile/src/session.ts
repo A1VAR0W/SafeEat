@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import NetInfo from '@react-native-community/netinfo';
 import { SessionSchema, type Session, type User } from '@safeeat/contracts';
 import { es } from './i18n';
 import { clearPrivateCache } from './query';
@@ -43,17 +44,36 @@ export function useSession() {
 }
 async function raw(path: string, init: RequestInit = {}) {
   let response: Response;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 15000);
   try {
     response = await fetch(`${apiUrl}/api/v1${path}`, {
       ...init,
-      signal: AbortSignal.timeout(15000),
+      signal: controller.signal,
       headers: {
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
     });
-  } catch {
-    throw new RequestError('NETWORK_UNAVAILABLE', es.network);
+  } catch (error) {
+    if (timedOut || (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)))
+      throw new RequestError(
+        'REQUEST_TIMEOUT',
+        'SafeEat tarda demasiado en responder. Inténtalo de nuevo.',
+      );
+    const network = await NetInfo.fetch().catch(() => null);
+    if (network?.isConnected === false || network?.isInternetReachable === false)
+      throw new RequestError('OFFLINE', es.network);
+    throw new RequestError(
+      'CONNECTION_FAILED',
+      'No se puede establecer una conexión segura con SafeEat. Comprueba tu conexión e inténtalo de nuevo.',
+    );
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
