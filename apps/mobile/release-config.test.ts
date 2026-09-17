@@ -29,5 +29,10 @@ it('accepts the isolated preproduction base path', async () => {
   vi.stubEnv('APP_ENV', 'preproduction');
   vi.stubEnv('API_PUBLIC_URL', 'https://example.org:10000/preproduction');
   vi.stubEnv('PUBLIC_APP_URL', 'https://example.org:10000/preproduction');
-  expect((await import('./app.config')).default.extra?.environment).toBe('preproduction');
+  const config = (await import('./app.config')).default;
+  expect(config.extra?.environment).toBe('preproduction');
+  expect(config.android?.intentFilters?.[0]?.data).toEqual([
+    { scheme: 'https', host: 'example.org', pathPrefix: '/preproduction/p/' },
+    { scheme: 'https', host: 'example.org', pathPrefix: '/preproduction/r/' },
+  ]);
 });

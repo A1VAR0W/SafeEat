@@ -31,6 +31,7 @@ if (
     'Native release requires public HTTPS origins in API_PUBLIC_URL and PUBLIC_APP_URL',
   );
 const host = new URL(publicUrl).hostname;
+const publicPath = new URL(publicUrl).pathname.replace(/\/$/, '');
 const config: ExpoConfig = {
   name: 'SafeEat',
   slug: 'safeeat',
@@ -60,8 +61,8 @@ const config: ExpoConfig = {
             action: 'VIEW',
             autoVerify: true,
             data: [
-              { scheme: 'https', host, pathPrefix: '/p/' },
-              { scheme: 'https', host, pathPrefix: '/r/' },
+              { scheme: 'https', host, pathPrefix: `${publicPath}/p/` },
+              { scheme: 'https', host, pathPrefix: `${publicPath}/r/` },
             ],
             category: ['BROWSABLE', 'DEFAULT'],
           },

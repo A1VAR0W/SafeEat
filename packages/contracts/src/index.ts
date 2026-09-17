@@ -130,8 +130,11 @@ export function parseShareLink(
   try {
     const url = new URL(value);
     const custom = url.protocol === 'safeeat:';
-    if (!custom && url.origin !== new URL(publicAppUrl).origin) return null;
-    const path = custom ? `/${url.hostname}${url.pathname}` : url.pathname;
+    const base = new URL(publicAppUrl);
+    if (!custom && url.origin !== base.origin) return null;
+    const prefix = base.pathname.replace(/\/$/, '');
+    if (!custom && !url.pathname.startsWith(`${prefix}/`)) return null;
+    const path = custom ? `/${url.hostname}${url.pathname}` : url.pathname.slice(prefix.length);
     const match = /^\/(p|r)\/([a-f0-9]{48})$/.exec(path);
     return match ? { type: match[1] === 'p' ? 'product' : 'restaurant', token: match[2]! } : null;
   } catch {
