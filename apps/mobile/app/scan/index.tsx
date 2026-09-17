@@ -69,7 +69,7 @@ export default function Scan() {
     }
   }
   return (
-    <View style={{ flex: 1, backgroundColor: '#101815' }}>
+    <View style={{ flex: 1, backgroundColor: t.brandDeep }}>
       {permission?.granted && active && foreground && !busy && !error && !manualOpen && (
         <CameraView
           style={StyleSheet.absoluteFill}
@@ -102,7 +102,7 @@ export default function Scan() {
               maxWidth: 320,
               height: 140,
               borderWidth: 2,
-              borderColor: busy ? '#AAE5B9' : '#FFFFFF',
+              borderColor: busy ? t.brandLime : '#FFFFFF',
               borderRadius: 24,
             }}
           />

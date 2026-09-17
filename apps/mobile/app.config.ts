@@ -36,6 +36,12 @@ const config: ExpoConfig = {
   name: 'SafeEat',
   slug: 'safeeat',
   version,
+  icon: './assets/icon.png',
+  splash: {
+    image: './assets/safeeat-splash.png',
+    resizeMode: 'contain',
+    backgroundColor: '#F5F9F4',
+  },
   platforms: ['ios', 'android'],
   scheme: 'safeeat',
   orientation: 'portrait',
@@ -50,6 +56,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.a1var0w.safeeat',
+    adaptiveIcon: {
+      foregroundImage: './assets/safeeat-adaptive-foreground.png',
+      backgroundColor: '#006B4E',
+    },
     versionCode: Number(process.env.BUILD_NUMBER ?? 1),
     allowBackup: false,
     blockedPermissions: [

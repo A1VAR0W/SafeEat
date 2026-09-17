@@ -27,13 +27,15 @@ export function useTheme() {
   return {
     dark,
     textScale: textScales[preferences.textSize],
-    bg: dark ? '#101815' : '#F4F7F3',
-    card: dark ? '#1B2721' : '#FFFFFF',
-    text: dark ? '#F0F6F1' : '#173C2A',
-    muted: dark ? '#AABCAF' : '#5B6D60',
-    line: dark ? '#35483B' : '#DCE5DD',
-    accent: dark ? '#AAE5B9' : '#245F3D',
-    onAccent: dark ? '#11301D' : '#FFFFFF',
+    bg: dark ? '#071C16' : '#F5F9F4',
+    card: dark ? '#102B22' : '#FFFFFF',
+    text: dark ? '#F0F8F0' : '#064B39',
+    muted: dark ? '#B2C5B9' : '#557368',
+    line: dark ? '#2C5141' : '#D8E8DE',
+    accent: dark ? '#7AC943' : '#087653',
+    onAccent: dark ? '#062318' : '#FFFFFF',
+    brandDeep: '#006B4E',
+    brandLime: '#7AC943',
     danger: dark ? '#FFB4A8' : '#A02D22',
   };
 }

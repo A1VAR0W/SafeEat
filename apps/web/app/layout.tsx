@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import Image from 'next/image';
 import './style.css';
 export const metadata: Metadata = {
   title: 'SafeEat · La información que necesitas',
@@ -13,7 +14,14 @@ export default function Layout({ children }: { children: ReactNode }) {
       <body>
         <header>
           <a className="brand" href={`${base}/`}>
-            ◒ SafeEat
+            <Image src={`${base}/brand/safeeat-mark.png`} alt="" width={34} height={34} priority />
+            <Image
+              src={`${base}/brand/safeeat-wordmark.png`}
+              alt="SafeEat"
+              width={118}
+              height={26}
+              priority
+            />
           </a>
           <span>Conoce lo que comes.</span>
         </header>

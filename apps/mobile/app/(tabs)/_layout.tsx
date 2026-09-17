@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ProfileButton } from '../../src/compact';
+import { BrandHeader } from '../../src/brand';
 import { useTheme } from '../../src/ui';
 export default function TabLayout() {
   const t = useTheme();
@@ -8,7 +9,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
-        headerTitle: 'SafeEat',
+        headerTitle: () => <BrandHeader />,
         headerRight: () => <ProfileButton />,
         headerRightContainerStyle: { paddingRight: 16 },
         headerStyle: { backgroundColor: t.bg },

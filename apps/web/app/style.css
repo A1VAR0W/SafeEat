@@ -5,8 +5,8 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
-  color: #193c2b;
-  background: #f4f7f2;
+  color: #064b39;
+  background: #f5f9f4;
   color-scheme: light dark;
 }
 * {
@@ -33,10 +33,13 @@ header span {
   color: #637466;
 }
 .brand {
-  font-size: 23px;
-  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   text-decoration: none;
-  color: inherit;
+}
+.brand img:first-child {
+  border-radius: 9px;
 }
 main {
   min-height: 65vh;
@@ -102,7 +105,7 @@ p {
   justify-content: center;
   padding: 17px 24px;
   min-height: 52px;
-  background: #245e3d;
+  background: #087653;
   color: white;
   border-radius: 16px;
   font-weight: 700;
@@ -142,7 +145,7 @@ p {
   margin: 0;
 }
 a {
-  color: #245e3d;
+  color: #087653;
 }
 footer {
   padding: 36px 0;
@@ -166,28 +169,28 @@ a:focus-visible {
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    background: #101815;
-    color: #f0f6f1;
+    background: #071c16;
+    color: #f0f8f0;
   }
   .card {
-    background: #1b2721;
+    background: #102b22;
   }
   .muted,
   .lede,
   .eyebrow,
   header span,
   footer {
-    color: #aec2b1;
+    color: #b2c5b9;
   }
   a {
-    color: #b4e6c0;
+    color: #9edc6f;
   }
   .button {
-    background: #a5ddb6;
-    color: #143020;
+    background: #7ac943;
+    color: #062318;
   }
   .assessment {
-    border-color: #85c49c;
+    border-color: #7ac943;
   }
   .notice {
     background: #3d301b;
