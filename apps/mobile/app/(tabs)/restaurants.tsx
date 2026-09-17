@@ -103,7 +103,7 @@ export default function Restaurants() {
             {search.isFetching && <Skeleton />}
             {search.error && (
               <ErrorNotice error={search.error} retry={() => void search.refetch()} />
-            )}{' '}
+            )}
             {search.isSuccess && !search.data.items.length && (
               <Copy>No se han encontrado restaurantes. Prueba otra búsqueda.</Copy>
             )}

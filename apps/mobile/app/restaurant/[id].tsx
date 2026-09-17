@@ -17,7 +17,7 @@ export default function RestaurantDetail() {
   return (
     <Screen>
       {query.isPending && <Skeleton />}
-      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}{' '}
+      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}
       {r && (
         <>
           <Title>{r.name}</Title>

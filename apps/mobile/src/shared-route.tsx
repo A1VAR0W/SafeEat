@@ -15,7 +15,7 @@ export function SharedRoute({ type }: { type: 'product' | 'restaurant' }) {
   return (
     <Screen>
       {query.isPending && <Skeleton />}
-      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}{' '}
+      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}
       {data && data.type === type && (
         <>
           <Title>{data.item.name}</Title>

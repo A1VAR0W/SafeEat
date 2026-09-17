@@ -33,7 +33,7 @@ export default function ProductDetail() {
   }, [p, shareToken]);
   return (
     <Screen>
-      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}{' '}
+      {query.error && <ErrorNotice error={query.error} retry={() => void query.refetch()} />}
       {!p && query.isPending && <Skeleton />}
       {p && (
         <>
