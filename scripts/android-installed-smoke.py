@@ -65,13 +65,22 @@ def tap(label, field=False):
 def fill(label, value):
     tap(label, field=True)
     # Values are generated alphanumeric credentials; never printed or stored in artifacts.
-    adb("shell", "input", "text", value)
+    # A single input-text burst can outrun controlled React Native TextInput updates.
+    # Send settled keystrokes as a person would, then verify the complete non-secret value.
+    for character in value:
+        adb("shell", "input", "text", character)
+        time.sleep(0.05)
     adb("shell", "input", "keyevent", "4")
+    snapshot("filled")
+    node = next(n for n in ET.parse(OUT / "filled.xml").iter()
+                if "EditText" in n.get("class", "") and n.get("content-desc") == label)
+    if node.get("password") != "true":
+        assert node.get("text") == value, f"Input automation did not fill {label} completely"
 
 
 environment = json.loads(pathlib.Path("artifacts/SafeEat-environment.json").read_text())
 origin = environment["apiUrl"]
-credentials = {"email": f"apk-{uuid.uuid4()}@example.org", "password": secrets.token_hex(16)}
+credentials = {"email": f"apk-{uuid.uuid4().hex[:12]}@example.org", "password": secrets.token_hex(16)}
 server_session = None
 checks = []
 
