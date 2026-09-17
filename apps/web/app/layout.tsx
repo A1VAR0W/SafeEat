@@ -7,11 +7,12 @@ export const metadata: Metadata = {
     'Consulta ingredientes, evidencias sobre gluten y calidad nutricional de forma independiente.',
 };
 export default function Layout({ children }: { children: ReactNode }) {
+  const base = process.env.WEB_BASE_PATH || '';
   return (
     <html lang="es">
       <body>
         <header>
-          <a className="brand" href="/">
+          <a className="brand" href={`${base}/`}>
             ◒ SafeEat
           </a>
           <span>Conoce lo que comes.</span>
@@ -20,7 +21,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         <footer>
           SafeEat · Comprueba siempre la etiqueta actual.
           <br />
-          <a href="/privacy">Privacidad</a> · <a href="/sources">Fuentes y metodología</a>
+          <a href={`${base}/privacy`}>Privacidad</a> ·{' '}
+          <a href={`${base}/sources`}>Fuentes y metodología</a>
         </footer>
       </body>
     </html>

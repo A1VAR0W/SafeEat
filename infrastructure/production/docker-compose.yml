@@ -1,4 +1,4 @@
-name: safeeat
+name: ${COMPOSE_PROJECT_NAME:-safeeat}
 services:
   postgres:
     image: postgres:17.9-alpine
@@ -20,9 +20,10 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/production/api.Dockerfile
-    env_file: .env
+    env_file: ${SAFEEAT_ENV_FILE:-.env}
     environment:
       NODE_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       PORT: 4000
       TRUST_PROXY: 1
       DATABASE_URL: postgres://safeeat:${POSTGRES_PASSWORD:?required}@postgres:5432/safeeat
@@ -41,9 +42,12 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/production/web.Dockerfile
+      args:
+        WEB_BASE_PATH: ${WEB_BASE_PATH:-}
     environment:
       API_INTERNAL_URL: http://api:4000
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?required}
+      WEB_BASE_PATH: ${WEB_BASE_PATH:-}
       APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
       ANDROID_SHA256_FINGERPRINTS: ${ANDROID_SHA256_FINGERPRINTS:-}
     ports: ['127.0.0.1:${WEB_PORT:-3100}:3000']

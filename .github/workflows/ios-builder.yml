@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '22.22.3', cache: npm }
       - run: npm ci
+      - name: Verify public release environment
+        run: mkdir -p artifacts && node scripts/check-native-environment.mjs
       - run: npm run typecheck
       - run: npx expo prebuild --platform ios --no-install
         working-directory: apps/mobile
@@ -45,6 +47,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SafeEat-iOS-unsigned-${{ inputs.target_environment || 'preproduction' }}
-          path: artifacts/SafeEat-*.ipa*
+          path: artifacts/SafeEat-*
           if-no-files-found: error
           retention-days: 14

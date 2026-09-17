@@ -43,6 +43,8 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
+      - name: Verify public release environment
+        run: mkdir -p artifacts && node scripts/check-native-environment.mjs
       - run: npm run typecheck
       - run: npx expo prebuild --platform android --no-install
         working-directory: apps/mobile

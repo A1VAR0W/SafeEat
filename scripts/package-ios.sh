@@ -3,6 +3,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 version="$(node -p "require('./package.json').version")"
+artifact="SafeEat-$version-${APP_ENV:?required}"
 app="$root/build/DerivedData/Build/Products/Release-iphoneos/SafeEat.app"
 test -d "$app"
 plist="$app/Info.plist"
@@ -13,10 +14,10 @@ package="$(mktemp -d)"
 trap 'rm -rf "$package"' EXIT
 mkdir -p "$package/Payload" "$root/artifacts"
 ditto "$app" "$package/Payload/SafeEat.app"
-(cd "$package" && ditto -c -k --sequesterRsrc --keepParent Payload "$root/artifacts/SafeEat-$version.ipa")
+(cd "$package" && ditto -c -k --sequesterRsrc --keepParent Payload "$root/artifacts/$artifact.ipa")
 cd "$root/artifacts"
-test -s "SafeEat-$version.ipa"
-unzip -tq "SafeEat-$version.ipa"
-unzip -Z1 "SafeEat-$version.ipa" > "$package/entries.txt"
+test -s "$artifact.ipa"
+unzip -tq "$artifact.ipa"
+unzip -Z1 "$artifact.ipa" > "$package/entries.txt"
 grep -Fxq 'Payload/SafeEat.app/Info.plist' "$package/entries.txt"
-shasum -a 256 "SafeEat-$version.ipa" > "SafeEat-$version.ipa.sha256"
+shasum -a 256 "$artifact.ipa" > "$artifact.ipa.sha256"

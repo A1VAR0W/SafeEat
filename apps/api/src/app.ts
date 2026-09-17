@@ -15,6 +15,7 @@ import { restaurantService } from './modules/restaurants';
 import { favoriteRoutes } from './modules/favorites';
 import { sharingRoutes } from './modules/sharing';
 import { ApiError } from './plugins/errors';
+import { version } from '../../../package.json';
 export async function createApp(
   env: Env,
   options: {
@@ -52,7 +53,7 @@ export async function createApp(
     disableRequestLogging: true,
   });
   await app.register(cors, {
-    origin: env.PUBLIC_APP_URL,
+    origin: new URL(env.PUBLIC_APP_URL).origin,
     methods: ['GET', 'POST', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
@@ -108,7 +109,9 @@ export async function createApp(
     if (request.url.startsWith('/api/')) reply.header('Cache-Control', 'no-store');
     return payload;
   });
-  app.get('/health', async () => ({ status: 'ok' }));
+  const metadata = () => ({ status: 'ok', environment: env.APP_ENV, version });
+  app.get('/health', async () => metadata());
+  app.get('/api/v1/meta', async () => metadata());
   app.get('/ready', async (_request, reply) => {
     try {
       await db.query('SELECT 1');

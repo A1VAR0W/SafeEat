@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 const config: NextConfig = {
   output: 'standalone',
+  basePath: process.env.WEB_BASE_PATH || '',
   transpilePackages: ['@safeeat/contracts'],
   poweredByHeader: false,
   async headers() {

@@ -6,6 +6,11 @@ on:
         description: Successful Android Builder run to install
         required: true
         type: string
+      target_environment:
+        type: choice
+        options: [production, preproduction]
+        default: production
+        description: Installed build environment
 permissions:
   contents: read
   actions: read
@@ -15,12 +20,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Download the actual preproduction APK
+      - name: Download the actual Release APK
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
         run: |
-          gh run download "$BUILD_RUN_ID" --name SafeEat-Android-preproduction --dir artifacts
+          gh run download "$BUILD_RUN_ID" --name "SafeEat-Android-$TARGET_ENVIRONMENT" --dir artifacts
           cd artifacts
           sha256sum -c SafeEat-*.apk.sha256
       - name: Enable emulator acceleration
