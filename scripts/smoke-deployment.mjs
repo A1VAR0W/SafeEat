@@ -104,9 +104,20 @@ try {
     await r.json();
   }
   record('Association endpoints (configuration checked separately)');
-  const restaurant = await request('/api/v1/restaurants/search?q=Madrid', { expected: 503 });
-  assert.equal(restaurant.error.code, 'RESTAURANT_PROVIDER_NOT_CONFIGURED');
-  record('Unconfigured restaurant provider returns a clean 503');
+  const restaurantResponse = await fetch(`${origin}/api/v1/restaurants/search?q=Madrid`, {
+    signal: AbortSignal.timeout(20000),
+  });
+  const restaurant = await restaurantResponse.json();
+  if (
+    restaurantResponse.status === 503 &&
+    restaurant.error?.code === 'RESTAURANT_PROVIDER_NOT_CONFIGURED'
+  ) {
+    record('Unconfigured restaurant provider returns a clean 503');
+  } else {
+    assert.equal(restaurantResponse.status, 200);
+    assert.ok(Array.isArray(restaurant.items));
+    record('Configured restaurant search');
+  }
   try {
     const p = await request('/api/v1/products/barcode/3017620422003');
     assert.ok(p.assessment.evidence && p.assessment.reasons && p.quality);

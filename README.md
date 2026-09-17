@@ -58,7 +58,7 @@ PowerShell: `$env:TEST_DATABASE_URL='postgres://.../safeeat_test'`, then `npm ru
 
 ## Providers and safety
 
-[Open Food Facts](https://openfoodfacts.github.io/openfoodfacts-server/api/) uses product API v3 and the documented legacy full-text search endpoint. Requests identify SafeEat, use an 8-second timeout and enforce 14 product reads / 8 searches per minute, under published limits. Products are cached for 24 hours. A stale record may be returned on provider failure, explicitly marked stale. A 404, network failure and provider failure are distinct. Searches require submission; no search-as-you-type. Production operators should register their app with OFF and set a contact in `OPENFOODFACTS_USER_AGENT`.
+[Open Food Facts](https://openfoodfacts.github.io/openfoodfacts-server/api/) uses product API v3 and the official [Search-a-licious API](https://openfoodfacts.github.io/search-a-licious/users/ref-openapi/). Search-index summaries are marked stale, carry no safety/nutrition claims and never overwrite full product data; opening a summary fetches its current product record. Requests identify SafeEat, use an 8-second timeout and enforce 14 product reads / 8 searches per minute. Full products are cached for 24 hours. A stale record may be returned on provider failure, explicitly marked stale. A 404, network failure and provider failure are distinct. Searches require submission; no search-as-you-type. Production operators should register their app with OFF and set a contact in `OPENFOODFACTS_USER_AGENT`.
 
 OFF data is community-supplied (ODbL), contents DbCL, images CC BY-SA. Provider data stays separate from personal labels. Preserve attribution and applicable share-alike obligations when redistributing the cached database.
 
@@ -92,4 +92,4 @@ Configure `PUBLIC_APP_URL` once, without a path. API can share the same HTTPS ho
 
 ## Deployment
 
-Use `bash scripts/deploy-server.sh` in an isolated checkout; read [the server guide](infrastructure/production/README.md). PostgreSQL has no published production port; API and web bind only to loopback. Nginx terminates HTTPS. Do not expose local development servers or PostgreSQL. Never replace unrelated infrastructure.
+Use `bash scripts/deploy-server.sh` in an isolated checkout; read [the server guide](infrastructure/production/README.md). PostgreSQL has no published production port; API and web bind only to loopback. Current public preproduction is [SafeEat](https://chat-ink.tail552c89.ts.net:10000), using Tailscale TLS termination and a separate loopback Nginx ingress. DuckDNS production remains pending. Do not expose local development servers or PostgreSQL or replace unrelated infrastructure.
