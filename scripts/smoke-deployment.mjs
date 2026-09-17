@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 const origin = process.argv[2];
+const environment = process.argv[3];
 if (!origin || new URL(origin).protocol !== 'https:')
   throw new Error('Supply the HTTPS deployment origin');
 const checks = [];
@@ -33,6 +34,9 @@ try {
     await request(path);
     record(path);
   }
+  const metadata = await request('/api/v1/meta');
+  if (environment) assert.equal(metadata.environment, environment);
+  record(`Environment: ${metadata.environment}, version: ${metadata.version}`);
   session = await request('/api/v1/auth/register', {
     method: 'POST',
     body: credentials,
@@ -83,7 +87,7 @@ try {
     expected: 201,
   });
   assert.match(share.token, /^[a-f0-9]{48}$/);
-  assert.equal(new URL(share.url).origin, origin);
+  assert.equal(share.url, `${origin}/p/${share.token}`);
   const publicLabel = await request(`/api/v1/public/shares/${share.token}`);
   assert.ok(!JSON.stringify(publicLabel).includes(credentials.email));
   assert.ok(!JSON.stringify(publicLabel).includes(session.user.id));
@@ -131,8 +135,11 @@ try {
       productShare.url,
     );
     const search = await request('/api/v1/products/search?q=arroz');
-    assert.ok(Array.isArray(search.items));
-    record('Live Open Food Facts search');
+    assert.ok(search.items.length > 0);
+    assert.ok(search.items.every((item) => item.assessment.status === 'UNKNOWN'));
+    const full = await request(`/api/v1/products/${search.items[0].id}`);
+    assert.ok(full.assessment.evidence && full.assessment.reasons && full.quality);
+    record('Live Open Food Facts search summaries remain UNKNOWN; selected full product retrieved');
   } catch (error) {
     record('Live Open Food Facts', 'BLOCKED EXTERNALLY', error.message);
   }
@@ -152,7 +159,7 @@ try {
     });
   await mkdir('.local', { recursive: true });
   await writeFile(
-    '.local/deployment-validation.json',
+    `.local/deployment-validation${environment ? `-${environment}` : ''}.json`,
     JSON.stringify({ at: new Date().toISOString(), origin, checks, productShare }, null, 2),
   );
 }

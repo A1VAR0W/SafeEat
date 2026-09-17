@@ -36,7 +36,7 @@ PowerShell users can use `Copy-Item .env.example .env` instead of `cp`. Set vari
 - `apps/web`: Next.js public viewers, Open Graph metadata, privacy/methodology and association endpoints.
 - `packages/contracts`: shared Zod schemas; `packages/gluten-engine` and `packages/nutrition-engine`: pure deterministic TypeScript.
 
-One API process, one PostgreSQL database, one Next.js process. No Redis. Provider budgets are process-local, so do not scale API replicas without implementing a shared provider rate budget.
+Each deployed environment has one API process, one private PostgreSQL database and one Next.js process. Production and preproduction use separate Docker Compose projects, volumes and secrets. No Redis. Provider budgets are process-local, so do not scale API replicas without implementing a shared provider rate budget.
 
 ## Validation
 
@@ -74,15 +74,17 @@ Public share tokens have 192 bits of randomness. Public provider shares carry no
 
 ## Android and iOS builders
 
-`.github/workflows/android-builder.yml` creates `SafeEat-0.1.0.apk`, `.aab` and SHA-256 files. Preproduction uses Expo's testing signing key; it is installable, not for Play publication. Enable `production_signing` and provide `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` in the selected GitHub Environment for production signing. Keystores are never committed.
+`.github/workflows/android-builder.yml` creates `SafeEat-0.1.0-production.apk` / `SafeEat-0.1.0-preproduction.apk`, corresponding AABs and SHA-256 files. Both current public-testing channels use Expo's testing signing key; they are installable, not for Play publication. Enable `production_signing` and provide `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` in the selected GitHub Environment for final signing. Keystores are never committed.
 
-`.github/workflows/ios-builder.yml` creates `SafeEat-0.1.0.ipa` and SHA-256, with `Payload/SafeEat.app`, using `CODE_SIGNING_ALLOWED=NO`. This requires later signing (for example through SideStore); it is not an App Store archive. App Store distribution is separate. Version comes from the root package; build number from the workflow run.
+`.github/workflows/ios-builder.yml` creates `SafeEat-0.1.0-production.ipa` / `SafeEat-0.1.0-preproduction.ipa` and SHA-256, with `Payload/SafeEat.app`, using `CODE_SIGNING_ALLOWED=NO`. This requires later signing (for example through SideStore); it is not an App Store archive. Version comes from the root package; build number from the workflow run. Both channels retain bundle/package ID `com.a1var0w.safeeat`, so install one channel at a time.
 
-Both workflows use `workflow_dispatch`/`workflow_call`, lockfile installation, native prebuild and artifact validation. Configure `API_PUBLIC_URL` and `PUBLIC_APP_URL` in GitHub Environments `preproduction` / `production`. They must be HTTPS. See [deployment](infrastructure/production/README.md) and [validation status](docs/VALIDATION.md).
+Both workflows use `workflow_dispatch`/`workflow_call` with `target_environment`, lockfile installation, native prebuild and artifact validation. They explicitly set `APP_ENV` and read `API_PUBLIC_URL` / `PUBLIC_APP_URL` from GitHub Environments. Release configuration rejects missing, local, IP or non-HTTPS URLs. A public preflight checks the API's actual environment and web health; the final APK/IPA is inspected to confirm its embedded URLs and standalone JavaScript bundle. There is no Metro dependency. See [deployment](infrastructure/production/README.md) and [executed validation and artifact links](docs/VALIDATION.md).
+
+The installed-app connectivity failure was caused by `AbortSignal.timeout`, which the React Native abort-controller implementation does not provide. Requests now use an ordinary AbortController plus a cleared timer, with regression coverage for that native limitation. Settings provides a connection check showing the server environment/version; offline, timeout, secure-connection failure, HTTP and authentication errors remain distinct.
 
 ## Sharing and deep links
 
-Configure `PUBLIC_APP_URL` once, without a path. API can share the same HTTPS host under `/api/v1`.
+Configure `PUBLIC_APP_URL` once. Production uses the root origin; the isolated preproduction deployment uses `/preproduction`. API endpoints append `/api/v1` to the environment's base URL.
 
 - `https://<host>/p/<token>` and `/r/<token>` work without login.
 - iOS: set `APPLE_TEAM_ID` on web, sign with the matching team and associated-domain entitlement. Unsigned IPA alone cannot establish Universal Links.
@@ -92,4 +94,12 @@ Configure `PUBLIC_APP_URL` once, without a path. API can share the same HTTPS ho
 
 ## Deployment
 
-Use `bash scripts/deploy-server.sh` in an isolated checkout; read [the server guide](infrastructure/production/README.md). PostgreSQL has no published production port; API and web bind only to loopback. Current public preproduction is [SafeEat](https://chat-ink.tail552c89.ts.net:10000), using Tailscale TLS termination and a separate loopback Nginx ingress. DuckDNS production remains pending. Do not expose local development servers or PostgreSQL or replace unrelated infrastructure.
+Current status: **PROVISIONAL PRODUCTION / PUBLIC TESTING** through persistent Tailscale Funnel. These URLs are publicly reachable without a Tailnet account:
+
+| Environment   | Web / API base URL                                       | Storage                               |
+| ------------- | -------------------------------------------------------- | ------------------------------------- |
+| Development   | `http://localhost:3000` / `http://localhost:4000`        | Local development Compose             |
+| Preproduction | `https://chat-ink.tail552c89.ts.net:10000/preproduction` | `safeeat-preproduction_postgres-data` |
+| Production    | `https://chat-ink.tail552c89.ts.net:10000`               | `safeeat_postgres-data`               |
+
+Production API: [metadata](https://chat-ink.tail552c89.ts.net:10000/api/v1/meta), with endpoints under `/api/v1`. Use `bash scripts/deploy-server.sh` for production or supply the absolute `preproduction.env` path for preproduction; read [the server guide](infrastructure/production/README.md). Both databases are private and persistent; API/web bind only to loopback. DuckDNS production remains pending external WAN ingress/TLS setup. Existing Chat-Ink routes are preserved.
