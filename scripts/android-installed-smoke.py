@@ -51,7 +51,8 @@ def tap(label, field=False):
             content = node.get("content-desc", "")
             text = node.get("text", "")
             matches = content == label or text == label or (not field and label in content)
-            kind = "EditText" in node.get("class", "") if field else node.get("clickable") == "true"
+            kind = ("EditText" in node.get("class", "") if field else
+                    node.get("clickable") == "true" and "EditText" not in node.get("class", ""))
             if matches and kind and node.get("enabled") == "true":
                 x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
                 adb("shell", "input", "tap", str((x1+x2)//2), str((y1+y2)//2))
