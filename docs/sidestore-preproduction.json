@@ -1,7 +1,7 @@
 {
   "name": "SafeEat Preproducción",
   "identifier": "org.safeeat.preproduction",
-  "sourceURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/preproduction.json",
+  "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
   "apps": [
     {
       "name": "SafeEat Preproducción",
@@ -15,16 +15,7 @@
       "version": "0.2.0",
       "versionDate": "2026-09-18",
       "versionDescription": "V2 de preproducción con la nueva identidad visual.",
-      "size": 12801984,
-      "versions": [
-        {
-          "version": "0.2.0",
-          "date": "2026-09-18",
-          "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-0.2.0-preproduction.ipa",
-          "size": 12801984,
-          "localizedDescription": "V2 de preproducción con la nueva identidad visual."
-        }
-      ]
+      "size": 12801984
     }
   ]
 }

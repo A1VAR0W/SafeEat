@@ -22,6 +22,8 @@ Deploy preproduction with `bash scripts/deploy-server.sh /opt/safeeat/infrastruc
 
 `nginx-funnel.conf` is installed as `/etc/nginx/conf.d/safeeat-funnel.conf`. It listens only on `127.0.0.1:5100`, requires PROXY protocol v1, and overwrites forwarded client headers using trusted local connection metadata. The matching Tailscale configuration is:
 
+The `/safeeat-downloads/` location serves SideStore and LiveContainer source JSON, the icon and unsigned IPA files from `/var/www/safeeat-downloads/`. Publish the reviewed source files from `docs/sidestore-*.json` as `production.json` and `preproduction.json`, copy `production.json` to `safeeat.json`, and upload the matching IPA and `safeeat-mark.png`. Validate Nginx and the public JSON, PNG and IPA responses after each update. The JSON uses classic AltStore fields for both clients, and Nginx sends the correct media types with `Cache-Control: no-store`.
+
 ```sh
 sudo nginx -t && sudo systemctl reload nginx
 sudo tailscale funnel --bg --tls-terminated-tcp=10000 --proxy-protocol=1 tcp://127.0.0.1:5100
