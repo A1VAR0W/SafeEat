@@ -1,80 +1,104 @@
 import { useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { ActivityIndicator, FlatList, View, ScrollView, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { ProductSchema } from '@safeeat/contracts';
 import { z } from 'zod';
 import { api } from '../../src/session';
-import {
-  Button,
-  Copy,
-  ErrorNotice,
-  Field,
-  ProductRow,
-  RecentProducts,
-  Screen,
-  Skeleton,
-  Title,
-  Card,
-} from '../../src/ui';
+import { rememberSearch, type SearchHistory } from '../../src/query';
+import { useDebounced } from '../../src/use-debounced';
+import { SearchField, SettingRow } from '../../src/compact';
+import { Copy, ErrorNotice, ProductRow, RecentProducts, Screen, useTheme } from '../../src/ui';
 export default function Home() {
+  const t = useTheme();
   const [text, setText] = useState('');
-  const [query, setQuery] = useState('');
+  const query = text.trim();
+  const settled = useDebounced(query);
+  const history = useQuery<SearchHistory[]>({
+    queryKey: ['search-history'],
+    queryFn: async () => [],
+    staleTime: Infinity,
+  });
   const search = useQuery({
     queryKey: ['search', query],
-    enabled: query.length >= 2,
-    queryFn: async () =>
+    enabled: query.length >= 2 && query === settled,
+    queryFn: async ({ signal }) =>
       z
         .object({ items: z.array(ProductSchema) })
-        .parse(await api(`/products/search?q=${encodeURIComponent(query)}`)),
+        .parse(await api(`/products/search?q=${encodeURIComponent(query)}`, { signal })),
   });
   return (
     <Screen scroll={false}>
+      <SearchField
+        label="Buscar producto"
+        value={text}
+        onChangeText={setText}
+        placeholder="Buscar producto por nombre"
+        maxLength={100}
+        onSubmitEditing={() => {
+          rememberSearch(query);
+          if (query.length >= 2) void search.refetch();
+        }}
+      />
       <FlatList
         data={search.data?.items ?? []}
         keyExtractor={(p) => p.id}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <ProductRow item={item} />}
+        renderItem={({ item }) => <ProductRow item={item} onOpen={() => rememberSearch(query)} />}
         ListHeaderComponent={
-          <View style={{ gap: 20, paddingBottom: 16 }}>
-            <Copy bold size={18}>
-              SafeEat
-            </Copy>
-            <Title>¿Qué vas{'\n'}a comer?</Title>
-            <Card>
-              <Copy size={18} bold>
-                Más información. Menos dudas.
-              </Copy>
-              <Copy muted>Lee la etiqueta y conoce la evidencia detrás de cada resultado.</Copy>
-              <Button title="▥  Escanear producto" onPress={() => router.push('/(tabs)/scan')} />
-            </Card>
-            <Field
-              label="Buscar producto"
-              value={text}
-              onChangeText={setText}
-              placeholder="Nombre, marca…"
-              returnKeyType="search"
-              onSubmitEditing={() => setQuery(text.trim())}
-            />
-            <Button
-              title="Buscar"
-              secondary
-              disabled={text.trim().length < 2 || search.isFetching}
-              onPress={() => setQuery(text.trim())}
-            />
-            {search.isFetching && <Skeleton />}
-            {search.error && (
-              <ErrorNotice error={search.error} retry={() => void search.refetch()} />
-            )}
-            <Copy bold size={21}>
-              {query ? 'Resultados' : 'Escaneados recientemente'}
-            </Copy>
-            {!query && <RecentProducts />}
-            {query && search.isSuccess && !search.data.items.length && (
-              <Copy muted>
-                No hemos encontrado productos. Prueba con el código de barras o escanea los
-                ingredientes.
-              </Copy>
+          <View style={{ gap: 12, paddingBottom: 12 }}>
+            <View style={{ backgroundColor: t.card, borderRadius: 18 }}>
+              <SettingRow
+                icon="scan-outline"
+                title="Escanear producto"
+                subtitle="Código de barras o ingredientes"
+                onPress={() => router.push('/scan')}
+              />
+            </View>
+            {query.length >= 2 ? (
+              <>
+                <Copy bold>Resultados</Copy>
+                {(search.isFetching || query !== settled) && (
+                  <ActivityIndicator accessibilityLabel="Buscando productos" color={t.accent} />
+                )}
+                {search.error && (
+                  <ErrorNotice error={search.error} retry={() => void search.refetch()} />
+                )}
+                {search.isSuccess && !search.data.items.length && (
+                  <Copy muted>
+                    No hay resultados. Prueba el código de barras o escanea los ingredientes.
+                  </Copy>
+                )}
+              </>
+            ) : (
+              <>
+                <Copy bold>Recientes</Copy>
+                <RecentProducts />
+                {!!history.data?.length && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={{ gap: 8 }}
+                  >
+                    {history.data.slice(0, 6).map((h) => (
+                      <Pressable
+                        key={h.query}
+                        onPress={() => setText(h.query)}
+                        accessibilityRole="button"
+                        style={{
+                          padding: 12,
+                          minHeight: 48,
+                          borderRadius: 16,
+                          backgroundColor: t.card,
+                        }}
+                      >
+                        <Copy size={13}>{h.query}</Copy>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
+              </>
             )}
           </View>
         }

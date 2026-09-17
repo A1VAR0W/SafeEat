@@ -50,6 +50,9 @@ async function raw(path: string, init: RequestInit = {}) {
     );
   let response: Response;
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (init.signal?.aborted) controller.abort();
+  else init.signal?.addEventListener('abort', cancel);
   let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
@@ -65,6 +68,7 @@ async function raw(path: string, init: RequestInit = {}) {
       },
     });
   } catch (error) {
+    if (init.signal?.aborted) throw error;
     if (timedOut || (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)))
       throw new RequestError(
         'REQUEST_TIMEOUT',
@@ -79,6 +83,7 @@ async function raw(path: string, init: RequestInit = {}) {
     );
   } finally {
     clearTimeout(timeout);
+    init.signal?.removeEventListener('abort', cancel);
   }
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {

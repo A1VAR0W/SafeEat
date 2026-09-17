@@ -67,12 +67,12 @@ export function Title({ children }: PropsWithChildren) {
     <Text
       accessibilityRole="header"
       style={{
-        fontSize: 34,
-        lineHeight: 39,
+        fontSize: 24,
+        lineHeight: 29,
         fontWeight: '800',
-        letterSpacing: -1,
+        letterSpacing: -0.4,
         color: t.text,
-        marginBottom: 8,
+        marginBottom: 2,
       }}
     >
       {children}
@@ -82,7 +82,7 @@ export function Title({ children }: PropsWithChildren) {
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
   const t = useTheme();
   return (
-    <SafeAreaView edges={['top', 'left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
+    <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -90,12 +90,12 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
         {scroll ? (
           <ScrollView
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ padding: 24, gap: 18, paddingBottom: 44 }}
+            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
           >
             {children}
           </ScrollView>
         ) : (
-          <View style={{ flex: 1, padding: 24, gap: 16 }}>{children}</View>
+          <View style={{ flex: 1, padding: 16, gap: 12 }}>{children}</View>
         )}
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -104,7 +104,7 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
 export function Card({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
   const t = useTheme();
   return (
-    <View style={[{ padding: 20, borderRadius: 24, backgroundColor: t.card, gap: 10 }, style]}>
+    <View style={[{ padding: 16, borderRadius: 20, backgroundColor: t.card, gap: 10 }, style]}>
       {children}
     </View>
   );
@@ -131,9 +131,9 @@ export function Button({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => ({
-        minHeight: 52,
+        minHeight: 48,
         paddingHorizontal: 18,
-        paddingVertical: 14,
+        paddingVertical: 12,
         borderRadius: 16,
         alignItems: 'center',
         justifyContent: 'center',
@@ -167,7 +167,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
         {...props}
         style={[
           {
-            minHeight: 52,
+            minHeight: 48,
             padding: 16,
             borderRadius: 14,
             borderWidth: 1,
@@ -207,13 +207,16 @@ export function Skeleton() {
     </View>
   );
 }
-export function ProductRow({ item }: { item: Product }) {
+export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => void }) {
   const t = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${item.name}. ${statusLabels[item.assessment.status].label}`}
-      onPress={() => router.push(`/product/${item.id}`)}
+      onPress={() => {
+        onOpen?.();
+        router.push(`/product/${item.id}`);
+      }}
       style={({ pressed }) => ({
         flexDirection: 'row',
         gap: 14,
@@ -301,7 +304,36 @@ export function RecentProducts() {
   return (
     <View>
       {query.data?.length ? (
-        query.data.map((p) => <ProductRow key={p.id} item={p} />)
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 10 }}
+        >
+          {query.data.slice(0, 8).map((p) => (
+            <Pressable
+              key={p.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${p.name}. ${statusLabels[p.assessment.status].label}`}
+              onPress={() => router.push(`/product/${p.id}`)}
+              style={{ width: 136, gap: 6, paddingVertical: 8 }}
+            >
+              {p.imageUrl && (
+                <Image
+                  source={p.imageUrl}
+                  contentFit="contain"
+                  cachePolicy="disk"
+                  style={{ height: 66, borderRadius: 12 }}
+                />
+              )}
+              <Copy size={13} bold>
+                {p.name.length > 44 ? `${p.name.slice(0, 44)}…` : p.name}
+              </Copy>
+              <Copy size={11}>
+                {statusLabels[p.assessment.status].icon} {statusLabels[p.assessment.status].label}
+              </Copy>
+            </Pressable>
+          ))}
+        </ScrollView>
       ) : (
         <Copy muted>Los productos que consultes aparecerán aquí, también sin conexión.</Copy>
       )}

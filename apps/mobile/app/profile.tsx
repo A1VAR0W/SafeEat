@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
-import { api, clearSession, logout, useSession } from '../../src/session';
-import { clearPrivateCache } from '../../src/query';
-import { Button, Card, Copy, ErrorNotice, Screen, Title } from '../../src/ui';
+import { api, clearSession, logout, useSession } from '../src/session';
+import { clearPrivateCache } from '../src/query';
+import { Button, Card, Copy, ErrorNotice, Screen, Title } from '../src/ui';
 export default function Profile() {
   const { user } = useSession();
   const [error, setError] = useState<unknown>(null);

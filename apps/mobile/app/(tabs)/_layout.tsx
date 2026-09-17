@@ -1,12 +1,20 @@
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { ProfileButton } from '../../src/compact';
 import { useTheme } from '../../src/ui';
 export default function TabLayout() {
   const t = useTheme();
   return (
     <Tabs
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
+        headerTitle: 'SafeEat',
+        headerRight: () => <ProfileButton />,
+        headerRightContainerStyle: { paddingRight: 16 },
+        headerStyle: { backgroundColor: t.bg },
+        headerTintColor: t.text,
+        headerShadowVisible: false,
+        animation: 'none',
         tabBarActiveTintColor: t.accent,
         tabBarInactiveTintColor: t.muted,
         tabBarStyle: { backgroundColor: t.card, borderTopColor: t.line },
@@ -15,11 +23,9 @@ export default function TabLayout() {
     >
       {(
         [
-          { name: 'home', title: 'Inicio', icon: 'home-outline' },
-          { name: 'scan', title: 'Escanear', icon: 'scan' },
+          { name: 'home', title: 'Explorar', icon: 'compass-outline' },
           { name: 'restaurants', title: 'Restaurantes', icon: 'restaurant-outline' },
-          { name: 'favorites', title: 'Favoritos', icon: 'heart-outline' },
-          { name: 'profile', title: 'Perfil', icon: 'person-outline' },
+          { name: 'favorites', title: 'Guardados', icon: 'bookmark-outline' },
         ] as const
       ).map((tab) => (
         <Tabs.Screen
@@ -27,9 +33,7 @@ export default function TabLayout() {
           name={tab.name}
           options={{
             title: tab.title,
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name={tab.icon} size={tab.name === 'scan' ? 30 : size} color={color} />
-            ),
+            tabBarIcon: ({ color, size }) => <Ionicons name={tab.icon} size={size} color={color} />,
           }}
         />
       ))}

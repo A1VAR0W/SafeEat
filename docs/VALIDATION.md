@@ -1,5 +1,11 @@
 # Validation — 2026-09-17 (Europe/Madrid)
 
+## V2 UI milestone (not a release validation)
+
+PASS: 99 unit tests, mobile typecheck, lint/format and Android/iOS exports. A local Android API 35 UI preview used the existing preproduction native shell with the new exported Hermes bundle, separately re-signed under ignored .local; the six stable 0.1.0 artifacts were unchanged. Explore, recent products, compact detail, profile menu and four native sheets were exercised with real preproduction product data. Captures at 411×914 and 360×640 dp, plus 1.3× system text, are under .local/v2-ui. Detail controls adapt to one column for large text.
+
+The local emulator needed a restricted host CONNECT proxy for Internet access; this preview does not replace the final V2 standalone Release test. Physical torch/camera quality, iOS installation, full new account flows and final V2 deployment remain NOT RUN.
+
 PASS means executed successfully. FAIL means an observed unresolved failure. NOT RUN means not executed/completed. BLOCKED EXTERNALLY means an identified missing external dependency. Software checks are not a clinical certification or exhaustive security testing.
 
 ## Environments

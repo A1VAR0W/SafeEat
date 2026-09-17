@@ -11,8 +11,32 @@ vi.mock('./session', () => ({
     status = 0;
   },
 }));
-import { clearPrivateCache, queryClient } from './query';
+import {
+  clearPrivateCache,
+  queryClient,
+  clearHistory,
+  rememberProduct,
+  rememberSearch,
+} from './query';
+import type { Product } from '@safeeat/contracts';
 afterEach(() => queryClient.clear());
+it('bounds and deduplicates history, and clears it without deleting favorites or products', async () => {
+  for (let n = 0; n < 65; n++) {
+    rememberProduct({ id: `off-${n}` } as Product);
+    rememberSearch(`query ${n}`);
+  }
+  rememberSearch('QUERY 64');
+  rememberProduct({ id: 'off-64', name: 'updated' } as Product);
+  expect(queryClient.getQueryData<Product[]>(['recent'])).toHaveLength(50);
+  expect(queryClient.getQueryData<unknown[]>(['search-history'])).toHaveLength(50);
+  queryClient.setQueryData(['favorites-products', 'user'], { pages: [1] });
+  queryClient.setQueryData(['product', 'off-64'], { name: 'kept' });
+  await clearHistory();
+  expect(queryClient.getQueryData(['recent'])).toEqual([]);
+  expect(queryClient.getQueryData(['search-history'])).toEqual([]);
+  expect(queryClient.getQueryData(['favorites-products', 'user'])).toEqual({ pages: [1] });
+  expect(queryClient.getQueryData(['product', 'off-64'])).toEqual({ name: 'kept' });
+});
 it('clears account data while retaining public products for offline access', async () => {
   const publicProduct = { id: 'off-1', userCreated: false };
   const privateProduct = { id: 'label-1', userCreated: true };

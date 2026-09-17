@@ -1,30 +1,22 @@
 import { useState } from 'react';
 import { FlatList, View } from 'react-native';
 import { router } from 'expo-router';
+import { SegmentedControl } from '../../src/compact';
 import { useFavorites } from '../../src/favorites';
-import { Button, Copy, ErrorNotice, ProductRow, Screen, Skeleton, Title } from '../../src/ui';
+import { Button, Copy, ErrorNotice, ProductRow, Screen, Skeleton } from '../../src/ui';
 export default function Favorites() {
   const [kind, setKind] = useState<'products' | 'restaurants'>('products');
   const { items, query, user } = useFavorites(kind);
   return (
     <Screen scroll={false}>
-      <Title>Tu selección</Title>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
-        <View style={{ flex: 1 }}>
-          <Button
-            secondary={kind !== 'products'}
-            title="Alimentos"
-            onPress={() => setKind('products')}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Button
-            secondary={kind !== 'restaurants'}
-            title="Restaurantes"
-            onPress={() => setKind('restaurants')}
-          />
-        </View>
-      </View>
+      <SegmentedControl
+        value={kind}
+        onChange={setKind}
+        options={[
+          { value: 'products', label: 'Productos' },
+          { value: 'restaurants', label: 'Restaurantes' },
+        ]}
+      />
       {!user ? (
         <>
           <Copy>Inicia sesión para guardar tus favoritos y etiquetas.</Copy>

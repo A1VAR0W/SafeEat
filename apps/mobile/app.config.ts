@@ -36,6 +36,7 @@ const config: ExpoConfig = {
   name: 'SafeEat',
   slug: 'safeeat',
   version,
+  platforms: ['ios', 'android'],
   scheme: 'safeeat',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',

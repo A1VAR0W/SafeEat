@@ -1,5 +1,9 @@
 # SafeEat progress — 2026-09-17
 
+## V2 in progress
+
+Compact three-tab navigation, global profile menu, debounced cancellable product discovery, bounded recents, full-screen scanner and compact product detail with four native sheets are implemented. Android UI preview inspected at 411×914 and 360×640 dp, including 1.3× system text; a wrapping issue was corrected. New account/profile/settings, restaurant autocomplete and providers remain next. No V2 server deployment or final 0.2.0 artifacts yet.
+
 Continuation from clean `main` at `072e400`; existing implementation and unrelated server services preserved.
 
 - Fixed Android SDK setup (`tools` was retired) and formatting CI failures. Expo Router resolves and exports both native bundles.

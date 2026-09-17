@@ -1,0 +1,100 @@
+import { Linking } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { useProduct } from '../src/product';
+import { SheetHeader } from '../src/compact';
+import { Assessment, Button, Card, Copy, ErrorNotice, Screen, Skeleton } from '../src/ui';
+const titles: Record<string, string> = {
+  why: '¿Por qué este resultado?',
+  ingredients: 'Ingredientes',
+  nutrition: 'Nutrición',
+  sources: 'Fuentes',
+};
+const nutrients: Record<string, string> = {
+  energyKcal: 'Energía (kcal)',
+  sugars: 'Azúcar (g)',
+  saturatedFat: 'Grasas saturadas (g)',
+  salt: 'Sal (g)',
+  fibre: 'Fibra (g)',
+  protein: 'Proteína (g)',
+};
+export default function ProductInfo() {
+  const {
+    id,
+    shareToken,
+    section = 'why',
+  } = useLocalSearchParams<{ id: string; shareToken?: string; section?: string }>();
+  const query = useProduct(id, shareToken),
+    p = query.data;
+  return (
+    <Screen>
+      <SheetHeader>{titles[section] ?? 'Información'}</SheetHeader>
+      {query.error && <ErrorNotice error={query.error} />}
+      {!p && query.isPending && <Skeleton />}
+      {p && (
+        <>
+          {section === 'why' && <Assessment product={p} />}
+          {section === 'ingredients' && (
+            <>
+              <Copy>{p.ingredients || 'No hay una lista de ingredientes disponible.'}</Copy>
+              {p.assessment.evidence
+                .filter((e) => ['ingredient', 'allergen', 'trace'].includes(e.kind))
+                .map((e, i) => (
+                  <Card key={i}>
+                    <Copy bold>
+                      {e.kind === 'trace' ? 'Trazas' : 'Ingrediente o alérgeno relevante'}
+                    </Copy>
+                    <Copy>{e.text}</Copy>
+                    <Copy muted size={12}>
+                      {e.source}
+                    </Copy>
+                  </Card>
+                ))}
+              <Copy muted size={12}>
+                Revisa la etiqueta actual; una lista incompleta no demuestra ausencia de gluten.
+              </Copy>
+            </>
+          )}
+          {section === 'nutrition' && (
+            <>
+              <Copy bold size={24}>
+                {p.quality.score === null ? 'Sin datos suficientes' : `${p.quality.score}/100`}
+              </Copy>
+              <Copy>{p.quality.explanation}</Copy>
+              {p.quality.breakdown.map((b) => (
+                <Copy key={b.label}>
+                  {b.label}: {b.points > 0 ? '+' : ''}
+                  {b.points}
+                </Copy>
+              ))}
+              {p.nutriScore && <Copy bold>Nutri-Score del proveedor: {p.nutriScore}</Copy>}
+              <Copy muted size={12}>
+                Valores por 100 g/ml
+              </Copy>
+              {Object.entries(p.nutrition).map(([key, value]) => (
+                <Copy key={key}>
+                  {nutrients[key] ?? key}: {value}
+                </Copy>
+              ))}
+            </>
+          )}
+          {section === 'sources' && (
+            <>
+              <Copy bold>{p.source}</Copy>
+              <Copy muted>Consultado el {new Date(p.fetchedAt).toLocaleString('es')}</Copy>
+              {p.sourceUrl && (
+                <Button
+                  title="Abrir fuente original"
+                  secondary
+                  onPress={() => void Linking.openURL(p.sourceUrl!)}
+                />
+              )}
+              <Copy muted size={12}>
+                La confianza describe la calidad de la evidencia, no una probabilidad de seguridad.
+              </Copy>
+            </>
+          )}
+        </>
+      )}
+    </Screen>
+  );
+}

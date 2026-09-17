@@ -77,6 +77,27 @@ it('coalesces concurrent refresh and recovers after missing credentials', async 
   await Promise.all([s.refresh(), s.refresh(), s.refresh()]);
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
 });
+it('cancels obsolete searches through an ordinary AbortController on React Native', async () => {
+  vi.stubGlobal('AbortSignal', {});
+  const s = await import('./session');
+  const controller = new AbortController();
+  let requestSignal: AbortSignal | undefined;
+  mocks.fetch.mockImplementation(
+    (_url, init) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = init.signal;
+        init.signal.addEventListener('abort', () =>
+          reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })),
+        );
+      }),
+  );
+  const pending = expect(
+    s.api('/products/search?q=old', { signal: controller.signal }),
+  ).rejects.toMatchObject({ name: 'AbortError' });
+  controller.abort();
+  await pending;
+  expect(requestSignal?.aborted).toBe(true);
+});
 it('does not resurrect a session when refresh completes after clearing it', async () => {
   const s = await import('./session');
   await s.acceptSession(session(1));

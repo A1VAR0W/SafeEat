@@ -7,6 +7,7 @@ import { focusManager, onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { queryClient, persister, shouldPersist } from '../src/query';
 import { restoreSession } from '../src/session';
+import { ProfileButton } from '../src/compact';
 import { Copy, useReducedMotion, useTheme } from '../src/ui';
 import { useNetInfo } from '@react-native-community/netinfo';
 export default function Layout() {
@@ -55,11 +56,47 @@ export default function Layout() {
           headerTintColor: t.text,
           headerShadowVisible: false,
           headerBackTitle: 'Atrás',
+          headerRight: () => <ProfileButton />,
           animation: reduced ? 'none' : 'default',
           contentStyle: { backgroundColor: t.bg },
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile" options={{ title: 'Tu perfil' }} />
+        <Stack.Screen
+          name="scan/index"
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
+        <Stack.Screen
+          name="profile-menu"
+          options={{
+            presentation: 'formSheet',
+            headerShown: false,
+            sheetAllowedDetents: 'fitToContents',
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 28,
+          }}
+        />
+        <Stack.Screen
+          name="about"
+          options={{
+            presentation: 'formSheet',
+            headerShown: false,
+            sheetAllowedDetents: [0.65, 0.9],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 28,
+          }}
+        />
+        <Stack.Screen
+          name="product-info"
+          options={{
+            presentation: 'formSheet',
+            headerShown: false,
+            sheetAllowedDetents: [0.65, 0.9],
+            sheetGrabberVisible: true,
+            sheetCornerRadius: 28,
+          }}
+        />
         <Stack.Screen name="auth/login" options={{ title: 'Iniciar sesión' }} />
         <Stack.Screen name="auth/register" options={{ title: 'Crear cuenta' }} />
         <Stack.Screen name="product/[id]" options={{ title: 'Producto' }} />
