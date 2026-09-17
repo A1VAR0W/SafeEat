@@ -25,6 +25,9 @@ tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort
 grep -Fq "package: name='com.a1var0w.safeeat'" artifacts/SafeEat-badging.txt
 grep -Fq "versionName='$version'" artifacts/SafeEat-badging.txt
 grep -Fq "versionCode='${BUILD_NUMBER:-1}'" artifacts/SafeEat-badging.txt
+grep -Fq "android.permission.INTERNET" artifacts/SafeEat-badging.txt
+if grep -Fq 'application-debuggable' artifacts/SafeEat-badging.txt; then exit 1; fi
+python3 scripts/check-embedded-config.py "artifacts/$artifact.apk"
 unzip -tq "artifacts/$artifact.apk"
 unzip -tq "artifacts/$artifact.aab"
 cd artifacts

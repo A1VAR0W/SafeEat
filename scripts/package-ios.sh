@@ -16,6 +16,7 @@ mkdir -p "$package/Payload" "$root/artifacts"
 ditto "$app" "$package/Payload/SafeEat.app"
 (cd "$package" && ditto -c -k --sequesterRsrc --keepParent Payload "$root/artifacts/$artifact.ipa")
 cd "$root/artifacts"
+python3 "$root/scripts/check-embedded-config.py" "$artifact.ipa"
 test -s "$artifact.ipa"
 unzip -tq "$artifact.ipa"
 unzip -Z1 "$artifact.ipa" > "$package/entries.txt"
