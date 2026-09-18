@@ -265,6 +265,25 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       })
       .slice(0, 30);
   }
+  private async nearbyFromPhoton(lat: number, lon: number) {
+    const found = await this.photon('restaurantes', undefined, 50, { lat, lon });
+    return found
+      .map(fromFeature)
+      .filter((item): item is Restaurant => !!item)
+      .filter((item) => {
+        if (item.latitude === undefined || item.longitude === undefined) return false;
+        return distanceKm({ lat, lon }, { lat: item.latitude, lon: item.longitude }) <= 25;
+      })
+      .slice(0, 50);
+  }
+  private async nearbyWithFallback(lat: number, lon: number, glutenFree = false) {
+    try {
+      return await this.nearby(lat, lon, glutenFree);
+    } catch {
+      if (glutenFree) return this.namedGlutenFreeNearby(lat, lon);
+      return this.nearbyFromPhoton(lat, lon);
+    }
+  }
   async search(params: RestaurantSearch): Promise<Restaurant[]> {
     const key = `search:${params.query.toLocaleLowerCase()}:${params.latitude ?? ''}:${params.longitude ?? ''}:${params.glutenFree ?? false}`;
     const old = this.cached<Restaurant[]>(key);
@@ -274,15 +293,10 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       params.longitude !== undefined &&
       /^(restaurantes?|cerca de m[ií])$/i.test(params.query)
     )
-      try {
-        return this.store(
-          key,
-          await this.nearby(params.latitude, params.longitude, params.glutenFree),
-        );
-      } catch (error) {
-        if (!params.glutenFree) throw error;
-        return this.store(key, await this.namedGlutenFreeNearby(params.latitude, params.longitude));
-      }
+      return this.store(
+        key,
+        await this.nearbyWithFallback(params.latitude, params.longitude, params.glutenFree),
+      );
     if (params.latitude === undefined && params.longitude === undefined) {
       const locations = await this.photon(params.query, undefined, 5);
       const location = locations.find(
@@ -293,7 +307,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       if (location)
         return this.store(
           key,
-          await this.nearby(
+          await this.nearbyWithFallback(
             location.geometry.coordinates[1],
             location.geometry.coordinates[0],
             params.glutenFree,
@@ -320,7 +334,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     return this.store(
       key,
       location
-        ? await this.nearby(
+        ? await this.nearbyWithFallback(
             location.geometry.coordinates[1],
             location.geometry.coordinates[0],
             params.glutenFree,
