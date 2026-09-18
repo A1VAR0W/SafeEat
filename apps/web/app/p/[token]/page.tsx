@@ -9,7 +9,11 @@ function displayedStatus(
 ) {
   const free = p.glutenReports?.glutenFree ?? 0;
   const contains = p.glutenReports?.containsGluten ?? 0;
-  if ((free && contains) || (contains && p.assessment.status === 'GLUTEN_FREE'))
+  if (
+    (free && contains) ||
+    (contains && p.assessment.status === 'GLUTEN_FREE') ||
+    (free && p.assessment.status === 'CONTAINS_GLUTEN')
+  )
     return { icon: '⚠', label: 'INFORMACIÓN CONTRADICTORIA' };
   if (p.assessment.status === 'UNKNOWN' && contains)
     return {

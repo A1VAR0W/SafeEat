@@ -290,7 +290,9 @@ export function ProductGlutenLabel({
   const contains = product.glutenReports?.containsGluten ?? 0;
   const unknown = product.assessment.status === 'UNKNOWN';
   const conflict =
-    (free > 0 && contains > 0) || (contains > 0 && product.assessment.status === 'GLUTEN_FREE');
+    (free > 0 && contains > 0) ||
+    (contains > 0 && product.assessment.status === 'GLUTEN_FREE') ||
+    (free > 0 && product.assessment.status === 'CONTAINS_GLUTEN');
   const report = conflict
     ? 'Información sobre gluten contradictoria'
     : unknown && contains
