@@ -88,7 +88,7 @@ export function restaurantCatalog(db: Database) {
           : '';
     const point = 'ST_SetSRID(ST_MakePoint($2,$3),4326)::geography';
     const location = nearby ? `AND ST_DWithin(location,${point},$4)` : '';
-    const name = broad ? '' : "AND name ILIKE '%' || $1 || '%'";
+    const name = broad ? 'AND $1::text IS NOT NULL' : "AND name ILIKE '%' || $1 || '%'";
     const order = nearby
       ? `ORDER BY ${broad ? '' : 'similarity(name,$1) DESC,'} location <-> ${point}`
       : 'ORDER BY similarity(name,$1) DESC, name';
