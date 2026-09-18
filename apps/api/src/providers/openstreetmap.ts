@@ -23,6 +23,7 @@ const osmElement = z.object({
   id: z.number(),
   lat: z.number().optional(),
   lon: z.number().optional(),
+  center: z.object({ lat: z.number(), lon: z.number() }).optional(),
   tags: z.record(z.string(), z.string()).optional(),
 });
 const elementEnvelope = z.object({ elements: z.array(osmElement) });
@@ -115,13 +116,6 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       this.photon(query, 'place:city', 3),
     ]);
     return this.store(key, [
-      ...places
-        .filter((f) => f.properties.name)
-        .map((f) => ({
-          label: [f.properties.name, f.properties.city].filter(Boolean).join(' · '),
-          kind: 'restaurant' as const,
-          query: [f.properties.name, f.properties.city].filter(Boolean).join(' '),
-        })),
       ...cities
         .filter((f) => f.properties.name)
         .map((f) => ({
@@ -130,6 +124,13 @@ export class OpenStreetMapProvider implements RestaurantProvider {
           query: 'restaurantes',
           latitude: f.geometry.coordinates[1],
           longitude: f.geometry.coordinates[0],
+        })),
+      ...places
+        .filter((f) => f.properties.name)
+        .map((f) => ({
+          label: [f.properties.name, f.properties.city].filter(Boolean).join(' · '),
+          kind: 'restaurant' as const,
+          query: [f.properties.name, f.properties.city].filter(Boolean).join(' '),
         })),
     ]);
   }
@@ -151,8 +152,8 @@ export class OpenStreetMapProvider implements RestaurantProvider {
           address: [e.tags?.['addr:street'], e.tags?.['addr:housenumber'], e.tags?.['addr:city']]
             .filter(Boolean)
             .join(', '),
-          lat: e.lat,
-          lon: e.lon,
+          lat: e.lat ?? e.center?.lat,
+          lon: e.lon ?? e.center?.lon,
           tags: e.tags,
         }),
       );
@@ -167,6 +168,17 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       /^(restaurantes?|cerca de m[ií])$/i.test(params.query)
     )
       return this.store(key, await this.nearby(params.latitude, params.longitude));
+    if (params.latitude === undefined && params.longitude === undefined) {
+      const cities = await this.photon(params.query, 'place:city', 2);
+      const city = cities.find(
+        (f) => f.properties.name?.toLocaleLowerCase() === params.query.toLocaleLowerCase(),
+      );
+      if (city)
+        return this.store(
+          key,
+          await this.nearby(city.geometry.coordinates[1], city.geometry.coordinates[0]),
+        );
+    }
     const places = (
       await this.photon(
         params.query,

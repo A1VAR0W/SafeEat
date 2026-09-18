@@ -74,4 +74,42 @@ describe('additional real-data sources', () => {
     expect(item?.glutenSupport).toBe('UNKNOWN');
     expect(item?.mapsUrl).toContain('openstreetmap.org/node/3265474259');
   });
+  it('resolves a city to nearby restaurants with map coordinates', async () => {
+    const request = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('photon.komoot.io')
+              ? {
+                  features: [
+                    {
+                      properties: { osm_type: 'R', osm_id: 11, name: 'Madrid', osm_key: 'place' },
+                      geometry: { coordinates: [-3.7038, 40.4168] },
+                    },
+                  ],
+                }
+              : {
+                  elements: [
+                    {
+                      type: 'way',
+                      id: 42,
+                      center: { lat: 40.417, lon: -3.704 },
+                      tags: { amenity: 'restaurant', name: 'Restaurante local' },
+                    },
+                  ],
+                },
+          ),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+    const items = await new OpenStreetMapProvider('SafeEat test').search({ query: 'Madrid' });
+    expect(items).toMatchObject([
+      { id: 'osm_w_42', name: 'Restaurante local', latitude: 40.417, longitude: -3.704 },
+    ]);
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      expect.stringContaining('osm_tag=place%3Acity'),
+      expect.stringContaining('overpass-api.de'),
+    ]);
+  });
 });

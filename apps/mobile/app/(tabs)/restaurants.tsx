@@ -1,20 +1,30 @@
-import { useState } from 'react';
-import { FlatList, View, Pressable } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { FlatList, Platform, Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
+import { AppleMaps, GoogleMaps } from 'expo-maps';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
-import { RestaurantSchema, restaurantDisclaimer } from '@safeeat/contracts';
+import { RestaurantSchema, restaurantDisclaimer, type Restaurant } from '@safeeat/contracts';
 import { useDebounced } from '../../src/use-debounced';
 import { SearchField } from '../../src/compact';
 import { api } from '../../src/session';
-import { Button, Card, Copy, ErrorNotice, Screen, Skeleton, Title, useTheme } from '../../src/ui';
+import { Button, Card, Copy, ErrorNotice, Screen, Title, useTheme } from '../../src/ui';
+
+type Coordinates = { latitude: number; longitude: number };
+type SearchParams = { q: string; latitude?: number; longitude?: number };
+const initialCenter = { latitude: 40.4168, longitude: -3.7038 };
+const androidMapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
+
 export default function Restaurants() {
   const theme = useTheme();
+  const appleMap = useRef<AppleMaps.MapView>(null);
+  const googleMap = useRef<GoogleMaps.MapView>(null);
   const [text, setText] = useState('');
-  const [params, setParams] = useState<{ q: string; latitude?: number; longitude?: number } | null>(
-    null,
-  );
+  const [params, setParams] = useState<SearchParams | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mapCenter, setMapCenter] = useState<Coordinates>(initialCenter);
+  const [searchedCenter, setSearchedCenter] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<unknown>(null);
   const [locating, setLocating] = useState(false);
   const settled = useDebounced(text.trim());
@@ -53,6 +63,37 @@ export default function Restaurants() {
     },
     gcTime: 0,
   });
+  const items = search.data?.items ?? [];
+  const mapped = items.filter(
+    (item): item is Restaurant & Coordinates =>
+      item.latitude !== undefined && item.longitude !== undefined,
+  );
+  const selected = items.find((item) => item.id === selectedId);
+
+  function focus(coordinates: Coordinates, zoom = 15) {
+    appleMap.current?.setCameraPosition({ coordinates, zoom });
+    googleMap.current?.setCameraPosition({ coordinates, zoom, duration: 300 });
+    setMapCenter(coordinates);
+  }
+
+  useEffect(() => {
+    if (!search.isSuccess) return;
+    const first = search.data.items.find(
+      (item) => item.latitude !== undefined && item.longitude !== undefined,
+    );
+    const center =
+      params?.latitude !== undefined && params.longitude !== undefined
+        ? { latitude: params.latitude, longitude: params.longitude }
+        : first?.latitude !== undefined && first.longitude !== undefined
+          ? { latitude: first.latitude, longitude: first.longitude }
+          : null;
+    setSelectedId(null);
+    if (center) {
+      focus(center, params?.latitude !== undefined ? 15 : 13);
+      setSearchedCenter(center);
+    }
+  }, [params?.latitude, params?.longitude, search.data, search.isSuccess]);
+
   async function nearby() {
     setLocating(true);
     setLocationError(null);
@@ -66,96 +107,194 @@ export default function Restaurants() {
         latitude: pos.coords.latitude,
         longitude: pos.coords.longitude,
       });
+      focus({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
     } catch (e) {
       setLocationError(e);
     } finally {
       setLocating(false);
     }
   }
+
+  function select(item: Restaurant) {
+    setSelectedId(item.id);
+    if (item.latitude !== undefined && item.longitude !== undefined)
+      focus({ latitude: item.latitude, longitude: item.longitude }, 17);
+  }
+
+  const mapAvailable =
+    Platform.OS === 'ios' || (Platform.OS === 'android' && androidMapsConfigured);
+  const searchOrigin = searchedCenter ?? initialCenter;
+  const canSearchArea =
+    mapAvailable &&
+    (Math.abs(mapCenter.latitude - searchOrigin.latitude) > 0.003 ||
+      Math.abs(mapCenter.longitude - searchOrigin.longitude) > 0.003);
+
   return (
     <Screen scroll={false}>
+      <Title>Comer fuera</Title>
+      <SearchField
+        label="Restaurante o ciudad"
+        value={text}
+        onChangeText={(value) => {
+          setText(value);
+          setParams(null);
+        }}
+        placeholder="Restaurante o ciudad…"
+        onSubmitEditing={() => {
+          if (text.trim().length >= 2) setParams({ q: text.trim() });
+        }}
+      />
+      {!params && !!suggestions.data?.items.length && (
+        <View style={{ backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }}>
+          {suggestions.data.items.slice(0, 4).map((suggestion, index) => (
+            <Pressable
+              key={`${suggestion.kind}-${suggestion.label}-${index}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Buscar ${suggestion.label}`}
+              onPress={() => {
+                setText(suggestion.label);
+                setParams({
+                  q: suggestion.query,
+                  latitude: suggestion.latitude,
+                  longitude: suggestion.longitude,
+                });
+              }}
+              style={{ padding: 12, minHeight: 48 }}
+            >
+              <Copy>
+                {suggestion.kind === 'city' ? '⌖' : '⌕'} {suggestion.label}
+              </Copy>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Button
+            secondary
+            title={locating ? 'Localizando…' : 'Cerca de mí'}
+            disabled={locating}
+            onPress={() => void nearby()}
+          />
+        </View>
+        {canSearchArea && (
+          <View style={{ flex: 1 }}>
+            <Button
+              secondary
+              title="Buscar en esta zona"
+              onPress={() =>
+                setParams({
+                  q: 'restaurantes',
+                  latitude: mapCenter.latitude,
+                  longitude: mapCenter.longitude,
+                })
+              }
+            />
+          </View>
+        )}
+      </View>
+      {!!locationError && <ErrorNotice error={locationError} />}
+      <View
+        style={{ height: 300, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.line }}
+      >
+        {Platform.OS === 'ios' ? (
+          <AppleMaps.View
+            ref={appleMap}
+            style={{ flex: 1 }}
+            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
+            markers={mapped.map((item) => ({
+              id: item.id,
+              coordinates: { latitude: item.latitude, longitude: item.longitude },
+              title: item.name,
+              tintColor: theme.accent,
+            }))}
+            onMarkerClick={(marker) => {
+              const item = items.find((candidate) => candidate.id === marker.id);
+              if (item) select(item);
+            }}
+            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
+          />
+        ) : Platform.OS === 'android' && androidMapsConfigured ? (
+          <GoogleMaps.View
+            ref={googleMap}
+            style={{ flex: 1 }}
+            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
+            markers={mapped.map((item) => ({
+              id: item.id,
+              coordinates: { latitude: item.latitude, longitude: item.longitude },
+              title: item.name,
+            }))}
+            onMarkerClick={(marker) => {
+              const item = items.find((candidate) => candidate.id === marker.id);
+              if (item) select(item);
+            }}
+            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
+          />
+        ) : (
+          <View style={{ flex: 1, justifyContent: 'center', padding: 20 }}>
+            <Copy>
+              El mapa de Android requiere una clave de Google Maps. Puedes usar la lista de
+              restaurantes.
+            </Copy>
+          </View>
+        )}
+      </View>
+      {selected && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push(`/restaurant/${selected.id}`)}
+        >
+          <Card style={{ borderWidth: 1, borderColor: theme.accent }}>
+            <Copy bold>{selected.name} ›</Copy>
+            <Copy muted size={13}>
+              {selected.address}
+            </Copy>
+          </Card>
+        </Pressable>
+      )}
+      {search.isFetching && <Copy muted>Buscando restaurantes…</Copy>}
+      {search.error && <ErrorNotice error={search.error} retry={() => void search.refetch()} />}
+      <Copy muted size={12}>
+        {mapAvailable ? `${mapped.length} restaurantes en el mapa · ` : ''}
+        {restaurantDisclaimer}
+      </Copy>
       <FlatList
-        data={search.data?.items ?? []}
-        keyExtractor={(r) => r.id}
+        style={{ flex: 1 }}
+        data={items}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={
+          <Copy muted>
+            {search.isSuccess
+              ? 'No se han encontrado restaurantes. Prueba otra zona.'
+              : 'Busca un restaurante, una ciudad o usa tu ubicación.'}
+          </Copy>
+        }
         renderItem={({ item }) => (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Ver ${item.name}`}
-            onPress={() => router.push(`/restaurant/${item.id}`)}
-            style={{ marginBottom: 12 }}
+            accessibilityLabel={`Seleccionar ${item.name}`}
+            onPress={() => select(item)}
+            style={{ marginBottom: 10 }}
           >
-            <Card>
-              <Copy bold size={18}>
-                {item.name}
+            <Card
+              style={{ borderWidth: selectedId === item.id ? 1 : 0, borderColor: theme.accent }}
+            >
+              <Copy bold>{item.name}</Copy>
+              <Copy muted size={13}>
+                {item.address}
               </Copy>
-              <Copy muted>{item.address}</Copy>
-              <Copy>? Información sobre gluten no verificada</Copy>
-              <Copy size={12} muted>
-                {item.source}
+              <Copy muted size={12}>
+                Información sobre gluten sin verificar · {item.source}
               </Copy>
+              {selectedId === item.id && (
+                <Button
+                  title="Ver restaurante"
+                  onPress={() => router.push(`/restaurant/${item.id}`)}
+                />
+              )}
             </Card>
           </Pressable>
         )}
-        ListHeaderComponent={
-          <View style={{ gap: 18, paddingBottom: 18 }}>
-            <Title>Comer fuera</Title>
-            <Copy muted>{restaurantDisclaimer}</Copy>
-            <SearchField
-              label="Restaurante o ciudad"
-              value={text}
-              onChangeText={(value) => {
-                setText(value);
-                setParams(null);
-              }}
-              placeholder="Nombre del restaurante, Madrid…"
-              onSubmitEditing={() => {
-                if (text.trim().length >= 2) setParams({ q: text.trim() });
-              }}
-            />
-            {!params && !!suggestions.data?.items.length && (
-              <View style={{ backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }}>
-                {suggestions.data.items.map((suggestion, index) => (
-                  <Pressable
-                    key={`${suggestion.kind}-${suggestion.label}-${index}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Buscar ${suggestion.label}`}
-                    onPress={() => {
-                      setText(suggestion.label);
-                      setParams({
-                        q: suggestion.query,
-                        latitude: suggestion.latitude,
-                        longitude: suggestion.longitude,
-                      });
-                    }}
-                    style={{ padding: 14, minHeight: 48 }}
-                  >
-                    <Copy>
-                      {suggestion.kind === 'city' ? '⌖' : '⌕'} {suggestion.label}
-                    </Copy>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            <Button
-              secondary
-              title={locating ? 'Buscando ubicación…' : 'Buscar cerca de mí'}
-              disabled={locating}
-              onPress={() => void nearby()}
-            />
-            {!!locationError && <ErrorNotice error={locationError} />}
-            <Copy muted size={12}>
-              Datos de OpenStreetMap o Google Maps según disponibilidad. La ubicación solo se
-              comparte al pulsar “Buscar cerca de mí”.
-            </Copy>
-            {search.isFetching && <Skeleton />}
-            {search.error && (
-              <ErrorNotice error={search.error} retry={() => void search.refetch()} />
-            )}
-            {search.isSuccess && !search.data.items.length && (
-              <Copy>No se han encontrado restaurantes. Prueba otra búsqueda.</Copy>
-            )}
-          </View>
-        }
       />
     </Screen>
   );
