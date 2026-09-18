@@ -128,4 +128,48 @@ describe('additional real-data sources', () => {
     );
     expect(request.mock.calls[3]?.[1]?.body).toContain('diet%3Agluten_free');
   });
+  it('uses the visible map area for street suggestions and removes duplicate segments', async () => {
+    const request = vi.fn(
+      async (_url: string) =>
+        new Response(
+          JSON.stringify({
+            features: [
+              {
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 1,
+                  name: 'Gran Vía',
+                  city: 'Madrid',
+                  osm_key: 'highway',
+                  osm_value: 'tertiary',
+                },
+                geometry: { coordinates: [-3.704, 40.42] },
+              },
+              {
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 2,
+                  name: 'Gran Vía',
+                  city: 'Madrid',
+                  osm_key: 'highway',
+                  osm_value: 'tertiary',
+                },
+                geometry: { coordinates: [-3.71, 40.423] },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+    const suggestions = await new OpenStreetMapProvider('SafeEat test').suggest('Gran Vía', {
+      latitude: 40.4168,
+      longitude: -3.7038,
+    });
+    expect(suggestions).toMatchObject([
+      { label: 'Gran Vía · Madrid', kind: 'place', query: 'restaurantes' },
+    ]);
+    expect(request.mock.calls[0]?.[0]).toContain('lat=40.42');
+    expect(request.mock.calls[0]?.[0]).toContain('lon=-3.7');
+  });
 });

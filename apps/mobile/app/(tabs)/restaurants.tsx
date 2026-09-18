@@ -37,8 +37,10 @@ export default function Restaurants() {
   const [locating, setLocating] = useState(false);
   const [glutenOnly, setGlutenOnly] = useState(false);
   const settled = useDebounced(text.trim());
+  const suggestLatitude = Math.round(center.current.latitude * 100) / 100;
+  const suggestLongitude = Math.round(center.current.longitude * 100) / 100;
   const suggestions = useQuery({
-    queryKey: ['restaurant-suggestions', settled],
+    queryKey: ['restaurant-suggestions', settled, suggestLatitude, suggestLongitude],
     enabled: editing && settled.length >= 3,
     queryFn: async ({ signal }) =>
       z
@@ -53,7 +55,12 @@ export default function Restaurants() {
             }),
           ),
         })
-        .parse(await api(`/restaurants/suggest?q=${encodeURIComponent(settled)}`, { signal })),
+        .parse(
+          await api(
+            `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}`,
+            { signal },
+          ),
+        ),
     staleTime: 3600000,
   });
   const search = useQuery({

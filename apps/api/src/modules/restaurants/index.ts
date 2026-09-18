@@ -146,12 +146,24 @@ export function restaurantService(
     '/api/v1/restaurants/suggest',
     { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request) => {
-      const { q } = z.object({ q: z.string().trim().min(2).max(120) }).parse(request.query);
+      const { q, latitude, longitude } = z
+        .object({
+          q: z.string().trim().min(2).max(120),
+          latitude: z.coerce.number().min(-90).max(90).optional(),
+          longitude: z.coerce.number().min(-180).max(180).optional(),
+        })
+        .refine((value) => (value.latitude === undefined) === (value.longitude === undefined))
+        .parse(request.query);
       const local = await db.query<{ name: string }>(
         'SELECT name FROM community_restaurants WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 4',
         [`%${q.replace(/[\\%_]/g, '\\$&')}%`],
       );
-      const external = provider.suggest ? await provider.suggest(q) : [];
+      const external = provider.suggest
+        ? await provider.suggest(
+            q,
+            latitude !== undefined && longitude !== undefined ? { latitude, longitude } : undefined,
+          )
+        : [];
       return {
         items: [
           ...local.rows.map((row) => ({

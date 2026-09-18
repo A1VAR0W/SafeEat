@@ -127,15 +127,32 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     this.cache.set(key, { at: Date.now(), value });
     return value;
   }
-  async suggest(query: string): Promise<RestaurantSuggestion[]> {
-    const key = `suggest:${query.toLocaleLowerCase()}`;
+  async suggest(
+    query: string,
+    location?: { latitude: number; longitude: number },
+  ): Promise<RestaurantSuggestion[]> {
+    const lat = location && Math.round(location.latitude * 100) / 100;
+    const lon = location && Math.round(location.longitude * 100) / 100;
+    const key = `suggest:${query.toLocaleLowerCase()}:${lat ?? ''}:${lon ?? ''}`;
     const old = this.cached<RestaurantSuggestion[]>(key);
     if (old) return old;
-    const found = await this.photon(query, undefined, 12);
+    const found = await this.photon(
+      query,
+      undefined,
+      12,
+      lat !== undefined && lon !== undefined ? { lat, lon } : undefined,
+    );
+    const seen = new Set<string>();
     return this.store(
       key,
       found
         .filter((f) => f.properties.name)
+        .filter((f) => {
+          const identity = `${f.properties.name}:${f.properties.city ?? ''}:${f.properties.osm_key ?? ''}`;
+          if (seen.has(identity)) return false;
+          seen.add(identity);
+          return true;
+        })
         .map((f) => {
           const food =
             f.properties.osm_key === 'amenity' && foodType.test(f.properties.osm_value ?? '');

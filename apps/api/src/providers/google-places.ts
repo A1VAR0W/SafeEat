@@ -89,13 +89,21 @@ export class GooglePlacesProvider implements RestaurantProvider {
     const parsed = z.object({ places: z.array(z.unknown()).default([]) }).parse(result);
     return parsed.places.map(normalize);
   }
-  async suggest(query: string): Promise<RestaurantSuggestion[]> {
+  async suggest(
+    query: string,
+    location?: { latitude: number; longitude: number },
+  ): Promise<RestaurantSuggestion[]> {
     const result = await providerJson('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
       headers: this.headers(
         'suggestions.placePrediction.text,suggestions.placePrediction.types,suggestions.queryPrediction.text',
       ),
-      body: JSON.stringify({ input: query, languageCode: 'es', includeQueryPredictions: true }),
+      body: JSON.stringify({
+        input: query,
+        languageCode: 'es',
+        includeQueryPredictions: true,
+        ...(location ? { locationBias: { circle: { center: location, radius: 15000 } } } : {}),
+      }),
     });
     const parsed = z
       .object({

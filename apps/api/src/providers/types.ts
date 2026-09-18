@@ -34,5 +34,8 @@ export type RestaurantSuggestion = {
 export interface RestaurantProvider {
   search(params: RestaurantSearch): Promise<Restaurant[]>;
   getById(id: string): Promise<Restaurant | null>;
-  suggest?(query: string): Promise<RestaurantSuggestion[]>;
+  suggest?(
+    query: string,
+    location?: { latitude: number; longitude: number },
+  ): Promise<RestaurantSuggestion[]>;
 }
