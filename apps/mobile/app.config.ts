@@ -56,9 +56,6 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.a1var0w.safeeat',
-    ...(process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY
-      ? { config: { googleMaps: { apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY } } }
-      : {}),
     adaptiveIcon: {
       foregroundImage: './assets/safeeat-adaptive-foreground.png',
       backgroundColor: '#006B4E',

@@ -1,4 +1,12 @@
-# Validation — 2026-09-17 (Europe/Madrid)
+# Validation — 2026-09-18 (Europe/Madrid)
+
+## Final V2 release candidate — 2026-09-18
+
+PASS: commit `856a608` is deployed to production and preproduction. Public production restaurant search with the gluten-free filter returned 35 nearby venues in Madrid; preproduction exercised the explicit-name fallback when the OpenStreetMap query provider was saturated. The fallback is labelled as a lead to verify with the venue, never as a gluten-safety certification.
+
+PASS: GitHub CI runs `35357237776` and `35357239462` completed successfully for `856a608`. They cover formatting, lint, TypeScript, 110 unit tests, PostgreSQL integration tests, production builds, Expo dependency/Doctor checks, native JavaScript exports, infrastructure validation and workflow validation. Android and iOS native release builders succeeded for the unchanged mobile source at `9781b6d`; later commits change only the server-side restaurant fallback.
+
+The release architecture uses Apple Maps on iOS and MapLibre/OpenFreeMap on Android, with OpenStreetMap/Photon/Overpass as the restaurant data provider. No Google API key is configured or required. Public provider capacity is appropriate for private use; the service returns a controlled fallback or error if an upstream provider is unavailable.
 
 ## V2 UI milestone (not a release validation)
 

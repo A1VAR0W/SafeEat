@@ -31,7 +31,6 @@ jobs:
       APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
       API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
       PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
-      EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY: ${{ vars.GOOGLE_MAPS_ANDROID_API_KEY }}
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4

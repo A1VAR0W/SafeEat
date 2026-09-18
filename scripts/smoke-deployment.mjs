@@ -119,9 +119,15 @@ try {
   const restaurant = await restaurantResponse.json();
   if (
     restaurantResponse.status === 503 &&
-    restaurant.error?.code === 'RESTAURANT_PROVIDER_NOT_CONFIGURED'
+    ['RESTAURANT_PROVIDER_NOT_CONFIGURED', 'PROVIDER_UNAVAILABLE', 'PROVIDER_BUSY'].includes(
+      restaurant.error?.code,
+    )
   ) {
-    record('Unconfigured restaurant provider returns a clean 503');
+    record(
+      'Restaurant provider returns a controlled 503',
+      'BLOCKED EXTERNALLY',
+      restaurant.error.code,
+    );
   } else {
     assert.equal(restaurantResponse.status, 200);
     assert.ok(Array.isArray(restaurant.items));

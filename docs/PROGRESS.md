@@ -1,8 +1,8 @@
-# SafeEat progress — 2026-09-17
+# SafeEat progress — 2026-09-18
 
 ## V2 in progress
 
-Compact three-tab navigation, global profile menu, debounced cancellable product discovery, bounded recents, full-screen scanner and compact product detail with four native sheets are implemented. Android UI preview inspected at 411×914 and 360×640 dp, including 1.3× system text; a wrapping issue was corrected. New account/profile/settings, restaurant autocomplete and providers remain next. No V2 server deployment or final 0.2.0 artifacts yet.
+The V2 product and restaurant experience is complete for private production use. Product grids share a persisted 1/2/3-column selector, ingredient photos and user gluten reports are stored separately from source data, and restaurants support map movement, autocomplete, precise location, community additions and gluten reports. Android uses MapLibre/OpenFreeMap and iOS uses Apple Maps; neither needs Google Cloud.
 
 Continuation from clean `main` at `072e400`; existing implementation and unrelated server services preserved.
 
@@ -15,7 +15,7 @@ Continuation from clean `main` at `072e400`; existing implementation and unrelat
 - PostgreSQL is private on a persistent volume. Backup created, inspected and restored into an isolated database; restore copy removed after verification.
 - Real HTTPS flow checked: register/login/refresh/logout, reviewed text, favorites, private-label isolation, anonymous public viewer/OG, account deletion and share revocation. Live OFF barcode and search both pass after deploying the new adapter.
 - Both public environments pass auth/product/favorite/share/account-cleanup flows; cross-environment access/refresh tokens are rejected. Latest production dump restored into a separate temporary PostgreSQL container; test containers and SSH tunnel removed.
-- 97 unit tests and 20 real PostgreSQL integration tests pass. Lint, formatting, typecheck, builds, Expo Doctor and native exports pass. Environment-specific APK/AAB/unsigned IPA builds and the complete installed Android Internet test are tracked in `VALIDATION.md`.
+- 110 unit tests and 20 real PostgreSQL integration tests pass. Lint, formatting, typecheck, builds, Expo Doctor and native exports pass. Environment-specific APK/unsigned IPA builds and the complete installed Android Internet test are tracked in `VALIDATION.md`.
 - Shared HTTPS links respect each environment's URL prefix; native routing removes the preproduction prefix and rejects links for the wrong environment. Final Android/iOS artifacts from `9dfd4fb` passed builds and all downloaded checksums; installed production run `35194870325` passed all nine Internet checks without Metro, including persisted favorites and native sharing. Disposable account removed. Scheduled backup also completed successfully.
 
-External requirements: Google Places key; router/NAT/TLS setup for DuckDNS; Apple team/signing and canonical port-443 domain plus Android certificate associations for verified links. Native hardware camera/OCR and iOS installation require device validation.
+External requirements: router/NAT/TLS setup for DuckDNS; Apple team/signing and canonical port-443 domain plus Android certificate associations for verified links. Native hardware camera/OCR and iOS installation require device validation. OpenStreetMap's public services are appropriate for this private deployment but need a managed or self-hosted provider before public scale.
