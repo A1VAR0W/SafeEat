@@ -54,6 +54,7 @@ describe('additional real-data sources', () => {
                     osm_type: 'N',
                     osm_id: 3265474259,
                     osm_key: 'amenity',
+                    osm_value: 'restaurant',
                     name: 'La Tagliatella',
                     city: 'Madrid',
                     country: 'España',
@@ -76,7 +77,7 @@ describe('additional real-data sources', () => {
   });
   it('resolves a city to nearby restaurants with map coordinates', async () => {
     const request = vi.fn(
-      async (url: string) =>
+      async (url: string, _options?: RequestInit) =>
         new Response(
           JSON.stringify(
             url.includes('photon.komoot.io')
@@ -119,12 +120,12 @@ describe('additional real-data sources', () => {
       },
     ]);
     expect(request.mock.calls.map(([url]) => url)).toEqual([
-      expect.stringContaining('osm_tag=place%3Acity'),
+      expect.stringContaining('photon.komoot.io'),
       expect.stringContaining('overpass-api.de'),
     ]);
     expect((await provider.search({ query: 'Madrid', glutenFree: true }))[0]?.glutenSupport).toBe(
       'GLUTEN_FREE_OPTIONS',
     );
-    expect(request.mock.calls[3]?.[0]).toContain('diet%3Agluten_free');
+    expect(request.mock.calls[3]?.[1]?.body).toContain('diet%3Agluten_free');
   });
 });

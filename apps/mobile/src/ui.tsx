@@ -325,7 +325,7 @@ export function ProductTile({
   onOpen,
 }: {
   item: Product;
-  columns: 1 | 2 | 4;
+  columns: 1 | 2 | 3;
   onOpen?: () => void;
 }) {
   const t = useTheme();
@@ -340,13 +340,13 @@ export function ProductTile({
       }}
       style={({ pressed }) => ({
         flex: 1,
-        maxWidth: columns === 2 ? '50%' : '25%',
+        maxWidth: columns === 2 ? '50%' : '33.33%',
         margin: 3,
-        padding: columns === 4 ? 6 : 10,
+        padding: columns === 3 ? 6 : 10,
         borderRadius: 16,
         backgroundColor: t.card,
         opacity: pressed ? 0.7 : 1,
-        minHeight: columns === 4 ? 135 : 190,
+        minHeight: columns === 3 ? 145 : 190,
       })}
     >
       {item.imageUrl ? (
@@ -354,12 +354,12 @@ export function ProductTile({
           source={item.imageUrl}
           contentFit="contain"
           cachePolicy="memory-disk"
-          style={{ width: '100%', height: columns === 4 ? 68 : 105 }}
+          style={{ width: '100%', height: columns === 3 ? 76 : 105 }}
         />
       ) : (
         <View
           style={{
-            height: columns === 4 ? 68 : 105,
+            height: columns === 3 ? 76 : 105,
             alignItems: 'center',
             justifyContent: 'center',
           }}
@@ -367,11 +367,11 @@ export function ProductTile({
           <Copy muted>▥</Copy>
         </View>
       )}
-      <Copy bold size={columns === 4 ? 10 : 13} numberOfLines={columns === 4 ? 2 : 3}>
+      <Copy bold size={columns === 3 ? 11 : 13} numberOfLines={columns === 3 ? 2 : 3}>
         {item.name}
       </Copy>
       {columns === 2 && <ProductGlutenLabel product={item} compact />}
-      {columns === 4 && item.assessment.status === 'UNKNOWN' && (
+      {columns === 3 && item.assessment.status === 'UNKNOWN' && (
         <Ionicons name="alert-circle-outline" size={16} color="#D4A017" />
       )}
     </Pressable>
@@ -421,7 +421,7 @@ export function Assessment({ product }: { product: Product }) {
     </Card>
   );
 }
-export function RecentProducts({ columns = 1 }: { columns?: 1 | 2 | 4 }) {
+export function RecentProducts({ columns = 1 }: { columns?: 1 | 2 | 3 }) {
   const query = useQuery<Product[]>({
     queryKey: ['recent'],
     queryFn: async () => [],

@@ -63,8 +63,6 @@ export class GooglePlacesProvider implements RestaurantProvider {
   async search(params: RestaurantSearch) {
     const body = {
       textQuery: params.query,
-      includedType: 'restaurant',
-      strictTypeFiltering: true,
       languageCode: 'es',
       pageSize: 20,
       ...(params.latitude !== undefined && params.longitude !== undefined
@@ -124,9 +122,16 @@ export class GooglePlacesProvider implements RestaurantProvider {
           label,
           query: label,
           kind: s.placePrediction?.types?.some((t) =>
-            ['locality', 'administrative_area_level_1', 'administrative_area_level_2'].includes(t),
+            [
+              'locality',
+              'administrative_area_level_1',
+              'administrative_area_level_2',
+              'route',
+              'street_address',
+              'point_of_interest',
+            ].includes(t),
           )
-            ? ('city' as const)
+            ? ('place' as const)
             : ('restaurant' as const),
         },
       ];

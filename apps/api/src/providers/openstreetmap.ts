@@ -14,6 +14,7 @@ const feature = z.object({
     state: z.string().optional(),
     country: z.string().optional(),
     osm_key: z.string().optional(),
+    osm_value: z.string().optional(),
   }),
   geometry: z.object({ coordinates: z.tuple([z.number(), z.number()]) }),
 });
@@ -29,6 +30,8 @@ const osmElement = z.object({
 const elementEnvelope = z.object({ elements: z.array(osmElement) });
 const typeCode = { N: 'node', W: 'way', R: 'relation' } as const;
 const codeType = { n: 'node', w: 'way', r: 'relation' } as const;
+const foodTypes = 'restaurant|cafe|fast_food|bar|pub|food_court|biergarten';
+const foodType = new RegExp(`^(${foodTypes})$`);
 function restaurant(input: {
   type: 'node' | 'way' | 'relation';
   id: number;
@@ -79,7 +82,7 @@ function restaurant(input: {
 }
 function fromFeature(f: z.infer<typeof feature>): Restaurant | null {
   const p = f.properties;
-  if (!p.name || p.osm_key !== 'amenity') return null;
+  if (!p.name || p.osm_key !== 'amenity' || !foodType.test(p.osm_value ?? '')) return null;
   return restaurant({
     type: typeCode[p.osm_type],
     id: p.osm_id,
@@ -95,7 +98,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
   constructor(private userAgent: string) {}
   private async photon(
     q: string,
-    tag: string,
+    tag?: string,
     limit = 10,
     location?: { lat: number; lon: number },
   ) {
@@ -103,7 +106,8 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     // Photon does not support Spanish as a language code. Omitting `lang`
     // lets the service use its default language while keeping the query
     // compatible with the public endpoint.
-    const params = new URLSearchParams({ q, limit: String(limit), osm_tag: tag });
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    if (tag) params.set('osm_tag', tag);
     if (location) {
       params.set('lat', String(location.lat));
       params.set('lon', String(location.lon));
@@ -127,36 +131,38 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     const key = `suggest:${query.toLocaleLowerCase()}`;
     const old = this.cached<RestaurantSuggestion[]>(key);
     if (old) return old;
-    const [places, cities] = await Promise.all([
-      this.photon(query, 'amenity:restaurant', 5),
-      this.photon(query, 'place:city', 3),
-    ]);
-    return this.store(key, [
-      ...cities
+    const found = await this.photon(query, undefined, 12);
+    return this.store(
+      key,
+      found
         .filter((f) => f.properties.name)
-        .map((f) => ({
-          label: [f.properties.name, f.properties.country].filter(Boolean).join(' · '),
-          kind: 'city' as const,
-          query: 'restaurantes',
-          latitude: f.geometry.coordinates[1],
-          longitude: f.geometry.coordinates[0],
-        })),
-      ...places
-        .filter((f) => f.properties.name)
-        .map((f) => ({
-          label: [f.properties.name, f.properties.city].filter(Boolean).join(' · '),
-          kind: 'restaurant' as const,
-          query: [f.properties.name, f.properties.city].filter(Boolean).join(' '),
-        })),
-    ]);
+        .map((f) => {
+          const food =
+            f.properties.osm_key === 'amenity' && foodType.test(f.properties.osm_value ?? '');
+          return {
+            label: [f.properties.name, f.properties.city || f.properties.country]
+              .filter(Boolean)
+              .join(' · '),
+            kind: food ? ('restaurant' as const) : ('place' as const),
+            query: food ? f.properties.name! : 'restaurantes',
+            latitude: f.geometry.coordinates[1],
+            longitude: f.geometry.coordinates[0],
+          };
+        }),
+    );
   }
   private async nearby(lat: number, lon: number, glutenFree = false) {
     this.budget.take();
     const tag = glutenFree ? '["diet:gluten_free"~"^(yes|only|limited)$"]' : '';
-    const q = `[out:json][timeout:8];nwr[amenity=restaurant]${tag}(around:${glutenFree ? 3000 : 1200},${lat},${lon});out center ${glutenFree ? 80 : 35};`;
+    const q = `[out:json][timeout:8];nwr[amenity~"^(${foodTypes})$"]${tag}(around:${glutenFree ? 12000 : 1800},${lat},${lon});out center ${glutenFree ? 80 : 50};`;
     const data = elementEnvelope.parse(
-      await providerJson(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`, {
-        headers: { 'User-Agent': this.userAgent },
+      await providerJson('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: {
+          'User-Agent': this.userAgent,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ data: q }).toString(),
       }),
     );
     return data.elements
@@ -189,16 +195,18 @@ export class OpenStreetMapProvider implements RestaurantProvider {
         await this.nearby(params.latitude, params.longitude, params.glutenFree),
       );
     if (params.latitude === undefined && params.longitude === undefined) {
-      const cities = await this.photon(params.query, 'place:city', 2);
-      const city = cities.find(
-        (f) => f.properties.name?.toLocaleLowerCase() === params.query.toLocaleLowerCase(),
+      const locations = await this.photon(params.query, undefined, 5);
+      const location = locations.find(
+        (f) =>
+          f.properties.name?.toLocaleLowerCase() === params.query.toLocaleLowerCase() &&
+          !(f.properties.osm_key === 'amenity' && foodType.test(f.properties.osm_value ?? '')),
       );
-      if (city)
+      if (location)
         return this.store(
           key,
           await this.nearby(
-            city.geometry.coordinates[1],
-            city.geometry.coordinates[0],
+            location.geometry.coordinates[1],
+            location.geometry.coordinates[0],
             params.glutenFree,
           ),
         );
@@ -206,7 +214,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     const places = (
       await this.photon(
         params.query,
-        'amenity:restaurant',
+        undefined,
         20,
         params.latitude !== undefined && params.longitude !== undefined
           ? { lat: params.latitude, lon: params.longitude }
@@ -216,16 +224,16 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       .map(fromFeature)
       .filter((p): p is Restaurant => !!p);
     if (places.length) return this.store(key, places);
-    const cities = await this.photon(params.query, 'place:city', 2);
-    const city = cities.find(
+    const locations = await this.photon(params.query, undefined, 5);
+    const location = locations.find(
       (f) => f.properties.name?.toLocaleLowerCase() === params.query.toLocaleLowerCase(),
     );
     return this.store(
       key,
-      city
+      location
         ? await this.nearby(
-            city.geometry.coordinates[1],
-            city.geometry.coordinates[0],
+            location.geometry.coordinates[1],
+            location.geometry.coordinates[0],
             params.glutenFree,
           )
         : [],
@@ -242,7 +250,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     );
     if (raw === null) return null;
     const item = elementEnvelope.parse(raw).elements[0];
-    if (!item?.tags?.name || item.tags.amenity !== 'restaurant') return null;
+    if (!item?.tags?.name || !foodType.test(item.tags.amenity ?? '')) return null;
     return restaurant({
       type: item.type,
       id: item.id,

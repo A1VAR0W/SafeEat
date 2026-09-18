@@ -26,7 +26,7 @@ export type RestaurantSearch = {
 };
 export type RestaurantSuggestion = {
   label: string;
-  kind: 'restaurant' | 'city';
+  kind: 'restaurant' | 'place';
   query: string;
   latitude?: number;
   longitude?: number;

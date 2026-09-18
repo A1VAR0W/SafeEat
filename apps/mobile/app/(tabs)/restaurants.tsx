@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FlatList, Platform, Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
-import { AppleMaps, GoogleMaps } from 'expo-maps';
+import { AppleMaps } from 'expo-maps';
+import { Camera, Map, Marker, type CameraRef } from '@maplibre/maplibre-react-native';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { RestaurantSchema, restaurantDisclaimer, type Restaurant } from '@safeeat/contracts';
@@ -13,32 +15,38 @@ import { Button, Card, Copy, ErrorNotice, Screen, Title, useTheme } from '../../
 
 type Coordinates = { latitude: number; longitude: number };
 type SearchParams = { q: string; latitude?: number; longitude?: number };
-const initialCenter = { latitude: 40.4168, longitude: -3.7038 };
-const androidMapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
+const initialCenter: Coordinates = { latitude: 40.4168, longitude: -3.7038 };
+const mapStyle = 'https://tiles.openfreemap.org/styles/liberty';
+function moved(a: Coordinates, b: Coordinates) {
+  return Math.abs(a.latitude - b.latitude) > 0.005 || Math.abs(a.longitude - b.longitude) > 0.007;
+}
 
 export default function Restaurants() {
   const theme = useTheme();
   const appleMap = useRef<AppleMaps.MapView>(null);
-  const googleMap = useRef<GoogleMaps.MapView>(null);
+  const androidCamera = useRef<CameraRef>(null);
+  const center = useRef(initialCenter);
+  const lastSearch = useRef(initialCenter);
+  const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [text, setText] = useState('');
-  const [params, setParams] = useState<SearchParams | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [params, setParams] = useState<SearchParams>({ q: 'restaurantes', ...initialCenter });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mapCenter, setMapCenter] = useState<Coordinates>(initialCenter);
-  const [searchedCenter, setSearchedCenter] = useState<Coordinates | null>(null);
+  const [position, setPosition] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<unknown>(null);
   const [locating, setLocating] = useState(false);
   const [glutenOnly, setGlutenOnly] = useState(false);
   const settled = useDebounced(text.trim());
   const suggestions = useQuery({
     queryKey: ['restaurant-suggestions', settled],
-    enabled: settled.length >= 3 && !params,
+    enabled: editing && settled.length >= 3,
     queryFn: async ({ signal }) =>
       z
         .object({
           items: z.array(
             z.object({
               label: z.string(),
-              kind: z.enum(['restaurant', 'city']),
+              kind: z.enum(['restaurant', 'place']),
               query: z.string(),
               latitude: z.number().optional(),
               longitude: z.number().optional(),
@@ -50,27 +58,21 @@ export default function Restaurants() {
   });
   const search = useQuery({
     queryKey: ['restaurants', params, glutenOnly],
-    enabled: !!params,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const query = new URLSearchParams({
-        q: params!.q,
-        ...(params!.latitude !== undefined
-          ? { latitude: String(params!.latitude), longitude: String(params!.longitude) }
+        q: params.q,
+        ...(params.latitude !== undefined
+          ? { latitude: String(params.latitude), longitude: String(params.longitude) }
           : {}),
         ...(glutenOnly ? { glutenFree: 'true' } : {}),
       });
       return z
         .object({ items: z.array(RestaurantSchema) })
-        .parse(await api(`/restaurants/search?${query}`));
+        .parse(await api(`/restaurants/search?${query}`, { signal }));
     },
-    gcTime: 0,
+    staleTime: 30000,
   });
-  const items = (search.data?.items ?? []).filter(
-    (item) =>
-      !glutenOnly ||
-      item.glutenSupport === 'DEDICATED_GLUTEN_FREE' ||
-      item.glutenSupport === 'GLUTEN_FREE_OPTIONS',
-  );
+  const items = search.data?.items ?? [];
   const mapped = items.filter(
     (item): item is Restaurant & Coordinates =>
       item.latitude !== undefined && item.longitude !== undefined,
@@ -78,128 +80,144 @@ export default function Restaurants() {
   const selected = items.find((item) => item.id === selectedId);
 
   function focus(coordinates: Coordinates, zoom = 15) {
+    if (moveTimer.current) clearTimeout(moveTimer.current);
+    center.current = coordinates;
+    lastSearch.current = coordinates;
     appleMap.current?.setCameraPosition({ coordinates, zoom });
-    googleMap.current?.setCameraPosition({ coordinates, zoom, duration: 300 });
-    setMapCenter(coordinates);
+    androidCamera.current?.easeTo({
+      center: [coordinates.longitude, coordinates.latitude],
+      zoom,
+      duration: 300,
+    });
   }
-
+  function searchZone(coordinates: Coordinates) {
+    center.current = coordinates;
+    if (moveTimer.current) clearTimeout(moveTimer.current);
+    moveTimer.current = setTimeout(() => {
+      if (!moved(coordinates, lastSearch.current)) return;
+      lastSearch.current = coordinates;
+      setSelectedId(null);
+      setParams({ q: 'restaurantes', ...coordinates });
+    }, 650);
+  }
   useEffect(() => {
-    if (!search.isSuccess) return;
-    const first = search.data.items.find(
-      (item) => item.latitude !== undefined && item.longitude !== undefined,
-    );
-    const center =
-      params?.latitude !== undefined && params.longitude !== undefined
-        ? { latitude: params.latitude, longitude: params.longitude }
-        : first?.latitude !== undefined && first.longitude !== undefined
-          ? { latitude: first.latitude, longitude: first.longitude }
-          : null;
-    setSelectedId(null);
-    if (center) {
-      focus(center, params?.latitude !== undefined ? 15 : 13);
-      setSearchedCenter(center);
-    }
-  }, [params?.latitude, params?.longitude, search.data, search.isSuccess]);
+    let active = true;
+    let watcher: Location.LocationSubscription | undefined;
+    void (async () => {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted || !active) return;
+      watcher = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 10, timeInterval: 5000 },
+        (result) => {
+          if (active)
+            setPosition({
+              latitude: result.coords.latitude,
+              longitude: result.coords.longitude,
+            });
+        },
+      );
+    })().catch(() => {});
+    return () => {
+      active = false;
+      watcher?.remove();
+      if (moveTimer.current) clearTimeout(moveTimer.current);
+    };
+  }, []);
 
-  async function nearby() {
+  async function locate() {
     setLocating(true);
     setLocationError(null);
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted)
-        throw new Error('Puedes seguir buscando por nombre y ciudad sin compartir tu ubicación.');
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setParams({
-        q: 'restaurantes',
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
+        throw new Error('Activa la ubicación para centrar el mapa en tu posición.');
+      if (Platform.OS === 'android') {
+        try {
+          await Location.enableNetworkProviderAsync();
+        } catch {
+          /* Location still works without it. */
+        }
+      }
+      const result = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
       });
-      focus({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-    } catch (e) {
-      setLocationError(e);
+      const coordinates = { latitude: result.coords.latitude, longitude: result.coords.longitude };
+      setPosition(coordinates);
+      focus(coordinates, 16);
+      setParams({ q: 'restaurantes', ...coordinates });
+      if (result.coords.accuracy !== null && result.coords.accuracy > 100)
+        setLocationError(
+          new Error(
+            'Tu ubicación es aproximada. Activa la ubicación precisa en los ajustes del móvil.',
+          ),
+        );
+    } catch (cause) {
+      setLocationError(cause);
     } finally {
       setLocating(false);
     }
   }
-
   function select(item: Restaurant) {
     setSelectedId(item.id);
     if (item.latitude !== undefined && item.longitude !== undefined)
       focus({ latitude: item.latitude, longitude: item.longitude }, 17);
   }
-
-  const mapAvailable =
-    Platform.OS === 'ios' || (Platform.OS === 'android' && androidMapsConfigured);
-  const searchOrigin = searchedCenter ?? initialCenter;
-  const canSearchArea =
-    mapAvailable &&
-    (Math.abs(mapCenter.latitude - searchOrigin.latitude) > 0.003 ||
-      Math.abs(mapCenter.longitude - searchOrigin.longitude) > 0.003);
+  function submit() {
+    const q = text.trim();
+    if (q.length < 2) return;
+    setEditing(false);
+    setParams({ q, ...center.current });
+  }
+  useEffect(() => {
+    if (!search.isSuccess || params.q === 'restaurantes') return;
+    const first = search.data.items.find(
+      (item) => item.latitude !== undefined && item.longitude !== undefined,
+    );
+    if (first?.latitude !== undefined && first.longitude !== undefined)
+      focus({ latitude: first.latitude, longitude: first.longitude }, 14);
+  }, [params.q, search.data, search.isSuccess]);
 
   return (
     <Screen scroll={false}>
       <Title>Comer fuera</Title>
       <SearchField
-        label="Restaurante o ciudad"
+        label="Buscar restaurante, calle o lugar"
         value={text}
         onChangeText={(value) => {
           setText(value);
-          setParams(null);
+          setEditing(true);
         }}
-        placeholder="Restaurante o ciudad…"
-        onSubmitEditing={() => {
-          if (text.trim().length >= 2) setParams({ q: text.trim() });
-        }}
+        placeholder="Restaurante, bar, calle, ciudad…"
+        onSubmitEditing={submit}
       />
-      {!params && !!suggestions.data?.items.length && (
+      {editing && !!suggestions.data?.items.length && (
         <View style={{ backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }}>
-          {suggestions.data.items.slice(0, 4).map((suggestion, index) => (
+          {suggestions.data.items.slice(0, 5).map((suggestion, index) => (
             <Pressable
               key={`${suggestion.kind}-${suggestion.label}-${index}`}
               accessibilityRole="button"
               accessibilityLabel={`Buscar ${suggestion.label}`}
               onPress={() => {
                 setText(suggestion.label);
-                setParams({
-                  q: suggestion.query,
-                  latitude: suggestion.latitude,
-                  longitude: suggestion.longitude,
-                });
+                setEditing(false);
+                if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
+                  const coordinates = {
+                    latitude: suggestion.latitude,
+                    longitude: suggestion.longitude,
+                  };
+                  focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
+                  setParams({ q: suggestion.query, ...coordinates });
+                } else setParams({ q: suggestion.query, ...center.current });
               }}
               style={{ padding: 12, minHeight: 48 }}
             >
               <Copy>
-                {suggestion.kind === 'city' ? '⌖' : '⌕'} {suggestion.label}
+                {suggestion.kind === 'place' ? '⌖' : '⌕'} {suggestion.label}
               </Copy>
             </Pressable>
           ))}
         </View>
       )}
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Button
-            secondary
-            title={locating ? 'Localizando…' : 'Cerca de mí'}
-            disabled={locating}
-            onPress={() => void nearby()}
-          />
-        </View>
-        {canSearchArea && (
-          <View style={{ flex: 1 }}>
-            <Button
-              secondary
-              title="Buscar en esta zona"
-              onPress={() =>
-                setParams({
-                  q: 'restaurantes',
-                  latitude: mapCenter.latitude,
-                  longitude: mapCenter.longitude,
-                })
-              }
-            />
-          </View>
-        )}
-      </View>
       {!!locationError && <ErrorNotice error={locationError} />}
       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
         <Pressable
@@ -223,8 +241,8 @@ export default function Restaurants() {
             router.push({
               pathname: '/restaurant/new',
               params: {
-                latitude: String(mapCenter.latitude),
-                longitude: String(mapCenter.longitude),
+                latitude: String(center.current.latitude),
+                longitude: String(center.current.longitude),
               },
             })
           }
@@ -244,49 +262,109 @@ export default function Restaurants() {
         </Pressable>
       </View>
       <View
-        style={{ height: 300, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.line }}
+        style={{ height: 330, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.line }}
       >
         {Platform.OS === 'ios' ? (
           <AppleMaps.View
             ref={appleMap}
             style={{ flex: 1 }}
             cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
-            markers={mapped.map((item) => ({
-              id: item.id,
-              coordinates: { latitude: item.latitude, longitude: item.longitude },
-              title: item.name,
-              tintColor: item.glutenSupport === 'UNKNOWN' ? theme.muted : theme.accent,
-            }))}
+            markers={[
+              ...mapped.map((item) => ({
+                id: item.id,
+                coordinates: { latitude: item.latitude, longitude: item.longitude },
+                title: item.name,
+                tintColor: item.glutenSupport === 'UNKNOWN' ? theme.muted : theme.accent,
+              })),
+              ...(position
+                ? [
+                    {
+                      id: 'my-location',
+                      coordinates: position,
+                      title: 'Tu ubicación',
+                      tintColor: '#2588F4',
+                    },
+                  ]
+                : []),
+            ]}
             onMarkerClick={(marker) => {
               const item = items.find((candidate) => candidate.id === marker.id);
               if (item) select(item);
             }}
-            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
-          />
-        ) : Platform.OS === 'android' && androidMapsConfigured ? (
-          <GoogleMaps.View
-            ref={googleMap}
-            style={{ flex: 1 }}
-            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
-            markers={mapped.map((item) => ({
-              id: item.id,
-              coordinates: { latitude: item.latitude, longitude: item.longitude },
-              title: item.name,
-            }))}
-            onMarkerClick={(marker) => {
-              const item = items.find((candidate) => candidate.id === marker.id);
-              if (item) select(item);
-            }}
-            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
+            onCameraMove={(event) => searchZone(event.coordinates as Coordinates)}
           />
         ) : (
-          <View style={{ flex: 1, justifyContent: 'center', padding: 20 }}>
-            <Copy>
-              El mapa no está disponible en este dispositivo. Puedes consultar la lista de
-              restaurantes.
-            </Copy>
-          </View>
+          <Map
+            mapStyle={mapStyle}
+            style={{ flex: 1 }}
+            onRegionDidChange={(event) => {
+              if (!event.nativeEvent.userInteraction) return;
+              const [longitude, latitude] = event.nativeEvent.center;
+              searchZone({ latitude, longitude });
+            }}
+          >
+            <Camera
+              ref={androidCamera}
+              initialViewState={{
+                center: [initialCenter.longitude, initialCenter.latitude],
+                zoom: 12,
+              }}
+            />
+            {mapped.map((item) => (
+              <Marker
+                key={item.id}
+                id={item.id}
+                lngLat={[item.longitude, item.latitude]}
+                onPress={() => select(item)}
+              >
+                <View
+                  style={{
+                    width: 19,
+                    height: 19,
+                    borderRadius: 10,
+                    borderWidth: 2,
+                    borderColor: 'white',
+                    backgroundColor: item.glutenSupport === 'UNKNOWN' ? theme.muted : theme.accent,
+                  }}
+                />
+              </Marker>
+            ))}
+            {position && (
+              <Marker id="my-location" lngLat={[position.longitude, position.latitude]}>
+                <View
+                  style={{
+                    width: 19,
+                    height: 19,
+                    borderRadius: 10,
+                    borderWidth: 3,
+                    borderColor: 'white',
+                    backgroundColor: '#2588F4',
+                  }}
+                />
+              </Marker>
+            )}
+          </Map>
         )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Ir a mi ubicación"
+          disabled={locating}
+          onPress={() => void locate()}
+          style={{
+            position: 'absolute',
+            right: 12,
+            bottom: 12,
+            width: 48,
+            height: 48,
+            borderRadius: 15,
+            backgroundColor: theme.card,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: locating ? 0.5 : 1,
+          }}
+        >
+          <Ionicons name="locate-outline" size={25} color={theme.accent} />
+        </Pressable>
       </View>
       {selected && (
         <Pressable
@@ -304,8 +382,7 @@ export default function Restaurants() {
       {search.isFetching && <Copy muted>Buscando restaurantes…</Copy>}
       {search.error && <ErrorNotice error={search.error} retry={() => void search.refetch()} />}
       <Copy muted size={12}>
-        {mapAvailable ? `${mapped.length} restaurantes en el mapa · ` : ''}
-        {restaurantDisclaimer}
+        {mapped.length} restaurantes en el mapa · {restaurantDisclaimer}
       </Copy>
       <FlatList
         style={{ flex: 1 }}
@@ -315,7 +392,7 @@ export default function Restaurants() {
           <Copy muted>
             {search.isSuccess
               ? 'No se han encontrado restaurantes. Prueba otra zona.'
-              : 'Busca un restaurante, una ciudad o usa tu ubicación.'}
+              : 'Busca un restaurante, una calle, una ciudad o usa tu ubicación.'}
           </Copy>
         }
         renderItem={({ item }) => (

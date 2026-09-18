@@ -86,6 +86,7 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     'expo-maps',
+    '@maplibre/maplibre-react-native',
     '@react-native-community/datetimepicker',
     [
       'expo-camera',
