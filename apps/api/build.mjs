@@ -6,6 +6,6 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
-  external: ['fastify', '@fastify/*', 'argon2', 'pg'],
+  external: ['fastify', '@fastify/*', 'argon2', 'pg', 'sharp'],
   sourcemap: false,
 });
