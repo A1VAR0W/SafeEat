@@ -173,4 +173,38 @@ describe('additional real-data sources', () => {
     expect(request.mock.calls[0]?.[0]).toContain('lat=40.42');
     expect(request.mock.calls[0]?.[0]).toContain('lon=-3.7');
   });
+  it('falls back to nearby gluten-named food establishments if Overpass is unavailable', async () => {
+    const request = vi.fn(async (url: string) => {
+      if (url.includes('overpass-api.de')) return new Response('busy', { status: 504 });
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              properties: {
+                osm_type: 'N',
+                osm_id: 99,
+                name: 'Celicioso',
+                city: 'Madrid',
+                osm_key: 'amenity',
+                osm_value: 'restaurant',
+              },
+              geometry: { coordinates: [-3.701, 40.42] },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', request);
+    const items = await new OpenStreetMapProvider('SafeEat test').search({
+      query: 'restaurantes',
+      latitude: 40.4168,
+      longitude: -3.7038,
+      glutenFree: true,
+    });
+    expect(items).toMatchObject([
+      { id: 'osm_n_99', name: 'Celicioso', glutenSupport: 'GLUTEN_FREE_OPTIONS' },
+    ]);
+    expect(items[0]?.evidence[0]?.text).toContain('nombre de la ficha');
+  });
 });

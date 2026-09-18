@@ -32,6 +32,29 @@ const typeCode = { N: 'node', W: 'way', R: 'relation' } as const;
 const codeType = { n: 'node', w: 'way', r: 'relation' } as const;
 const foodTypes = 'restaurant|cafe|fast_food|bar|pub|food_court|biergarten';
 const foodType = new RegExp(`^(${foodTypes})$`);
+const foodShopTypes = new Set(['bakery', 'pastry', 'convenience']);
+const glutenName = /sin\s+gluten|gluten\s*free|celi[a-záí]+/i;
+function isFoodFeature(properties: z.infer<typeof feature>['properties']) {
+  return (
+    (properties.osm_key === 'amenity' && foodType.test(properties.osm_value ?? '')) ||
+    (properties.osm_key === 'shop' && foodShopTypes.has(properties.osm_value ?? ''))
+  );
+}
+function isFoodTags(tags: Record<string, string>) {
+  return (
+    (tags.amenity !== undefined && foodType.test(tags.amenity)) ||
+    (tags.shop !== undefined && foodShopTypes.has(tags.shop))
+  );
+}
+function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+  const radians = Math.PI / 180;
+  const lat = (b.lat - a.lat) * radians;
+  const lon = (b.lon - a.lon) * radians;
+  const value =
+    Math.sin(lat / 2) ** 2 +
+    Math.cos(a.lat * radians) * Math.cos(b.lat * radians) * Math.sin(lon / 2) ** 2;
+  return 12742 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
 function restaurant(input: {
   type: 'node' | 'way' | 'relation';
   id: number;
@@ -40,6 +63,7 @@ function restaurant(input: {
   lat?: number;
   lon?: number;
   tags?: Record<string, string>;
+  glutenNameMatch?: boolean;
 }): Restaurant {
   const mapsUrl = `https://www.openstreetmap.org/${input.type}/${input.id}`;
   const glutenTag = input.tags?.['diet:gluten_free'];
@@ -65,8 +89,9 @@ function restaurant(input: {
       {
         source: 'OpenStreetMap',
         kind: 'uncertainty',
-        text:
-          glutenSupport === 'DEDICATED_GLUTEN_FREE'
+        text: input.glutenNameMatch
+          ? 'El nombre de la ficha menciona opciones sin gluten. Confirma ingredientes y contaminación cruzada con el establecimiento.'
+          : glutenSupport === 'DEDICATED_GLUTEN_FREE'
             ? 'La ficha indica que el local ofrece prácticamente todo sin gluten. Confirma la preparación antes de acudir.'
             : glutenSupport === 'GLUTEN_FREE_OPTIONS'
               ? 'La ficha indica opciones sin gluten. Confirma ingredientes y contaminación cruzada.'
@@ -82,7 +107,7 @@ function restaurant(input: {
 }
 function fromFeature(f: z.infer<typeof feature>): Restaurant | null {
   const p = f.properties;
-  if (!p.name || p.osm_key !== 'amenity' || !foodType.test(p.osm_value ?? '')) return null;
+  if (!p.name || !isFoodFeature(p)) return null;
   return restaurant({
     type: typeCode[p.osm_type],
     id: p.osm_id,
@@ -90,6 +115,20 @@ function fromFeature(f: z.infer<typeof feature>): Restaurant | null {
     address: [p.street, p.housenumber, p.city, p.state, p.country].filter(Boolean).join(', '),
     lat: f.geometry.coordinates[1],
     lon: f.geometry.coordinates[0],
+  });
+}
+function glutenFeature(f: z.infer<typeof feature>): Restaurant | null {
+  const p = f.properties;
+  if (!p.name || !glutenName.test(p.name) || !isFoodFeature(p)) return null;
+  return restaurant({
+    type: typeCode[p.osm_type],
+    id: p.osm_id,
+    name: p.name,
+    address: [p.street, p.housenumber, p.city, p.state, p.country].filter(Boolean).join(', '),
+    lat: f.geometry.coordinates[1],
+    lon: f.geometry.coordinates[0],
+    tags: { 'diet:gluten_free': 'yes' },
+    glutenNameMatch: true,
   });
 }
 export class OpenStreetMapProvider implements RestaurantProvider {
@@ -206,6 +245,26 @@ export class OpenStreetMapProvider implements RestaurantProvider {
         }),
       );
   }
+  private async namedGlutenFreeNearby(lat: number, lon: number) {
+    const queries = ['sin gluten', 'gluten free', 'celiaco'];
+    const results = await Promise.all(
+      queries.map((query) => this.photon(query, undefined, 30, { lat, lon })),
+    );
+    const seen = new Set<string>();
+    return results
+      .flat()
+      .map(glutenFeature)
+      .filter((item): item is Restaurant => !!item)
+      .filter((item) => {
+        if (item.latitude === undefined || item.longitude === undefined) return false;
+        if (distanceKm({ lat, lon }, { lat: item.latitude, lon: item.longitude }) > 25)
+          return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      })
+      .slice(0, 30);
+  }
   async search(params: RestaurantSearch): Promise<Restaurant[]> {
     const key = `search:${params.query.toLocaleLowerCase()}:${params.latitude ?? ''}:${params.longitude ?? ''}:${params.glutenFree ?? false}`;
     const old = this.cached<Restaurant[]>(key);
@@ -215,10 +274,15 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       params.longitude !== undefined &&
       /^(restaurantes?|cerca de m[ií])$/i.test(params.query)
     )
-      return this.store(
-        key,
-        await this.nearby(params.latitude, params.longitude, params.glutenFree),
-      );
+      try {
+        return this.store(
+          key,
+          await this.nearby(params.latitude, params.longitude, params.glutenFree),
+        );
+      } catch (error) {
+        if (!params.glutenFree) throw error;
+        return this.store(key, await this.namedGlutenFreeNearby(params.latitude, params.longitude));
+      }
     if (params.latitude === undefined && params.longitude === undefined) {
       const locations = await this.photon(params.query, undefined, 5);
       const location = locations.find(
@@ -275,7 +339,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     );
     if (raw === null) return null;
     const item = elementEnvelope.parse(raw).elements[0];
-    if (!item?.tags?.name || !foodType.test(item.tags.amenity ?? '')) return null;
+    if (!item?.tags?.name || !isFoodTags(item.tags)) return null;
     return restaurant({
       type: item.type,
       id: item.id,
