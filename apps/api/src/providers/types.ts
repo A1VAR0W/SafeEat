@@ -23,6 +23,7 @@ export type RestaurantSearch = {
   latitude?: number;
   longitude?: number;
   glutenFree?: boolean;
+  glutenMode?: 'dedicated' | 'options';
 };
 export type RestaurantSuggestion = {
   label: string;

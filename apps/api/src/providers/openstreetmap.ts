@@ -70,7 +70,7 @@ function restaurant(input: {
   const glutenSupport =
     glutenTag === 'only'
       ? 'DEDICATED_GLUTEN_FREE'
-      : glutenTag === 'yes' || glutenTag === 'limited'
+      : glutenTag === 'yes'
         ? 'GLUTEN_FREE_OPTIONS'
         : glutenTag === 'no'
           ? 'NO_GLUTEN_FREE_OPTIONS'
@@ -127,7 +127,6 @@ function glutenFeature(f: z.infer<typeof feature>): Restaurant | null {
     address: [p.street, p.housenumber, p.city, p.state, p.country].filter(Boolean).join(', '),
     lat: f.geometry.coordinates[1],
     lon: f.geometry.coordinates[0],
-    tags: { 'diet:gluten_free': 'yes' },
     glutenNameMatch: true,
   });
 }

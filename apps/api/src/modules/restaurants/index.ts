@@ -6,6 +6,7 @@ import type { Database } from '../../db/pool';
 import type { Auth } from '../auth';
 import type { RestaurantProvider, RestaurantSearch } from '../../providers/types';
 import { notFound } from '../../plugins/errors';
+import { restaurantCatalog } from './catalog';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -39,6 +40,7 @@ export function restaurantService(
   auth: Auth,
   provider: RestaurantProvider,
 ) {
+  const catalog = restaurantCatalog(db);
   async function withReports(items: Restaurant[]): Promise<Restaurant[]> {
     if (!items.length) return items;
     const reports = await db.query<{
@@ -106,7 +108,9 @@ export function restaurantService(
       if (!result.rows[0]) throw notFound();
       return (await withReports([community(result.rows[0])]))[0]!;
     }
-    const item = await provider.getById(id);
+    const item = id.startsWith('osm_')
+      ? ((await catalog.get(id)) ?? (await provider.getById(id)))
+      : await provider.getById(id);
     if (!item) throw notFound();
     return (await withReports([item]))[0]!;
   }
@@ -129,17 +133,24 @@ export function restaurantService(
     const local = communityRows.rows.map(community);
     let external: Restaurant[];
     try {
-      external = await provider.search(params);
+      const fallback = {
+        ...params,
+        glutenFree: params.glutenFree || params.glutenMode !== undefined,
+      };
+      external = (await catalog.ready()) ? await catalog.search(params) : [];
+      if (!external.length) external = await provider.search(fallback);
     } catch (error) {
       if (!local.length) throw error;
       external = [];
     }
     const merged = await withReports([...local, ...external]);
-    return params.glutenFree
-      ? merged.filter((item) =>
-          ['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS'].includes(item.glutenSupport),
-        )
-      : merged;
+    return params.glutenMode === 'dedicated'
+      ? merged.filter((item) => item.glutenSupport === 'DEDICATED_GLUTEN_FREE')
+      : params.glutenFree || params.glutenMode === 'options'
+        ? merged.filter((item) =>
+            ['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS'].includes(item.glutenSupport),
+          )
+        : merged;
   }
 
   app.get(
@@ -158,6 +169,7 @@ export function restaurantService(
         'SELECT name FROM community_restaurants WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 4',
         [`%${q.replace(/[\\%_]/g, '\\$&')}%`],
       );
+      const indexed = await catalog.suggest(q);
       const external = provider.suggest
         ? await provider.suggest(
             q,
@@ -171,6 +183,7 @@ export function restaurantService(
             kind: 'restaurant' as const,
             query: row.name,
           })),
+          ...indexed,
           ...external,
         ],
       };
@@ -189,6 +202,7 @@ export function restaurantService(
             .enum(['true', 'false'])
             .transform((value) => value === 'true')
             .optional(),
+          glutenMode: z.enum(['dedicated', 'options']).optional(),
         })
         .refine((value) => (value.latitude === undefined) === (value.longitude === undefined))
         .parse(request.query);
@@ -198,6 +212,7 @@ export function restaurantService(
           latitude: q.latitude,
           longitude: q.longitude,
           glutenFree: q.glutenFree,
+          glutenMode: q.glutenMode,
         }),
       };
     },

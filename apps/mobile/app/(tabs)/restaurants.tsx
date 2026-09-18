@@ -35,7 +35,7 @@ export default function Restaurants() {
   const [position, setPosition] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<unknown>(null);
   const [locating, setLocating] = useState(false);
-  const [glutenOnly, setGlutenOnly] = useState(false);
+  const [glutenMode, setGlutenMode] = useState<'all' | 'options' | 'dedicated'>('all');
   const settled = useDebounced(text.trim());
   const suggestLatitude = Math.round(center.current.latitude * 100) / 100;
   const suggestLongitude = Math.round(center.current.longitude * 100) / 100;
@@ -64,14 +64,14 @@ export default function Restaurants() {
     staleTime: 3600000,
   });
   const search = useQuery({
-    queryKey: ['restaurants', params, glutenOnly],
+    queryKey: ['restaurants', params, glutenMode],
     queryFn: async ({ signal }) => {
       const query = new URLSearchParams({
         q: params.q,
         ...(params.latitude !== undefined
           ? { latitude: String(params.latitude), longitude: String(params.longitude) }
           : {}),
-        ...(glutenOnly ? { glutenFree: 'true' } : {}),
+        ...(glutenMode !== 'all' ? { glutenMode } : {}),
       });
       return z
         .object({ items: z.array(RestaurantSchema) })
@@ -226,27 +226,36 @@ export default function Restaurants() {
         </View>
       )}
       {!!locationError && <ErrorNotice error={locationError} />}
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: glutenOnly }}
-          onPress={() => {
-            const next = !glutenOnly;
-            focus(center.current, next ? 11 : 14);
-            setParams({ q: 'restaurantes', ...center.current });
-            setSelectedId(null);
-            setGlutenOnly(next);
-          }}
-          style={{
-            padding: 10,
-            borderRadius: 14,
-            backgroundColor: glutenOnly ? theme.accent : theme.card,
-          }}
-        >
-          <Copy bold size={13}>
-            ✓ Opciones sin gluten
-          </Copy>
-        </Pressable>
+      <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        {(
+          [
+            ['all', 'Todos'],
+            ['options', 'Con opciones'],
+            ['dedicated', 'Solo sin gluten'],
+          ] as const
+        ).map(([value, label]) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: glutenMode === value }}
+            onPress={() => {
+              focus(center.current, value === 'all' ? 14 : 11);
+              setParams({ q: 'restaurantes', ...center.current });
+              setSelectedId(null);
+              setGlutenMode(value);
+            }}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 8,
+              borderRadius: 14,
+              backgroundColor: glutenMode === value ? theme.accent : theme.card,
+            }}
+          >
+            <Copy bold size={12}>
+              {label}
+            </Copy>
+          </Pressable>
+        ))}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Añadir restaurante"
@@ -404,7 +413,7 @@ export default function Restaurants() {
         ListEmptyComponent={
           <Copy muted>
             {search.isSuccess
-              ? glutenOnly
+              ? glutenMode !== 'all'
                 ? 'No aparecen locales con opciones sin gluten indicadas aquí. Prueba otra zona.'
                 : 'No se han encontrado restaurantes. Prueba otra zona.'
               : 'Busca un restaurante, una calle, una ciudad o usa tu ubicación.'}
@@ -429,7 +438,9 @@ export default function Restaurants() {
                   ? '⚠ No verificado'
                   : item.glutenSupport === 'NO_GLUTEN_FREE_OPTIONS'
                     ? 'Sin opciones sin gluten indicadas'
-                    : '✓ Opciones sin gluten indicadas'}
+                    : item.glutenSupport === 'DEDICATED_GLUTEN_FREE'
+                      ? '✓ Solo sin gluten indicado'
+                      : '✓ Opciones sin gluten indicadas'}
               </Copy>
               {selectedId === item.id && (
                 <Button

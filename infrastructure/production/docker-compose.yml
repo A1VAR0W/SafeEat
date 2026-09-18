@@ -1,7 +1,7 @@
 name: ${COMPOSE_PROJECT_NAME:-safeeat}
 services:
   postgres:
-    image: postgres:17.9-alpine
+    image: postgis/postgis:17-3.5-alpine
     environment:
       POSTGRES_DB: safeeat
       POSTGRES_USER: safeeat

@@ -202,9 +202,7 @@ describe('additional real-data sources', () => {
       longitude: -3.7038,
       glutenFree: true,
     });
-    expect(items).toMatchObject([
-      { id: 'osm_n_99', name: 'Celicioso', glutenSupport: 'GLUTEN_FREE_OPTIONS' },
-    ]);
+    expect(items).toMatchObject([{ id: 'osm_n_99', name: 'Celicioso', glutenSupport: 'UNKNOWN' }]);
     expect(items[0]?.evidence[0]?.text).toContain('nombre de la ficha');
   });
   it('keeps a general map search available through Photon if Overpass is unavailable', async () => {
