@@ -223,7 +223,13 @@ export default function Restaurants() {
         <Pressable
           accessibilityRole="switch"
           accessibilityState={{ checked: glutenOnly }}
-          onPress={() => setGlutenOnly((value) => !value)}
+          onPress={() => {
+            const next = !glutenOnly;
+            focus(center.current, next ? 11 : 14);
+            setParams({ q: 'restaurantes', ...center.current });
+            setSelectedId(null);
+            setGlutenOnly(next);
+          }}
           style={{
             padding: 10,
             borderRadius: 14,
@@ -268,7 +274,7 @@ export default function Restaurants() {
           <AppleMaps.View
             ref={appleMap}
             style={{ flex: 1 }}
-            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
+            cameraPosition={{ coordinates: initialCenter, zoom: 14 }}
             markers={[
               ...mapped.map((item) => ({
                 id: item.id,
@@ -307,7 +313,7 @@ export default function Restaurants() {
               ref={androidCamera}
               initialViewState={{
                 center: [initialCenter.longitude, initialCenter.latitude],
-                zoom: 12,
+                zoom: 14,
               }}
             />
             {mapped.map((item) => (
@@ -391,7 +397,9 @@ export default function Restaurants() {
         ListEmptyComponent={
           <Copy muted>
             {search.isSuccess
-              ? 'No se han encontrado restaurantes. Prueba otra zona.'
+              ? glutenOnly
+                ? 'No aparecen locales con opciones sin gluten indicadas aquí. Prueba otra zona.'
+                : 'No se han encontrado restaurantes. Prueba otra zona.'
               : 'Busca un restaurante, una calle, una ciudad o usa tu ubicación.'}
           </Copy>
         }
