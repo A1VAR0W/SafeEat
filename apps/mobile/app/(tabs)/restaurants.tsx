@@ -282,7 +282,7 @@ export default function Restaurants() {
         ) : (
           <View style={{ flex: 1, justifyContent: 'center', padding: 20 }}>
             <Copy>
-              El mapa de Android requiere una clave de Google Maps. Puedes usar la lista de
+              El mapa no está disponible en este dispositivo. Puedes consultar la lista de
               restaurantes.
             </Copy>
           </View>
