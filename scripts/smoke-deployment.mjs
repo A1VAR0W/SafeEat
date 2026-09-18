@@ -148,7 +148,12 @@ try {
   } catch (error) {
     record('Live Open Food Facts', 'BLOCKED EXTERNALLY', error.message);
   }
-  await request('/api/v1/auth/me', { method: 'DELETE', token: session.accessToken, expected: 204 });
+  await request('/api/v1/auth/me', {
+    method: 'DELETE',
+    token: session.accessToken,
+    body: { currentPassword: credentials.password, confirmation: 'ELIMINAR' },
+    expected: 204,
+  });
   session = undefined;
   await request(`/api/v1/public/shares/${share.token}`, { expected: 404 });
   record('Account deletion revokes private shares');
