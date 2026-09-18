@@ -33,15 +33,15 @@ export default async function Page({ params }: Props) {
       <section className="card assessment UNKNOWN">
         <h2>
           {r.glutenSupport === 'UNKNOWN'
-            ? '? Información sin verificar'
+            ? '⚠ No verificado'
             : r.glutenSupport === 'DEDICATED_GLUTEN_FREE'
               ? 'Dedicado a comida sin gluten'
-              : 'Opciones sin gluten'}
+              : r.glutenSupport === 'NO_GLUTEN_FREE_OPTIONS'
+                ? 'Sin opciones sin gluten conocidas'
+                : 'Opciones sin gluten'}
         </h2>
         {r.evidence.map((e, i) => (
-          <p key={i}>
-            {e.text} <span className="muted">· {e.source}</span>
-          </p>
+          <p key={i}>{e.text}</p>
         ))}
         <p>{restaurantDisclaimer}</p>
       </section>
@@ -58,9 +58,6 @@ export default async function Page({ params }: Props) {
           </a>
         </p>
       )}
-      <p className="muted">
-        {r.source} · {r.attributions.join(' · ')}
-      </p>
     </>
   );
 }

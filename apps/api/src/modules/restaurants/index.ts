@@ -65,9 +65,29 @@ export function restaurantService(
               : positive
                 ? 'GLUTEN_FREE_OPTIONS'
                 : 'UNKNOWN';
+      const conflict =
+        (!!report.no_options && !!positive) ||
+        (item.glutenSupport === 'NO_GLUTEN_FREE_OPTIONS' && positive > 0) ||
+        (item.glutenSupport !== 'UNKNOWN' &&
+          item.glutenSupport !== 'NO_GLUTEN_FREE_OPTIONS' &&
+          report.no_options > 0);
       return RestaurantSchema.parse({
         ...item,
-        glutenSupport: item.glutenSupport === 'UNKNOWN' ? fromUsers : item.glutenSupport,
+        glutenSupport: conflict
+          ? 'UNKNOWN'
+          : item.glutenSupport === 'UNKNOWN'
+            ? fromUsers
+            : item.glutenSupport,
+        evidence: [
+          ...(item.glutenSupport === 'UNKNOWN' ? [] : item.evidence),
+          {
+            source: 'Usuarios de SafeEat',
+            kind: 'uncertainty',
+            text: conflict
+              ? 'Hay indicaciones contradictorias sobre las opciones sin gluten.'
+              : `${report.dedicated + report.options + report.no_options} usuario(s) han compartido su experiencia. Confirma el menú y la preparación.`,
+          },
+        ],
         glutenReports: {
           dedicated: report.dedicated,
           options: report.options,

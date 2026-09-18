@@ -48,7 +48,7 @@ export function GridPicker({
             backgroundColor: columns === value ? t.accent : t.card,
           }}
         >
-          <Copy bold size={13}>
+          <Copy bold size={13} color={columns === value ? t.onAccent : t.text}>
             {value}
           </Copy>
         </Pressable>

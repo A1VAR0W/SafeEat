@@ -54,12 +54,21 @@ export function Copy({
   muted = false,
   size = 16,
   bold = false,
-}: PropsWithChildren<{ muted?: boolean; size?: number; bold?: boolean }>) {
+  numberOfLines,
+  color,
+}: PropsWithChildren<{
+  muted?: boolean;
+  size?: number;
+  bold?: boolean;
+  numberOfLines?: number;
+  color?: string;
+}>) {
   const t = useTheme();
   return (
     <Text
+      numberOfLines={numberOfLines}
       style={{
-        color: muted ? t.muted : t.text,
+        color: color ?? (muted ? t.muted : t.text),
         fontSize: size * t.textScale,
         lineHeight: size * 1.45 * t.textScale,
         fontWeight: bold ? '700' : '400',
@@ -356,7 +365,7 @@ export function ProductTile({
           <Copy muted>▥</Copy>
         </View>
       )}
-      <Copy bold size={columns === 4 ? 10 : 13}>
+      <Copy bold size={columns === 4 ? 10 : 13} numberOfLines={columns === 4 ? 2 : 3}>
         {item.name}
       </Copy>
       {columns === 2 && <ProductGlutenLabel product={item} compact />}
