@@ -94,7 +94,11 @@ describe('additional real-data sources', () => {
                       type: 'way',
                       id: 42,
                       center: { lat: 40.417, lon: -3.704 },
-                      tags: { amenity: 'restaurant', name: 'Restaurante local' },
+                      tags: {
+                        amenity: 'restaurant',
+                        name: 'Restaurante local',
+                        'diet:gluten_free': 'yes',
+                      },
                     },
                   ],
                 },
@@ -103,13 +107,24 @@ describe('additional real-data sources', () => {
         ),
     );
     vi.stubGlobal('fetch', request);
-    const items = await new OpenStreetMapProvider('SafeEat test').search({ query: 'Madrid' });
+    const provider = new OpenStreetMapProvider('SafeEat test');
+    const items = await provider.search({ query: 'Madrid' });
     expect(items).toMatchObject([
-      { id: 'osm_w_42', name: 'Restaurante local', latitude: 40.417, longitude: -3.704 },
+      {
+        id: 'osm_w_42',
+        name: 'Restaurante local',
+        latitude: 40.417,
+        longitude: -3.704,
+        glutenSupport: 'GLUTEN_FREE_OPTIONS',
+      },
     ]);
     expect(request.mock.calls.map(([url]) => url)).toEqual([
       expect.stringContaining('osm_tag=place%3Acity'),
       expect.stringContaining('overpass-api.de'),
     ]);
+    expect((await provider.search({ query: 'Madrid', glutenFree: true }))[0]?.glutenSupport).toBe(
+      'GLUTEN_FREE_OPTIONS',
+    );
+    expect(request.mock.calls[3]?.[0]).toContain('diet%3Agluten_free');
   });
 });

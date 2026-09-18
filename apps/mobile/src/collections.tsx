@@ -63,7 +63,7 @@ export function CollectionPicker({ productId }: { productId: string }) {
   }
   return (
     <View style={{ gap: 8 }}>
-      <Copy bold>Organizar en grupos</Copy>
+      <Copy bold>Organizar en marcadores</Copy>
       {collections.data.map((collection) => {
         const selected = membership.data?.includes(collection.id) ?? false;
         return (

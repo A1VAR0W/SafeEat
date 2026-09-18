@@ -8,9 +8,11 @@ import { api } from '../../src/session';
 import { rememberSearch, type SearchHistory } from '../../src/query';
 import { useDebounced } from '../../src/use-debounced';
 import { SearchField, SettingRow } from '../../src/compact';
-import { Copy, ErrorNotice, ProductRow, RecentProducts, Screen, useTheme } from '../../src/ui';
+import { GridPicker, useProductColumns } from '../../src/grid';
+import { Copy, ErrorNotice, ProductTile, RecentProducts, Screen, useTheme } from '../../src/ui';
 export default function Home() {
   const t = useTheme();
+  const { columns, choose } = useProductColumns();
   const [text, setText] = useState('');
   const query = text.trim();
   const settled = useDebounced(query);
@@ -41,10 +43,15 @@ export default function Home() {
         }}
       />
       <FlatList
+        key={`products-${columns}`}
+        numColumns={columns}
+        columnWrapperStyle={columns > 1 ? { alignItems: 'stretch' } : undefined}
         data={search.data?.items ?? []}
         keyExtractor={(p) => p.id}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item }) => <ProductRow item={item} onOpen={() => rememberSearch(query)} />}
+        renderItem={({ item }) => (
+          <ProductTile item={item} columns={columns} onOpen={() => rememberSearch(query)} />
+        )}
         ListHeaderComponent={
           <View style={{ gap: 12, paddingBottom: 12 }}>
             <View style={{ backgroundColor: t.card, borderRadius: 18 }}>
@@ -55,6 +62,7 @@ export default function Home() {
                 onPress={() => router.push('/scan')}
               />
             </View>
+            <GridPicker columns={columns} onChange={choose} />
             {query.length >= 2 ? (
               <>
                 <Copy bold>Resultados</Copy>
@@ -73,7 +81,7 @@ export default function Home() {
             ) : (
               <>
                 <Copy bold>Recientes</Copy>
-                <RecentProducts />
+                <RecentProducts columns={columns} />
                 {!!history.data?.length && (
                   <ScrollView
                     horizontal

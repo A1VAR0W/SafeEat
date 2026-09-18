@@ -55,6 +55,20 @@ export function productService(
       ingredientsImageUrl: `${apiPublicUrl.replace(/\/$/, '')}/api/v1/products/${encodeURIComponent(item.barcode!)}/ingredients-photo?v=${contribution.id}`,
     });
   }
+  async function withReports(item: Product): Promise<Product> {
+    if (item.userCreated) return item;
+    const reports = await db.query<{ gluten_free: number; contains_gluten: number }>(
+      "SELECT count(*) FILTER (WHERE status='GLUTEN_FREE')::int AS gluten_free, count(*) FILTER (WHERE status='CONTAINS_GLUTEN')::int AS contains_gluten FROM product_gluten_reports WHERE product_id=$1",
+      [item.id],
+    );
+    return ProductSchema.parse({
+      ...item,
+      glutenReports: {
+        glutenFree: reports.rows[0]?.gluten_free ?? 0,
+        containsGluten: reports.rows[0]?.contains_gluten ?? 0,
+      },
+    });
+  }
   function communityProduct(code: string, c: Contribution): Product {
     return ProductSchema.parse({
       id: `off-${code}`,
@@ -82,9 +96,11 @@ export function productService(
     const item = ProductSchema.parse({ ...data, stale: expired });
     if (!item.barcode) return item;
     const c = await latest(item.barcode);
-    return c && item.source === 'Comunidad SafeEat'
-      ? communityProduct(item.barcode, c)
-      : contributed(item, c);
+    return withReports(
+      c && item.source === 'Comunidad SafeEat'
+        ? communityProduct(item.barcode, c)
+        : contributed(item, c),
+    );
   }
   async function save(external: ExternalProduct): Promise<Product> {
     const item = ProductSchema.parse({
@@ -176,13 +192,13 @@ export function productService(
     );
     const row = result.rows[0];
     if (!row) throw notFound();
-    return row.barcode ? barcode(row.barcode) : ProductSchema.parse(row.data);
+    return withReports(row.barcode ? await barcode(row.barcode) : ProductSchema.parse(row.data));
   }
   app.get('/api/v1/products/barcode/:barcode', async (request) => {
     const params = z
       .object({ barcode: z.string().regex(/^(?:\d{8}|\d{12,14})$/) })
       .parse(request.params);
-    return barcode(params.barcode);
+    return withReports(await barcode(params.barcode));
   });
   app.get(
     '/api/v1/products/search',
@@ -209,9 +225,11 @@ export function productService(
       return {
         items: [
           ...external,
-          ...community.rows
-            .filter((c) => !known.has(c.barcode))
-            .map((c) => communityProduct(c.barcode, c)),
+          ...(await Promise.all(
+            community.rows
+              .filter((c) => !known.has(c.barcode))
+              .map((c) => withReports(communityProduct(c.barcode, c))),
+          )),
         ],
       };
     },
@@ -251,6 +269,28 @@ export function productService(
     const { id } = z.object({ id: z.string().max(80) }).parse(request.params);
     return get(id, await auth.optionalUser(request));
   });
+  app.post(
+    '/api/v1/products/:id/gluten-report',
+    { preHandler: auth.protect, config: { rateLimit: { max: 8, timeWindow: '1 hour' } } },
+    async (request) => {
+      const { id } = z.object({ id: z.string().max(80) }).parse(request.params);
+      const body = z
+        .object({
+          status: z.enum(['GLUTEN_FREE', 'CONTAINS_GLUTEN']),
+          note: z.string().trim().min(10).max(500),
+        })
+        .strict()
+        .parse(request.body);
+      const item = await get(id, request.user.sub);
+      if (!item.barcode || item.userCreated)
+        throw new ApiError(400, 'REPORT_NOT_ALLOWED', 'Esta ficha no admite revisiones públicas.');
+      await db.query(
+        'INSERT INTO product_gluten_reports(product_id,user_id,status,note) VALUES($1,$2,$3,$4) ON CONFLICT(product_id,user_id) DO UPDATE SET status=$3,note=$4,updated_at=now()',
+        [item.id, request.user.sub, body.status, body.note],
+      );
+      return withReports(item);
+    },
+  );
   app.post(
     '/api/v1/products/:barcode/ingredients-photo',
     {

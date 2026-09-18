@@ -39,6 +39,15 @@ function restaurant(input: {
   tags?: Record<string, string>;
 }): Restaurant {
   const mapsUrl = `https://www.openstreetmap.org/${input.type}/${input.id}`;
+  const glutenTag = input.tags?.['diet:gluten_free'];
+  const glutenSupport =
+    glutenTag === 'only'
+      ? 'DEDICATED_GLUTEN_FREE'
+      : glutenTag === 'yes' || glutenTag === 'limited'
+        ? 'GLUTEN_FREE_OPTIONS'
+        : glutenTag === 'no'
+          ? 'NO_GLUTEN_FREE_OPTIONS'
+          : 'UNKNOWN';
   return {
     id: `osm_${input.type[0]}_${input.id}`,
     name: input.name,
@@ -48,12 +57,19 @@ function restaurant(input: {
     website: safeHttpUrl(input.tags?.website || input.tags?.['contact:website']),
     phone: input.tags?.phone || input.tags?.['contact:phone'],
     mapsUrl,
-    glutenSupport: 'UNKNOWN',
+    glutenSupport,
     evidence: [
       {
         source: 'OpenStreetMap',
         kind: 'uncertainty',
-        text: 'La ficha no verifica opciones sin gluten ni contaminación cruzada.',
+        text:
+          glutenSupport === 'DEDICATED_GLUTEN_FREE'
+            ? 'La ficha indica que el local ofrece prácticamente todo sin gluten. Confirma la preparación antes de acudir.'
+            : glutenSupport === 'GLUTEN_FREE_OPTIONS'
+              ? 'La ficha indica opciones sin gluten. Confirma ingredientes y contaminación cruzada.'
+              : glutenSupport === 'NO_GLUTEN_FREE_OPTIONS'
+                ? 'La ficha indica que no ofrece opciones sin gluten.'
+                : 'Aún no hay información sobre opciones sin gluten.',
       },
     ],
     source: 'OpenStreetMap · ODbL',
@@ -134,9 +150,10 @@ export class OpenStreetMapProvider implements RestaurantProvider {
         })),
     ]);
   }
-  private async nearby(lat: number, lon: number) {
+  private async nearby(lat: number, lon: number, glutenFree = false) {
     this.budget.take();
-    const q = `[out:json][timeout:8];nwr[amenity=restaurant](around:1200,${lat},${lon});out center 35;`;
+    const tag = glutenFree ? '["diet:gluten_free"~"^(yes|only|limited)$"]' : '';
+    const q = `[out:json][timeout:8];nwr[amenity=restaurant]${tag}(around:${glutenFree ? 3000 : 1200},${lat},${lon});out center ${glutenFree ? 80 : 35};`;
     const data = elementEnvelope.parse(
       await providerJson(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`, {
         headers: { 'User-Agent': this.userAgent },
@@ -159,7 +176,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       );
   }
   async search(params: RestaurantSearch): Promise<Restaurant[]> {
-    const key = `search:${params.query.toLocaleLowerCase()}:${params.latitude ?? ''}:${params.longitude ?? ''}`;
+    const key = `search:${params.query.toLocaleLowerCase()}:${params.latitude ?? ''}:${params.longitude ?? ''}:${params.glutenFree ?? false}`;
     const old = this.cached<Restaurant[]>(key);
     if (old) return old;
     if (
@@ -167,7 +184,10 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       params.longitude !== undefined &&
       /^(restaurantes?|cerca de m[ií])$/i.test(params.query)
     )
-      return this.store(key, await this.nearby(params.latitude, params.longitude));
+      return this.store(
+        key,
+        await this.nearby(params.latitude, params.longitude, params.glutenFree),
+      );
     if (params.latitude === undefined && params.longitude === undefined) {
       const cities = await this.photon(params.query, 'place:city', 2);
       const city = cities.find(
@@ -176,7 +196,11 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       if (city)
         return this.store(
           key,
-          await this.nearby(city.geometry.coordinates[1], city.geometry.coordinates[0]),
+          await this.nearby(
+            city.geometry.coordinates[1],
+            city.geometry.coordinates[0],
+            params.glutenFree,
+          ),
         );
     }
     const places = (
@@ -198,7 +222,13 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     );
     return this.store(
       key,
-      city ? await this.nearby(city.geometry.coordinates[1], city.geometry.coordinates[0]) : [],
+      city
+        ? await this.nearby(
+            city.geometry.coordinates[1],
+            city.geometry.coordinates[0],
+            params.glutenFree,
+          )
+        : [],
     );
   }
   async getById(id: string): Promise<Restaurant | null> {

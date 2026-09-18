@@ -140,6 +140,8 @@ export async function createApp(
   );
   const restaurants = restaurantService(
     app,
+    db,
+    auth,
     options.restaurants ??
       (env.GOOGLE_PLACES_API_KEY
         ? new GooglePlacesProvider(env.GOOGLE_PLACES_API_KEY)

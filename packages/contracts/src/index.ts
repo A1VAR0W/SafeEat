@@ -47,6 +47,9 @@ export const ProductSchema = z.object({
   ingredientsImageUrl: z.string().url().optional(),
   informationSource: z.enum(['api', 'community', 'unknown']).default('unknown'),
   communityContribution: z.boolean().default(false),
+  glutenReports: z
+    .object({ glutenFree: z.number().int().min(0), containsGluten: z.number().int().min(0) })
+    .optional(),
   ingredients: z.string().optional(),
   assessment: AssessmentSchema,
   nutrition: NutritionInputSchema,
@@ -68,7 +71,20 @@ export const RestaurantSchema = z.object({
   website: z.string().url().optional(),
   phone: z.string().optional(),
   mapsUrl: z.string().url(),
-  glutenSupport: z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'UNKNOWN']),
+  glutenSupport: z.enum([
+    'DEDICATED_GLUTEN_FREE',
+    'GLUTEN_FREE_OPTIONS',
+    'NO_GLUTEN_FREE_OPTIONS',
+    'UNKNOWN',
+  ]),
+  communityCreated: z.boolean().optional(),
+  glutenReports: z
+    .object({
+      dedicated: z.number().int().min(0),
+      options: z.number().int().min(0),
+      noOptions: z.number().int().min(0),
+    })
+    .optional(),
   evidence: z.array(EvidenceSchema),
   source: z.string(),
   attributions: z.array(z.string()).default([]),
@@ -158,7 +174,7 @@ export const statusLabels: Record<GlutenStatus, { icon: string; label: string }>
   GLUTEN_FREE: { icon: '✓', label: 'SIN GLUTEN DECLARADO' },
   MAY_CONTAIN_TRACES: { icon: '!', label: 'PUEDE CONTENER TRAZAS' },
   CONTAINS_GLUTEN: { icon: '×', label: 'CONTIENE GLUTEN' },
-  UNKNOWN: { icon: '?', label: 'NO CONCLUYENTE' },
+  UNKNOWN: { icon: '⚠', label: 'NO VERIFICADO' },
 };
 export const restaurantDisclaimer =
   'Confirma siempre con el restaurante sus protocolos y posibles contaminaciones cruzadas.';

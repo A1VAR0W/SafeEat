@@ -102,7 +102,11 @@ export default function Layout() {
         <Stack.Screen name="auth/login" options={{ title: 'Iniciar sesión' }} />
         <Stack.Screen name="auth/register" options={{ title: 'Crear cuenta' }} />
         <Stack.Screen name="product/[id]" options={{ title: 'Producto' }} />
+        <Stack.Screen name="product/report" options={{ title: 'Revisar producto' }} />
         <Stack.Screen name="restaurant/[id]" options={{ title: 'Restaurante' }} />
+        <Stack.Screen name="restaurant/report" options={{ title: 'Revisar restaurante' }} />
+        <Stack.Screen name="restaurant/new" options={{ title: 'Añadir restaurante' }} />
+        <Stack.Screen name="collection/new" options={{ title: 'Nuevo marcador' }} />
         <Stack.Screen name="scan/ingredients" options={{ title: 'Escanear ingredientes' }} />
         <Stack.Screen name="scan/result" options={{ title: 'Tu etiqueta' }} />
         <Stack.Screen name="settings" options={{ title: 'Ajustes y privacidad' }} />

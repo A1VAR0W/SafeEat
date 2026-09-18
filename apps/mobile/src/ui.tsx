@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { type Product, statusLabels, productDisclaimer } from '@safeeat/contracts';
@@ -254,19 +255,114 @@ export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => voi
             {item.brand}
           </Copy>
         )}
-        <Copy size={12}>
-          {needsDetail
-            ? '○ Toca para comprobar los ingredientes'
-            : `${statusLabels[item.assessment.status].icon} ${statusLabels[item.assessment.status].label}`}
-        </Copy>
-        {item.informationSource !== 'unknown' && (
+        <ProductGlutenLabel product={item} compact />
+        {needsDetail && (
           <Copy muted size={11}>
-            {item.informationSource === 'community'
-              ? '👤 Etiqueta revisada por usuario'
-              : '🌐 Datos de API'}
+            Toca para comprobar los ingredientes
+          </Copy>
+        )}
+        {item.informationSource === 'community' && (
+          <Copy muted size={11}>
+            👤 Etiqueta aportada por un usuario
           </Copy>
         )}
       </View>
+    </Pressable>
+  );
+}
+export function ProductGlutenLabel({
+  product,
+  compact = false,
+}: {
+  product: Product;
+  compact?: boolean;
+}) {
+  const free = product.glutenReports?.glutenFree ?? 0;
+  const contains = product.glutenReports?.containsGluten ?? 0;
+  const unknown = product.assessment.status === 'UNKNOWN';
+  const conflict =
+    (free > 0 && contains > 0) || (contains > 0 && product.assessment.status === 'GLUTEN_FREE');
+  const report = conflict
+    ? 'Información sobre gluten contradictoria'
+    : unknown && contains
+      ? `${contains} usuario${contains === 1 ? '' : 's'} indica${contains === 1 ? '' : 'n'} gluten`
+      : unknown && free
+        ? `${free} usuario${free === 1 ? '' : 's'} indica${free === 1 ? '' : 'n'} sin gluten`
+        : null;
+  const warning = unknown || conflict;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 }}>
+      {warning ? (
+        <Ionicons name="alert-circle-outline" size={compact ? 16 : 22} color="#D4A017" />
+      ) : (
+        <Copy size={compact ? 12 : 18}>{statusLabels[product.assessment.status].icon}</Copy>
+      )}
+      <Copy size={compact ? 12 : 17} bold={!compact}>
+        {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
+      </Copy>
+      {report && unknown && free > 0 && !contains && (
+        <Copy muted size={11}>
+          · sin confirmar
+        </Copy>
+      )}
+    </View>
+  );
+}
+export function ProductTile({
+  item,
+  columns,
+  onOpen,
+}: {
+  item: Product;
+  columns: 1 | 2 | 4;
+  onOpen?: () => void;
+}) {
+  const t = useTheme();
+  if (columns === 1) return <ProductRow item={item} onOpen={onOpen} />;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Ver ${item.name}`}
+      onPress={() => {
+        onOpen?.();
+        router.push(`/product/${item.id}`);
+      }}
+      style={({ pressed }) => ({
+        flex: 1,
+        maxWidth: columns === 2 ? '50%' : '25%',
+        margin: 3,
+        padding: columns === 4 ? 6 : 10,
+        borderRadius: 16,
+        backgroundColor: t.card,
+        opacity: pressed ? 0.7 : 1,
+        minHeight: columns === 4 ? 135 : 190,
+      })}
+    >
+      {item.imageUrl ? (
+        <Image
+          source={item.imageUrl}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+          style={{ width: '100%', height: columns === 4 ? 68 : 105 }}
+        />
+      ) : (
+        <View
+          style={{
+            height: columns === 4 ? 68 : 105,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Copy muted>▥</Copy>
+        </View>
+      )}
+      <Copy bold size={columns === 4 ? 10 : 13}>
+        {item.name}
+      </Copy>
+      {columns === 2 && <ProductGlutenLabel product={item} compact />}
+      {columns === 4 && item.assessment.status === 'UNKNOWN' && (
+        <Ionicons name="alert-circle-outline" size={16} color="#D4A017" />
+      )}
     </Pressable>
   );
 }
@@ -281,7 +377,9 @@ export function Assessment({ product }: { product: Product }) {
         ? t.dark
           ? '#F3CC82'
           : '#805600'
-        : t.accent;
+        : a.status === 'UNKNOWN'
+          ? '#D4A017'
+          : t.accent;
   return (
     <Card style={{ borderWidth: 2, borderColor: color }}>
       <Text
@@ -301,9 +399,6 @@ export function Assessment({ product }: { product: Product }) {
         a.evidence.map((e, i) => (
           <View key={i} style={{ gap: 3 }}>
             <Copy>“{e.text}”</Copy>
-            <Copy muted size={12}>
-              {e.source}
-            </Copy>
           </View>
         ))
       ) : (
@@ -315,7 +410,7 @@ export function Assessment({ product }: { product: Product }) {
     </Card>
   );
 }
-export function RecentProducts() {
+export function RecentProducts({ columns = 1 }: { columns?: 1 | 2 | 4 }) {
   const query = useQuery<Product[]>({
     queryKey: ['recent'],
     queryFn: async () => [],
@@ -324,9 +419,9 @@ export function RecentProducts() {
   return (
     <View>
       {query.data?.length ? (
-        <View>
+        <View style={columns > 1 ? { flexDirection: 'row', flexWrap: 'wrap' } : undefined}>
           {query.data.slice(0, 12).map((p) => (
-            <ProductRow key={p.id} item={p} />
+            <ProductTile key={p.id} item={p} columns={columns} />
           ))}
         </View>
       ) : (

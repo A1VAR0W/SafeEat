@@ -27,6 +27,7 @@ export default function Restaurants() {
   const [searchedCenter, setSearchedCenter] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<unknown>(null);
   const [locating, setLocating] = useState(false);
+  const [glutenOnly, setGlutenOnly] = useState(false);
   const settled = useDebounced(text.trim());
   const suggestions = useQuery({
     queryKey: ['restaurant-suggestions', settled],
@@ -48,7 +49,7 @@ export default function Restaurants() {
     staleTime: 3600000,
   });
   const search = useQuery({
-    queryKey: ['restaurants', params],
+    queryKey: ['restaurants', params, glutenOnly],
     enabled: !!params,
     queryFn: async () => {
       const query = new URLSearchParams({
@@ -56,6 +57,7 @@ export default function Restaurants() {
         ...(params!.latitude !== undefined
           ? { latitude: String(params!.latitude), longitude: String(params!.longitude) }
           : {}),
+        ...(glutenOnly ? { glutenFree: 'true' } : {}),
       });
       return z
         .object({ items: z.array(RestaurantSchema) })
@@ -63,7 +65,12 @@ export default function Restaurants() {
     },
     gcTime: 0,
   });
-  const items = search.data?.items ?? [];
+  const items = (search.data?.items ?? []).filter(
+    (item) =>
+      !glutenOnly ||
+      item.glutenSupport === 'DEDICATED_GLUTEN_FREE' ||
+      item.glutenSupport === 'GLUTEN_FREE_OPTIONS',
+  );
   const mapped = items.filter(
     (item): item is Restaurant & Coordinates =>
       item.latitude !== undefined && item.longitude !== undefined,
@@ -194,6 +201,48 @@ export default function Restaurants() {
         )}
       </View>
       {!!locationError && <ErrorNotice error={locationError} />}
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityState={{ checked: glutenOnly }}
+          onPress={() => setGlutenOnly((value) => !value)}
+          style={{
+            padding: 10,
+            borderRadius: 14,
+            backgroundColor: glutenOnly ? theme.accent : theme.card,
+          }}
+        >
+          <Copy bold size={13}>
+            ✓ Opciones sin gluten
+          </Copy>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Añadir restaurante"
+          onPress={() =>
+            router.push({
+              pathname: '/restaurant/new',
+              params: {
+                latitude: String(mapCenter.latitude),
+                longitude: String(mapCenter.longitude),
+              },
+            })
+          }
+          style={{
+            marginLeft: 'auto',
+            minWidth: 44,
+            minHeight: 44,
+            borderRadius: 14,
+            backgroundColor: theme.card,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Copy bold size={24}>
+            +
+          </Copy>
+        </Pressable>
+      </View>
       <View
         style={{ height: 300, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.line }}
       >
@@ -206,7 +255,7 @@ export default function Restaurants() {
               id: item.id,
               coordinates: { latitude: item.latitude, longitude: item.longitude },
               title: item.name,
-              tintColor: theme.accent,
+              tintColor: item.glutenSupport === 'UNKNOWN' ? theme.muted : theme.accent,
             }))}
             onMarkerClick={(marker) => {
               const item = items.find((candidate) => candidate.id === marker.id);
@@ -284,7 +333,11 @@ export default function Restaurants() {
                 {item.address}
               </Copy>
               <Copy muted size={12}>
-                Información sobre gluten sin verificar · {item.source}
+                {item.glutenSupport === 'UNKNOWN'
+                  ? '⚠ No verificado'
+                  : item.glutenSupport === 'NO_GLUTEN_FREE_OPTIONS'
+                    ? 'Sin opciones sin gluten indicadas'
+                    : '✓ Opciones sin gluten indicadas'}
               </Copy>
               {selectedId === item.id && (
                 <Button

@@ -2,12 +2,21 @@ import { useEffect } from 'react';
 import { View, useWindowDimensions } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Image } from 'expo-image';
-import { statusLabels, productDisclaimer } from '@safeeat/contracts';
+import { productDisclaimer } from '@safeeat/contracts';
 import { queryClient, rememberProduct } from '../../src/query';
 import { useProduct } from '../../src/product';
 import { ItemActions } from '../../src/actions';
 import { SettingRow } from '../../src/compact';
-import { Card, Copy, ErrorNotice, Screen, Skeleton, Title, useTheme } from '../../src/ui';
+import {
+  Card,
+  Copy,
+  ErrorNotice,
+  ProductGlutenLabel,
+  Screen,
+  Skeleton,
+  Title,
+  useTheme,
+} from '../../src/ui';
 import { es } from '../../src/i18n';
 import { CollectionPicker } from '../../src/collections';
 export default function ProductDetail() {
@@ -52,11 +61,9 @@ export default function ProductDetail() {
             </View>
           </View>
           {!(shareToken && p.userCreated) && <ItemActions kind="products" item={p} compact />}
-          {p.informationSource !== 'unknown' && (
+          {p.informationSource === 'community' && (
             <Copy muted size={12}>
-              {p.informationSource === 'community'
-                ? '👤 Ingredientes revisados por un usuario · Comprueba la foto y la etiqueta actual'
-                : '🌐 Información de la API · Comprueba la etiqueta actual'}
+              👤 Ingredientes aportados por un usuario · Comprueba la foto y la etiqueta actual
             </Copy>
           )}
           {p.communityContribution && p.informationSource === 'api' && (
@@ -79,9 +86,14 @@ export default function ProductDetail() {
               gap: 5,
             }}
           >
-            <Copy bold size={19}>
-              {statusLabels[p.assessment.status].icon} {statusLabels[p.assessment.status].label}
-            </Copy>
+            <ProductGlutenLabel product={p} />
+            {!!p.glutenReports &&
+              p.glutenReports.glutenFree + p.glutenReports.containsGluten > 0 && (
+                <Copy muted size={12}>
+                  Revisiones de usuarios: {p.glutenReports.glutenFree} indica sin gluten ·{' '}
+                  {p.glutenReports.containsGluten} indica gluten. Comprueba la etiqueta actual.
+                </Copy>
+              )}
             <Copy muted size={13}>
               Evidencia{' '}
               {p.assessment.confidence >= 0.8
@@ -140,6 +152,14 @@ export default function ProductDetail() {
               })
             }
           />
+          {!!p.barcode && !shareToken && (
+            <SettingRow
+              icon="alert-circle-outline"
+              title="Aportar revisión sobre gluten"
+              subtitle="Indica qué has comprobado en la etiqueta"
+              onPress={() => router.push({ pathname: '/product/report', params: { id: p.id } })}
+            />
+          )}
           <Copy muted size={12}>
             {productDisclaimer}
           </Copy>

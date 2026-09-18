@@ -30,7 +30,10 @@ export default function Sources() {
       <h2>Restaurantes</h2>
       <p>
         OpenStreetMap o Google Maps aportan datos del lugar, pero no verifican la seguridad frente
-        al gluten. SafeEat no deduce protocolos a partir del nombre o de opiniones.
+        al gluten. Las indicaciones de opciones sin gluten en las fichas y las revisiones de
+        usuarios se muestran como aportaciones, no como certificaciones. Si hay revisiones
+        contradictorias, SafeEat no presenta una conclusión favorable. Confirma siempre el menú, los
+        ingredientes y la contaminación cruzada con el restaurante.
       </p>
     </>
   );

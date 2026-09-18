@@ -358,6 +358,65 @@ describe.sequential('real PostgreSQL API', () => {
     expect(image.headers['content-type']).toContain('image/jpeg');
     expect(image.rawPayload.length).toBeGreaterThan(100);
   });
+  it('records separate user reports without changing the ingredient analysis', async () => {
+    const url = '/api/v1/products/off-00000000/gluten-report';
+    const payload = { status: 'GLUTEN_FREE', note: 'La etiqueta actual dice sin gluten.' };
+    expect((await app.inject({ method: 'POST', url, payload })).statusCode).toBe(401);
+    const saved = await app.inject({ method: 'POST', url, payload, headers: bearer(one) });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().assessment.status).toBe('CONTAINS_GLUTEN');
+    expect(saved.json().glutenReports).toEqual({ glutenFree: 1, containsGluten: 0 });
+    const changed = await app.inject({
+      method: 'POST',
+      url,
+      payload: { status: 'CONTAINS_GLUTEN', note: 'Ahora se lee harina de trigo.' },
+      headers: bearer(one),
+    });
+    expect(changed.json().glutenReports).toEqual({ glutenFree: 0, containsGluten: 1 });
+    expect((await app.inject('/api/v1/products/off-00000000')).json().glutenReports).toEqual({
+      glutenFree: 0,
+      containsGluten: 1,
+    });
+  });
+  it('publishes community restaurants and tracks conflicting user reports', async () => {
+    const payload = {
+      name: `Restaurante de prueba ${suffix}`,
+      address: 'Calle de Prueba 12, Madrid',
+      latitude: 40.4168,
+      longitude: -3.7038,
+      support: 'GLUTEN_FREE_OPTIONS',
+      note: 'El personal confirmó opciones sin gluten.',
+    };
+    expect(
+      (await app.inject({ method: 'POST', url: '/api/v1/restaurants', payload })).statusCode,
+    ).toBe(401);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/restaurants',
+      payload,
+      headers: bearer(one),
+    });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    expect(id).toMatch(/^se_[a-f0-9]{32}$/);
+    expect(created.json().glutenSupport).toBe('GLUTEN_FREE_OPTIONS');
+    const nearby = await app.inject(
+      '/api/v1/restaurants/search?q=restaurantes&latitude=40.4168&longitude=-3.7038',
+    );
+    expect(nearby.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+    const second = await app.inject({
+      method: 'POST',
+      url: `/api/v1/restaurants/${id}/gluten-report`,
+      payload: {
+        support: 'NO_GLUTEN_FREE_OPTIONS',
+        note: 'El personal dijo que ya no ofrecen esas opciones.',
+      },
+      headers: bearer(two),
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().glutenSupport).toBe('UNKNOWN');
+    expect(second.json().glutenReports).toEqual({ dedicated: 0, options: 1, noOptions: 1 });
+  });
   it('creates groups, classifies saved products and isolates membership', async () => {
     const created = await app.inject({
       method: 'POST',

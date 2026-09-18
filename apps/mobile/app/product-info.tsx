@@ -47,11 +47,9 @@ export default function ProductInfo() {
                         .trim()
                     : 'No hay una lista de ingredientes disponible.'}
                 </Copy>
-                {p.informationSource !== 'unknown' && (
+                {p.informationSource === 'community' && (
                   <Copy muted size={12}>
-                    {p.informationSource === 'community'
-                      ? 'Texto revisado por un usuario'
-                      : 'Texto de la API externa'}
+                    Texto aportado por un usuario
                   </Copy>
                 )}
               </Card>
@@ -78,9 +76,6 @@ export default function ProductInfo() {
                       {e.kind === 'trace' ? 'Trazas' : 'Ingrediente o alérgeno relevante'}
                     </Copy>
                     <Copy>{e.text}</Copy>
-                    <Copy muted size={12}>
-                      {e.source}
-                    </Copy>
                   </Card>
                 ))}
               <Copy muted size={12}>
@@ -100,7 +95,7 @@ export default function ProductInfo() {
                   {b.points}
                 </Copy>
               ))}
-              {p.nutriScore && <Copy bold>Nutri-Score del proveedor: {p.nutriScore}</Copy>}
+              {p.nutriScore && <Copy bold>Nutri-Score: {p.nutriScore}</Copy>}
               <Copy muted size={12}>
                 Valores por 100 g/ml
               </Copy>
@@ -113,11 +108,11 @@ export default function ProductInfo() {
           )}
           {section === 'sources' && (
             <>
-              <Copy bold>{p.source}</Copy>
+              <Copy>Datos de la ficha del producto y aportaciones de usuarios, si las hay.</Copy>
               <Copy muted>Consultado el {new Date(p.fetchedAt).toLocaleString('es')}</Copy>
               {p.sourceUrl && (
                 <Button
-                  title="Abrir fuente original"
+                  title="Ver ficha original"
                   secondary
                   onPress={() => void Linking.openURL(p.sourceUrl!)}
                 />

@@ -18,7 +18,12 @@ export interface ProductProvider {
   getByBarcode(barcode: string): Promise<ExternalProduct | null>;
   search(query: string): Promise<ExternalProduct[]>;
 }
-export type RestaurantSearch = { query: string; latitude?: number; longitude?: number };
+export type RestaurantSearch = {
+  query: string;
+  latitude?: number;
+  longitude?: number;
+  glutenFree?: boolean;
+};
 export type RestaurantSuggestion = {
   label: string;
   kind: 'restaurant' | 'city';
