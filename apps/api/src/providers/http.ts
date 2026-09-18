@@ -1,9 +1,13 @@
 import { ApiError } from '../plugins/errors';
-export async function providerJson(url: string, init: RequestInit = {}): Promise<unknown> {
+export async function providerJson(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 8000,
+): Promise<unknown> {
   try {
     const response = await fetch(url, {
       ...init,
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(timeoutMs),
       redirect: 'error',
     });
     if (response.status === 404) return null;

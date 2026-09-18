@@ -171,16 +171,20 @@ export class OpenStreetMapProvider implements RestaurantProvider {
   private async nearby(lat: number, lon: number, glutenFree = false) {
     this.budget.take();
     const tag = glutenFree ? '["diet:gluten_free"~"^(yes|only|limited)$"]' : '';
-    const q = `[out:json][timeout:8];nwr[amenity~"^(${foodTypes})$"]${tag}(around:${glutenFree ? 12000 : 1800},${lat},${lon});out center ${glutenFree ? 80 : 50};`;
+    const q = `[out:json][timeout:18];nwr[amenity~"^(${foodTypes})$"]${tag}(around:${glutenFree ? 12000 : 1800},${lat},${lon});out center ${glutenFree ? 80 : 50};`;
     const data = elementEnvelope.parse(
-      await providerJson('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: {
-          'User-Agent': this.userAgent,
-          'Content-Type': 'application/x-www-form-urlencoded',
+      await providerJson(
+        'https://overpass-api.de/api/interpreter',
+        {
+          method: 'POST',
+          headers: {
+            'User-Agent': this.userAgent,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ data: q }).toString(),
         },
-        body: new URLSearchParams({ data: q }).toString(),
-      }),
+        20000,
+      ),
     );
     return data.elements
       .filter((e) => e.tags?.name)
