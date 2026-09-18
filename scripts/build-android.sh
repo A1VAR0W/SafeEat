@@ -15,21 +15,16 @@ if [[ "${PRODUCTION_SIGNING:-false}" == true ]]; then
 fi
 cd apps/mobile/android
 chmod +x gradlew
-./gradlew assembleRelease bundleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64 > "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log" 2>&1 || { tail -120 "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log"; exit 1; }
+./gradlew assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64 > "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log" 2>&1 || { tail -120 "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log"; exit 1; }
 cd "$root"
 cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "artifacts/$artifact.apk"
-cp apps/mobile/android/app/build/outputs/bundle/release/app-release.aab "artifacts/$artifact.aab"
 tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-"$tools/apksigner" verify --verbose --print-certs "artifacts/$artifact.apk" > artifacts/SafeEat-signing.txt
-"$tools/aapt" dump badging "artifacts/$artifact.apk" > artifacts/SafeEat-badging.txt
-grep -Fq "package: name='com.a1var0w.safeeat'" artifacts/SafeEat-badging.txt
-grep -Fq "versionName='$version'" artifacts/SafeEat-badging.txt
-grep -Fq "versionCode='${BUILD_NUMBER:-1}'" artifacts/SafeEat-badging.txt
-grep -Fq "android.permission.INTERNET" artifacts/SafeEat-badging.txt
-if grep -Fq 'application-debuggable' artifacts/SafeEat-badging.txt; then exit 1; fi
+"$tools/apksigner" verify --verbose --print-certs "artifacts/$artifact.apk" > "${RUNNER_TEMP:-/tmp}/safeeat-signing.txt"
+"$tools/aapt" dump badging "artifacts/$artifact.apk" > "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"
+grep -Fq "package: name='com.a1var0w.safeeat'" "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"
+grep -Fq "versionName='$version'" "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"
+grep -Fq "versionCode='${BUILD_NUMBER:-1}'" "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"
+grep -Fq "android.permission.INTERNET" "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"
+if grep -Fq 'application-debuggable' "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"; then exit 1; fi
 python3 scripts/check-embedded-config.py "artifacts/$artifact.apk"
 unzip -tq "artifacts/$artifact.apk"
-unzip -tq "artifacts/$artifact.aab"
-cd artifacts
-sha256sum "$artifact.apk" > "$artifact.apk.sha256"
-sha256sum "$artifact.aab" > "$artifact.aab.sha256"

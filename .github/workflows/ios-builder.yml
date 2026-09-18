@@ -47,6 +47,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SafeEat-iOS-unsigned-${{ inputs.target_environment || 'preproduction' }}
-          path: artifacts/SafeEat-*
+          path: artifacts/SafeEat-*.ipa
           if-no-files-found: error
           retention-days: 14

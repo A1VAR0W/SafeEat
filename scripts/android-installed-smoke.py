@@ -79,7 +79,10 @@ def fill(label, value):
         assert node.get("text") == value, f"Input automation did not fill {label} completely"
 
 
-environment = json.loads(pathlib.Path("artifacts/SafeEat-environment.json").read_text())
+environment = {
+    "environment": os.environ["APP_ENV"],
+    "apiUrl": os.environ["API_PUBLIC_URL"],
+}
 origin = environment["apiUrl"]
 credentials = {"email": f"apk-{uuid.uuid4().hex[:12]}@example.org", "password": secrets.token_hex(16)}
 server_session = None

@@ -86,7 +86,7 @@ Backups currently stay on the same server; off-host copies remain an operational
 
 ## Artifacts
 
-Builders above produce `SafeEat-0.1.0-production.apk` / `.aab` / `.ipa` and corresponding `preproduction` files, each with SHA-256. Downloads and emulator screenshots/XML/logs stay in ignored `artifacts/`. GitHub artifacts expire after 14 days. Native source: 9dfd4fb. Verified SHA-256:
+Builders now publish only the installable APK or IPA for each target. Signature, package, embedded configuration and archive integrity are checked during the workflow; auxiliary validation files are not published. Downloads and emulator screenshots/XML/logs stay in ignored `artifacts/`. GitHub artifacts expire after 14 days. The table below records a historical validation run.
 
 | Artifact          | SHA-256                                                          |
 | ----------------- | ---------------------------------------------------------------- |
