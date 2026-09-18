@@ -127,6 +127,7 @@ describe('additional real-data sources', () => {
       'GLUTEN_FREE_OPTIONS',
     );
     expect(request.mock.calls[3]?.[1]?.body).toContain('diet%3Agluten_free');
+    expect(request.mock.calls[3]?.[1]?.body).toContain('around%3A4000');
   });
   it('uses the visible map area for street suggestions and removes duplicate segments', async () => {
     const request = vi.fn(

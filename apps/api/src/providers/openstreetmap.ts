@@ -171,7 +171,11 @@ export class OpenStreetMapProvider implements RestaurantProvider {
   private async nearby(lat: number, lon: number, glutenFree = false) {
     this.budget.take();
     const tag = glutenFree ? '["diet:gluten_free"~"^(yes|only|limited)$"]' : '';
-    const q = `[out:json][timeout:18];nwr[amenity~"^(${foodTypes})$"]${tag}(around:${glutenFree ? 12000 : 1800},${lat},${lon});out center ${glutenFree ? 80 : 50};`;
+    // Public Overpass instances can time out on a 12 km dietary query. Four km
+    // remains useful for map discovery while consistently returning before the
+    // public production proxy deadline.
+    const radius = glutenFree ? 4000 : 1800;
+    const q = `[out:json][timeout:7];nwr[amenity~"^(${foodTypes})$"]${tag}(around:${radius},${lat},${lon});out center ${glutenFree ? 60 : 50};`;
     const data = elementEnvelope.parse(
       await providerJson(
         'https://overpass-api.de/api/interpreter',
@@ -183,7 +187,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
           },
           body: new URLSearchParams({ data: q }).toString(),
         },
-        20000,
+        7500,
       ),
     );
     return data.elements
