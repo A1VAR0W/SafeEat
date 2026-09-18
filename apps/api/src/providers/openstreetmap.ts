@@ -83,7 +83,10 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     location?: { lat: number; lon: number },
   ) {
     this.budget.take();
-    const params = new URLSearchParams({ q, limit: String(limit), lang: 'es', osm_tag: tag });
+    // Photon does not support Spanish as a language code. Omitting `lang`
+    // lets the service use its default language while keeping the query
+    // compatible with the public endpoint.
+    const params = new URLSearchParams({ q, limit: String(limit), osm_tag: tag });
     if (location) {
       params.set('lat', String(location.lat));
       params.set('lon', String(location.lon));
