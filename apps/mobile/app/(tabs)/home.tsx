@@ -39,6 +39,7 @@ export default function Home() {
   const search = useQuery({
     queryKey: ['search', settled],
     enabled: active && query.length >= 2 && query === settled,
+    placeholderData: (previous) => previous,
     gcTime: 300000,
     queryFn: async ({ signal }) =>
       z
@@ -65,14 +66,14 @@ export default function Home() {
         maxLength={100}
         onSubmitEditing={() => {
           rememberSearch(query);
-          if (query.length >= 2) void search.refetch();
+          if (query.length >= 2 && query === settled) void search.refetch();
         }}
       />
       <FlatList
         key={`products-${columns}`}
         numColumns={columns}
         columnWrapperStyle={columns > 1 ? { alignItems: 'stretch' } : undefined}
-        data={search.data?.items ?? []}
+        data={query.length >= 2 ? (search.data?.items ?? []) : []}
         initialNumToRender={6}
         maxToRenderPerBatch={6}
         windowSize={5}
@@ -100,7 +101,7 @@ export default function Home() {
                 {search.error && (
                   <ErrorNotice error={search.error} retry={() => void search.refetch()} />
                 )}
-                {search.isSuccess && !search.data.items.length && (
+                {search.isSuccess && !search.isPlaceholderData && !search.data.items.length && (
                   <Copy muted>
                     No hay resultados. Prueba el código de barras o escanea los ingredientes.
                   </Copy>
