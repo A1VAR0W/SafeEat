@@ -55,6 +55,7 @@ const manifest = {
 const token = process.env.SAFEEAT_RELEASE_PUBLISH_TOKEN;
 if (!token) throw new Error('SAFEEAT_RELEASE_PUBLISH_TOKEN is required');
 const headers = { Authorization: `Bearer ${token}` };
+console.log(`Uploading ${expectedName} (${asset.size} bytes) to the download server`);
 const upload = await fetch(`${origin}/safeeat-release-publish/${expectedName}`, {
   method: 'PUT',
   headers: {
@@ -67,6 +68,7 @@ const upload = await fetch(`${origin}/safeeat-release-publish/${expectedName}`, 
   signal: AbortSignal.timeout(300000),
 });
 if (!upload.ok) throw new Error(`APK mirror failed: HTTP ${upload.status}`);
+console.log('APK uploaded; publishing update manifest');
 const publish = await fetch(`${origin}/safeeat-release-publish/latest.json`, {
   method: 'POST',
   headers: { ...headers, 'Content-Type': 'application/json' },

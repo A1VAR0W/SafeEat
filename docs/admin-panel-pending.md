@@ -1,6 +1,6 @@
 # SafeEat 1.0.12 — verificación de productos desde administración
 
-La API 1.0.11 con el panel ya está desplegada. La 1.0.12 (Android versionCode 88) añade la verificación manual de productos solo desde el panel y rechaza las confirmaciones hechas por ADMIN desde la ficha normal. Android sigue instalado en 1.0.10 hasta publicar la nueva APK.
+La API 1.0.12 ya está desplegada. La APK Android (versionCode 88) y la IPA iOS 1.0.12 están publicadas. Esta versión añade la verificación manual de productos solo desde el panel y rechaza las confirmaciones hechas por ADMIN desde la ficha normal. La instalación en los dispositivos de los usuarios no se ha comprobado.
 
 La migración `009_admin_moderation.sql` se aplicó directamente a la BBDD de producción tras una copia de seguridad. Se creó el rol `ADMIN`, se asignó a la cuenta solicitada y se registró el alta en la auditoría. La migración está en `schema_migrations` y el despliegue siguiente la omite.
 

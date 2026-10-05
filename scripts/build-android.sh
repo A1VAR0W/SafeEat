@@ -16,8 +16,10 @@ if [[ "${PRODUCTION_SIGNING:-false}" == true ]]; then
 fi
 cd apps/mobile/android
 chmod +x gradlew
-./gradlew assembleRelease --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64 > "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log" 2>&1 || { tail -120 "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log"; exit 1; }
+echo "Compiling SafeEat $version (Android versionCode $build_number)"
+./gradlew assembleRelease --no-daemon --console=plain --max-workers=2 -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64 2>&1 | tee "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log" || { tail -120 "${RUNNER_TEMP:-/tmp}/safeeat-gradle.log"; exit 1; }
 cd "$root"
+echo 'Validating APK signature, package, version and embedded configuration'
 cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk "artifacts/$artifact.apk"
 tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 "$tools/apksigner" verify --verbose --print-certs "artifacts/$artifact.apk" > "${RUNNER_TEMP:-/tmp}/safeeat-signing.txt"
@@ -29,3 +31,4 @@ grep -Fq "android.permission.INTERNET" "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt
 if grep -Fq 'application-debuggable' "${RUNNER_TEMP:-/tmp}/safeeat-badging.txt"; then exit 1; fi
 python3 scripts/check-embedded-config.py "artifacts/$artifact.apk"
 unzip -tq "artifacts/$artifact.apk"
+echo "APK ready: artifacts/$artifact.apk"
