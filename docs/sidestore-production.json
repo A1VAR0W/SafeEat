@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.11",
-      "versionDate": "2026-10-05",
-      "versionDescription": "Incluye un panel para gestionar celíacos autorizados y moderar revisiones de productos y restaurantes.",
-      "size": 19226975
+      "version": "1.0.12",
+      "versionDate": "2026-10-06",
+      "versionDescription": "Permite verificar manualmente productos desde el panel de administración y registra la decisión.",
+      "size": 19228213
     }
   ]
 }
