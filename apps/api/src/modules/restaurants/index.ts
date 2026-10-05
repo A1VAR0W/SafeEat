@@ -9,6 +9,7 @@ import { notFound } from '../../plugins/errors';
 import { restaurantCatalog } from './catalog';
 import { reviewRoutes } from '../reviews';
 import { combineSuggestions } from './suggestions';
+import { restaurantRatings } from './ratings';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -45,16 +46,47 @@ export function restaurantService(
   const catalog = restaurantCatalog(db);
   async function withReports(items: Restaurant[]): Promise<Restaurant[]> {
     if (!items.length) return items;
+    const [aliases, ratings] = await Promise.all([
+      db.query<{ id: string; chain_key: string; chain_name: string }>(
+        `SELECT target.id,a.chain_key,a.chain_name FROM unnest($1::text[],$2::text[]) AS target(id,name)
+         JOIN restaurant_chain_aliases a ON a.alias=restaurant_brand_name(regexp_replace(target.name,'\\s+[-–·]\\s+.*$',''))`,
+        [
+          items.filter((item) => !item.chain).map((item) => item.id),
+          items.filter((item) => !item.chain).map((item) => item.name),
+        ],
+      ),
+      db.query<{ restaurant_id: string; average: number; count: number }>(
+        'SELECT restaurant_id,avg(stars)::float8 AS average,count(*)::int AS count FROM restaurant_ratings WHERE restaurant_id=ANY($1::text[]) GROUP BY restaurant_id',
+        [items.map((item) => item.id)],
+      ),
+    ]);
+    const chains = new Map(
+      aliases.rows.map((row) => [row.id, { key: row.chain_key, name: row.chain_name }]),
+    );
+    const scores = new Map(
+      ratings.rows.map((row) => [row.restaurant_id, { average: row.average, count: row.count }]),
+    );
+    items = items.map((item) => ({
+      ...item,
+      chain: item.chain ?? chains.get(item.id),
+      rating: scores.get(item.id),
+    }));
     const reports = await db.query<{
       restaurant_id: string;
       dedicated: number;
       options: number;
       no_options: number;
     }>(
-      `SELECT target.id AS restaurant_id,count(*) FILTER (WHERE r.support='DEDICATED_GLUTEN_FREE')::int AS dedicated,count(*) FILTER (WHERE r.support='GLUTEN_FREE_OPTIONS')::int AS options,count(*) FILTER (WHERE r.support='NO_GLUTEN_FREE_OPTIONS')::int AS no_options
-       FROM unnest($1::text[],$2::text[]) AS target(id,chain_key)
-       JOIN restaurant_gluten_reports r ON r.restaurant_id=target.id OR (r.chain_key=target.chain_key AND r.chain_key IS NOT NULL)
-       GROUP BY target.id`,
+      `WITH relevant AS (
+         SELECT DISTINCT ON (target.id,r.user_id) target.id AS restaurant_id,r.support
+         FROM unnest($1::text[],$2::text[]) AS target(id,chain_key)
+         JOIN restaurant_gluten_reports r ON r.restaurant_id=target.id OR (r.chain_key=target.chain_key AND r.chain_key IS NOT NULL)
+         ORDER BY target.id,r.user_id,(r.restaurant_id=target.id) DESC,r.updated_at DESC,r.id
+       )
+       SELECT restaurant_id,count(*) FILTER (WHERE support='DEDICATED_GLUTEN_FREE')::int AS dedicated,
+       count(*) FILTER (WHERE support='GLUTEN_FREE_OPTIONS')::int AS options,
+       count(*) FILTER (WHERE support='NO_GLUTEN_FREE_OPTIONS')::int AS no_options
+       FROM relevant GROUP BY restaurant_id`,
       [items.map((item) => item.id), items.map((item) => item.chain?.key ?? null)],
     );
     const byId = new Map(reports.rows.map((report) => [report.restaurant_id, report]));
@@ -324,6 +356,7 @@ export function restaurantService(
     get(z.object({ id: restaurantId }).parse(request.params).id),
   );
   reviewRoutes(app, db, auth, 'restaurants', get);
+  restaurantRatings(app, db, auth, get);
   return { get };
 }
 export type Restaurants = ReturnType<typeof restaurantService>;

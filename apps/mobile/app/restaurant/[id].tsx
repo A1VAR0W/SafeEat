@@ -14,6 +14,7 @@ import {
 } from '../../src/restaurant-components';
 import { restaurantStatus } from '../../src/restaurant-presentation';
 import { CommunityReviews } from '../../src/community-reviews';
+import { RestaurantRatingEditor } from '../../src/restaurant-rating';
 
 export default function RestaurantDetail() {
   const t = useTheme();
@@ -74,6 +75,7 @@ export default function RestaurantDetail() {
             </Copy>
             <ItemActions kind="restaurants" item={r} compact />
           </Card>
+          <RestaurantRatingEditor restaurant={r} />
           <Card style={{ gap: 12 }}>
             <Copy bold size={19}>
               Antes de pedir

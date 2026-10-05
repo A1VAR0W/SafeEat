@@ -37,6 +37,11 @@ describe('local restaurant catalog', () => {
     expect(items[0]?.longitude).toBe(-3.71);
   });
   it('imports chain identity and includes sibling branches in dietary searches', async () => {
+    expect((await catalog.get('osm_n_987654326'))?.chain).toEqual({
+      key: 'Q999999998',
+      name: 'Cadena Prueba',
+    });
+    expect((await catalog.get('osm_n_987654327'))?.chain).toBeUndefined();
     expect((await catalog.get('osm_n_987654324'))?.chain).toEqual({
       key: 'Q999999998',
       name: 'Cadena Prueba',
@@ -55,6 +60,9 @@ describe('local restaurant catalog', () => {
       expect(
         (await catalog.search({ ...params, glutenMode: 'options' })).map((r) => r.id),
       ).toContain('osm_n_987654325');
+      expect(
+        (await catalog.search({ ...params, glutenMode: 'options' })).map((r) => r.id),
+      ).toContain('osm_n_987654326');
       expect(
         (await catalog.search({ ...params, glutenMode: 'dedicated' })).map((r) => r.id),
       ).not.toContain('osm_n_987654325');

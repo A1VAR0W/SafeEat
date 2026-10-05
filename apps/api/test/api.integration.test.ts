@@ -589,6 +589,32 @@ describe.sequential('real PostgreSQL API', () => {
     expect((await app.inject(`/api/v1/public/shares/${'f'.repeat(48)}`)).statusCode).toBe(404);
     expect((await app.inject('/api/v1/public/shares/invalid')).statusCode).toBe(400);
   });
+  it('averages one rating per user and branch, isolates editing, validates stars and removes ratings', async () => {
+    const path = '/api/v1/restaurants/chain-rating/rating';
+    const put = (stars: number, session = one) =>
+      app.inject({ method: 'PUT', url: path, payload: { stars }, headers: bearer(session) });
+    expect((await app.inject({ method: 'PUT', url: path, payload: { stars: 5 } })).statusCode).toBe(
+      401,
+    );
+    for (const stars of [0, 6, 2.5]) expect((await put(stars)).statusCode).toBe(400);
+    expect((await put(5)).json().rating).toEqual({ average: 5, count: 1 });
+    expect((await put(1, two)).json().rating).toEqual({ average: 3, count: 2 });
+    expect((await put(3)).json().rating).toEqual({ average: 2, count: 2 });
+    expect((await app.inject({ url: path, headers: bearer(two) })).json()).toEqual({ stars: 1 });
+    expect((await app.inject(path)).json()).toEqual({ stars: null });
+    expect(
+      (await app.inject('/api/v1/restaurants/chain-other-branch')).json().rating,
+    ).toBeUndefined();
+    expect((await app.inject('/api/v1/restaurants/chain-rating')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    expect(
+      (await app.inject({ method: 'DELETE', url: path, headers: bearer(one) })).json().rating,
+    ).toEqual({ average: 1, count: 1 });
+    expect(
+      (await app.inject({ method: 'DELETE', url: path, headers: bearer(two) })).json().rating,
+    ).toBeUndefined();
+  });
   it('shows reasons, requires another user, rejects stale confirmations and propagates chain reports', async () => {
     const reportUrl = '/api/v1/restaurants/chain-one/gluten-report';
     const post = (url: string, payload: object, session = one) =>
@@ -665,6 +691,15 @@ describe.sequential('real PostgreSQL API', () => {
     expect((await app.inject('/api/v1/restaurants/chain-three')).json().glutenSupport).toBe(
       'DEDICATED_GLUTEN_FREE',
     );
+    await post('/api/v1/restaurants/chain-four/gluten-report', {
+      support: 'GLUTEN_FREE_OPTIONS',
+      note: 'He comprobado de nuevo la carta actual de la cadena.',
+    });
+    expect((await app.inject('/api/v1/restaurants/chain-three')).json().glutenReports).toEqual({
+      dedicated: 0,
+      options: 1,
+      noOptions: 0,
+    });
   });
   it('also confirms product reasons and invalidates them when edited', async () => {
     await app.inject('/api/v1/products/barcode/8410000000001');

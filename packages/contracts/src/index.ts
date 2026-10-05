@@ -92,6 +92,12 @@ export const RestaurantSchema = z.object({
   ]),
   communityCreated: z.boolean().optional(),
   chain: z.object({ key: z.string(), name: z.string() }).optional(),
+  rating: z
+    .object({
+      average: z.number().min(1).max(5),
+      count: z.number().int().positive(),
+    })
+    .optional(),
   glutenReports: z
     .object({
       dedicated: z.number().int().min(0),

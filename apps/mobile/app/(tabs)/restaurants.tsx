@@ -28,6 +28,7 @@ import { RestaurantMap, initialCenter } from '../../src/restaurant-map';
 import { DirectionsButton, RestaurantBadge } from '../../src/restaurant-components';
 import { distanceLabel, hasCoordinates, type Coordinates } from '../../src/restaurant-presentation';
 import { mergeRestaurantResults } from '../../src/restaurant-results';
+import { RestaurantRatingSummary } from '../../src/restaurant-rating';
 
 type SearchParams = Coordinates & { q: string };
 const emptyItems: Restaurant[] = [];
@@ -687,6 +688,7 @@ export default function Restaurants() {
                       />
                     </View>
                     <RestaurantBadge restaurant={selected} />
+                    <RestaurantRatingSummary restaurant={selected} />
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <View style={{ flex: 1 }}>
                         <DirectionsButton restaurant={selected} />
@@ -845,6 +847,7 @@ export default function Restaurants() {
                     {item.address || 'Dirección no disponible'}
                   </Copy>
                   <RestaurantBadge restaurant={item} />
+                  <RestaurantRatingSummary restaurant={item} />
                   {distanceLabel(item, position) && (
                     <Copy muted size={12}>
                       {distanceLabel(item, position)} en línea recta

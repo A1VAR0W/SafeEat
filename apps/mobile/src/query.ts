@@ -68,6 +68,8 @@ export async function clearPrivateCache() {
           'local-label',
           'share',
           'shared-product',
+          'reviews',
+          'restaurant-rating',
         ].includes(kind) ||
         (kind === 'product' && !!(q.state.data as Product | undefined)?.userCreated)
       );
