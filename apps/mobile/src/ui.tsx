@@ -14,6 +14,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -103,11 +104,13 @@ export function Title({ children }: PropsWithChildren) {
 }
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
   const t = useTheme();
+  const headerHeight = useHeaderHeight();
   return (
     <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={headerHeight}
       >
         {scroll ? (
           <ScrollView
