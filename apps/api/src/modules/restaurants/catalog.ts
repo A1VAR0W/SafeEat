@@ -85,9 +85,9 @@ export function restaurantCatalog(db: Database) {
     if (broad && !nearby) return [];
     const filter =
       params.glutenMode === 'dedicated'
-        ? "AND (gluten_tag='only' OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key OR r.chain_key='name:'||restaurant_brand_name(restaurant_catalog.name)) AND r.support='DEDICATED_GLUTEN_FREE'))"
+        ? "AND (gluten_tag='only' OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE r.revoked_at IS NULL AND (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key OR r.chain_key='name:'||restaurant_brand_name(restaurant_catalog.name)) AND r.support='DEDICATED_GLUTEN_FREE'))"
         : params.glutenFree || params.glutenMode === 'options'
-          ? "AND (gluten_tag IN ('only','yes') OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key OR r.chain_key='name:'||restaurant_brand_name(restaurant_catalog.name)) AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')))"
+          ? "AND (gluten_tag IN ('only','yes') OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE r.revoked_at IS NULL AND (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key OR r.chain_key='name:'||restaurant_brand_name(restaurant_catalog.name)) AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')))"
           : '';
     const point = 'ST_SetSRID(ST_MakePoint($2,$3),4326)::geography';
     const location = nearby ? `AND ST_DWithin(location,${point},$4)` : '';

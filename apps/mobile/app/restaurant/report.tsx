@@ -6,12 +6,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RestaurantSchema } from '@safeeat/contracts';
 import { RestaurantSupportPicker, type RestaurantSupport } from '../../src/restaurant-support';
 import { api, useSession } from '../../src/session';
+import { usePermissions } from '../../src/permissions';
 import { Button, Copy, ErrorNotice, Field, Screen, Title, useTheme } from '../../src/ui';
 
 export default function RestaurantReport() {
   const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
+  const { authorized } = usePermissions();
   const client = useQueryClient();
   const restaurant = useQuery({
     queryKey: ['restaurant', id],
@@ -25,7 +27,7 @@ export default function RestaurantReport() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   async function save() {
-    if (!support || note.trim().length < 10 || busy) return;
+    if (!support || (!authorized && note.trim().length < 10) || busy) return;
     if (!user) return router.push('/auth/login');
     setBusy(true);
     setError(null);
@@ -104,7 +106,7 @@ export default function RestaurantReport() {
         </View>
       )}
       <Field
-        label="¿Qué has comprobado?"
+        label={authorized ? 'Motivo (opcional)' : '¿Qué has comprobado?'}
         value={note}
         onChangeText={setNote}
         multiline
@@ -117,7 +119,7 @@ export default function RestaurantReport() {
       {!!error && <ErrorNotice error={error} />}
       <Button
         title={busy ? 'Guardando…' : 'Enviar revisión'}
-        disabled={busy || !support || note.trim().length < 10}
+        disabled={busy || !support || (!authorized && note.trim().length < 10)}
         onPress={() => void save()}
       />
     </Screen>

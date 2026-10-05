@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { RestaurantSchema } from '@safeeat/contracts';
 import { RestaurantSupportPicker, type RestaurantSupport } from '../../src/restaurant-support';
 import { api, useSession } from '../../src/session';
+import { usePermissions } from '../../src/permissions';
 import { Button, Copy, ErrorNotice, Field, Screen, Title, useTheme } from '../../src/ui';
 
 export default function NewRestaurant() {
@@ -17,6 +18,7 @@ export default function NewRestaurant() {
     longitude: Number.isFinite(Number(params.longitude)) ? Number(params.longitude) : -3.7038,
   };
   const { user } = useSession();
+  const { authorized } = usePermissions();
   const client = useQueryClient();
   const t = useTheme();
   const appleMap = useRef<AppleMaps.MapView>(null);
@@ -52,7 +54,7 @@ export default function NewRestaurant() {
       !support ||
       name.trim().length < 2 ||
       address.trim().length < 5 ||
-      note.trim().length < 10 ||
+      (!authorized && note.trim().length < 10) ||
       busy
     )
       return;
@@ -132,7 +134,7 @@ export default function NewRestaurant() {
       <Copy bold>Opciones sin gluten indicadas</Copy>
       <RestaurantSupportPicker value={support} onChange={setSupport} />
       <Field
-        label="¿Qué has comprobado?"
+        label={authorized ? 'Motivo (opcional)' : '¿Qué has comprobado?'}
         value={note}
         onChangeText={setNote}
         multiline
@@ -151,7 +153,7 @@ export default function NewRestaurant() {
           !support ||
           name.trim().length < 2 ||
           address.trim().length < 5 ||
-          note.trim().length < 10
+          (!authorized && note.trim().length < 10)
         }
         onPress={() => void create()}
       />

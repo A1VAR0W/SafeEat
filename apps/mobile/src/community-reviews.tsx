@@ -69,7 +69,9 @@ export function CommunityReviews({ kind, id }: { kind: 'products' | 'restaurants
           style={{ borderWidth: 1, borderColor: review.verifiedAt ? t.accent : t.line, gap: 10 }}
         >
           <Copy bold>{labels[review.status] ?? 'Revisión'}</Copy>
-          <Copy size={15}>{review.note}</Copy>
+          <Copy size={15} muted={!review.note}>
+            {review.note || 'Sin motivo añadido'}
+          </Copy>
           <Copy muted size={12}>
             {review.own ? 'Tu aportación' : 'Aportación de la comunidad'} ·{' '}
             {new Date(review.updatedAt).toLocaleDateString('es-ES')}

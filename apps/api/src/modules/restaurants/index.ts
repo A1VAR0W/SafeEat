@@ -11,6 +11,7 @@ import { reviewRoutes } from '../reviews';
 import { combineSuggestions } from './suggestions';
 import { restaurantRatings } from './ratings';
 import { matchesRestaurantSearch, restaurantSearchName } from './search';
+import { reviewNote } from '../permissions';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -96,6 +97,7 @@ export function restaurantService(
          SELECT DISTINCT ON (target.id,r.user_id) target.id AS restaurant_id,r.support
          FROM unnest($1::text[],$2::text[]) AS target(id,chain_key)
          JOIN restaurant_gluten_reports r ON r.restaurant_id=target.id OR (r.chain_key=target.chain_key AND r.chain_key IS NOT NULL)
+         WHERE r.revoked_at IS NULL
          ORDER BY target.id,r.user_id,(r.restaurant_id=target.id) DESC,r.updated_at DESC,r.id
        )
        SELECT restaurant_id,count(*) FILTER (WHERE support='DEDICATED_GLUTEN_FREE')::int AS dedicated,
@@ -318,11 +320,12 @@ export function restaurantService(
           latitude: z.number().min(-90).max(90),
           longitude: z.number().min(-180).max(180),
           support,
-          note: z.string().trim().min(10).max(500),
+          note: z.string().trim().max(500).default(''),
         })
         .strict()
         .parse(request.body);
       const id = `se_${randomUUID().replace(/-/g, '')}`;
+      body.note = await reviewNote(db, request.user.sub, body.note);
       const duplicate = await db.query(
         'SELECT 1 FROM community_restaurants WHERE lower(name)=lower($1) AND abs(latitude-$2)<0.0005 AND abs(longitude-$3)<0.0005 LIMIT 1',
         [body.name, body.latitude, body.longitude],
@@ -363,12 +366,13 @@ export function restaurantService(
       const body = z
         .object({
           support,
-          note: z.string().trim().min(10).max(500),
+          note: z.string().trim().max(500).default(''),
           scope: z.enum(['local', 'chain']).optional(),
         })
         .strict()
         .parse(request.body);
       const item = await get(id);
+      body.note = await reviewNote(db, request.user.sub, body.note);
       const scope =
         body.scope ?? (body.support !== 'NO_GLUTEN_FREE_OPTIONS' && item.chain ? 'chain' : 'local');
       const chainKey = item.chain?.key ?? item.reviewGroup?.key;
@@ -378,10 +382,16 @@ export function restaurantService(
           'CHAIN_NOT_AVAILABLE',
           'Todavía no encontramos otros locales de este restaurante.',
         );
-      await db.query(
-        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key,scope) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,chain_key=$5,scope=$6,updated_at=now()',
+      const written = await db.query(
+        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key,scope) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,chain_key=$5,scope=$6,updated_at=now() WHERE restaurant_gluten_reports.revoked_at IS NULL RETURNING id',
         [id, request.user.sub, body.support, body.note, scope === 'chain' ? chainKey : null, scope],
       );
+      if (!written.rowCount)
+        throw new ApiError(
+          409,
+          'REVIEW_REVOKED',
+          'Esta revisión ha sido retirada. Contacta con la administración para revisarla.',
+        );
       return get(id);
     },
   );

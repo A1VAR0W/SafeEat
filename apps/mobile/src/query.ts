@@ -70,6 +70,8 @@ export async function clearPrivateCache() {
           'shared-product',
           'reviews',
           'restaurant-rating',
+          'admin-users',
+          'admin-reviews',
         ].includes(kind) ||
         (kind === 'product' && !!(q.state.data as Product | undefined)?.userCreated)
       );

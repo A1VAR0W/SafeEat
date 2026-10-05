@@ -147,13 +147,28 @@ export default function Restaurants() {
     },
     gcTime: 300000,
   });
+  const selectedDetail = useQuery({
+    queryKey: ['restaurant', selectedId],
+    enabled: active && !!selectedId,
+    queryFn: async ({ signal }) =>
+      RestaurantSchema.parse(
+        await api(`/restaurants/${encodeURIComponent(selectedId!)}`, { signal }),
+      ),
+    initialData: () => (selectedItem?.id === selectedId ? selectedItem : undefined),
+    staleTime: 60000,
+    gcTime: 300000,
+  });
   const items = useMemo(() => {
     return mergeRestaurantResults(
       search.data?.items ?? emptyItems,
       emptyItems,
-      selectedItem?.id === selectedId ? selectedItem : null,
+      selectedDetail.data?.id === selectedId
+        ? selectedDetail.data
+        : selectedItem?.id === selectedId
+          ? selectedItem
+          : null,
     );
-  }, [search.data, selectedItem, selectedId]);
+  }, [search.data, selectedItem, selectedId, selectedDetail.data]);
   const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
   const target = useQuery({
     queryKey: ['restaurant', pendingTarget],

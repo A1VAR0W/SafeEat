@@ -10,6 +10,7 @@ import type { ProductProvider, ExternalProduct } from '../../providers/types';
 import type { Auth } from '../auth';
 import { notFound, ApiError } from '../../plugins/errors';
 import { reviewRoutes } from '../reviews';
+import { reviewNote } from '../permissions';
 export function productService(
   app: FastifyInstance,
   db: Database,
@@ -67,7 +68,7 @@ export function productService(
       `WITH reports AS (SELECT r.status,
         EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=r.user_id AND ur.role_code='authorized_celiac')
         OR EXISTS(SELECT 1 FROM review_confirmations c WHERE c.kind='products' AND c.report_id=r.id AND c.revision=r.revision) AS verified
-        FROM product_gluten_reports r WHERE r.product_id=$1)
+        FROM product_gluten_reports r WHERE r.product_id=$1 AND r.revoked_at IS NULL)
        SELECT count(*) FILTER (WHERE status='GLUTEN_FREE')::int AS gluten_free,
        count(*) FILTER (WHERE status='CONTAINS_GLUTEN')::int AS contains_gluten,
        count(*) FILTER (WHERE status='GLUTEN_FREE' AND verified)::int AS verified_free,
@@ -294,17 +295,24 @@ export function productService(
       const body = z
         .object({
           status: z.enum(['GLUTEN_FREE', 'CONTAINS_GLUTEN']),
-          note: z.string().trim().min(10).max(500),
+          note: z.string().trim().max(500).default(''),
         })
         .strict()
         .parse(request.body);
       const item = await get(id, request.user.sub);
+      body.note = await reviewNote(db, request.user.sub, body.note);
       if (!item.barcode || item.userCreated)
         throw new ApiError(400, 'REPORT_NOT_ALLOWED', 'Esta ficha no admite revisiones públicas.');
-      await db.query(
-        'INSERT INTO product_gluten_reports(product_id,user_id,status,note) VALUES($1,$2,$3,$4) ON CONFLICT(product_id,user_id) DO UPDATE SET status=$3,note=$4,updated_at=now()',
+      const written = await db.query(
+        'INSERT INTO product_gluten_reports(product_id,user_id,status,note) VALUES($1,$2,$3,$4) ON CONFLICT(product_id,user_id) DO UPDATE SET status=$3,note=$4,updated_at=now() WHERE product_gluten_reports.revoked_at IS NULL RETURNING id',
         [item.id, request.user.sub, body.status, body.note],
       );
+      if (!written.rowCount)
+        throw new ApiError(
+          409,
+          'REVIEW_REVOKED',
+          'Esta revisión ha sido retirada. Contacta con la administración para revisarla.',
+        );
       return withReports(item);
     },
   );

@@ -77,6 +77,7 @@ export default function Layout() {
           <Stack.Screen name="account-edit" options={{ title: 'Editar cuenta' }} />
           <Stack.Screen name="delete-account" options={{ title: 'Eliminar cuenta' }} />
           <Stack.Screen name="profile" options={{ title: 'Tu perfil' }} />
+          <Stack.Screen name="admin" options={{ title: 'Administración' }} />
           <Stack.Screen
             name="scan/index"
             options={{ headerShown: false, presentation: 'fullScreenModal' }}

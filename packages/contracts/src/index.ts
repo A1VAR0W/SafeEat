@@ -178,6 +178,7 @@ export const analyzeSchema = z
 export const UserSchema = z.object({
   id: z.string().uuid(),
   email: z.email(),
+  roles: z.array(z.enum(['authorized_celiac', 'ADMIN'])).default([]),
   firstName: z.string().nullable().default(null),
   lastName: z.string().nullable().default(null),
   dateOfBirth: z.iso.date().nullable().default(null),

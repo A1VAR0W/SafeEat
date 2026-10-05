@@ -35,7 +35,7 @@ export function reviewRoutes(
        count(c.user_id)::int AS confirmations,(r.${resource}<>$1) AS inherited
        FROM ${table} r LEFT JOIN review_confirmations c ON c.report_id=r.id AND c.revision=r.revision AND c.kind='${kind}'
        LEFT JOIN (SELECT user_id,max(assigned_at) AS authorized_at FROM user_roles WHERE role_code='authorized_celiac' GROUP BY user_id) a ON a.user_id=r.user_id
-       WHERE ${scope} GROUP BY r.id,r.revision,r.user_id,r.note,r.${status},r.updated_at,r.${resource},a.authorized_at
+       WHERE ${scope} AND r.revoked_at IS NULL GROUP BY r.id,r.revision,r.user_id,r.note,r.${status},r.updated_at,r.${resource},a.authorized_at
        ORDER BY r.updated_at DESC LIMIT 100`,
       restaurant
         ? [id, item.chain?.key ?? item.reviewGroup?.key ?? null, user ?? null]
@@ -59,7 +59,7 @@ export function reviewRoutes(
       try {
         await client.query('BEGIN');
         const result = await client.query<{ user_id: string; revision: string }>(
-          `SELECT r.user_id,r.revision FROM ${table} r WHERE ${scope} AND r.id=$${restaurant ? 3 : 2} FOR UPDATE`,
+          `SELECT r.user_id,r.revision FROM ${table} r WHERE ${scope} AND r.revoked_at IS NULL AND r.id=$${restaurant ? 3 : 2} FOR UPDATE`,
           restaurant
             ? [id, item.chain?.key ?? item.reviewGroup?.key ?? null, reviewId]
             : [id, reviewId],
