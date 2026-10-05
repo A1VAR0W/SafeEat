@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "versionDate": "2026-10-05",
-      "versionDescription": "Los formularios mantienen visible el campo y el cursor al escribir. El teclado se cierra con gestos o al tocar fuera. Se han retirado el botón y el icono para ocultarlo.",
-      "size": 19822325
+      "versionDescription": "Búsquedas más ágiles, mapa estable al escribir y tarjetas sin saltos de zoom. Los resultados permanecen visibles durante la carga y las imágenes se cargan por adelantado.",
+      "size": 19824877
     }
   ]
 }
