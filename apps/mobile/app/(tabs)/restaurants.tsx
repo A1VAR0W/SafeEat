@@ -1,354 +1,893 @@
-import { useEffect, useRef, useState } from 'react';
-import { FlatList, Platform, Pressable, View } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  AppState,
+  FlatList,
+  Keyboard,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
-import { AppleMaps, GoogleMaps } from 'expo-maps';
-import { useQuery } from '@tanstack/react-query';
+import { AppleMaps } from 'expo-maps';
+import type { CameraRef } from '@maplibre/maplibre-react-native';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { RestaurantSchema, restaurantDisclaimer, type Restaurant } from '@safeeat/contracts';
+import { RestaurantSchema, type Restaurant } from '@safeeat/contracts';
 import { useDebounced } from '../../src/use-debounced';
-import { SearchField } from '../../src/compact';
+import { IconButton, SearchField } from '../../src/compact';
 import { api } from '../../src/session';
-import { Button, Card, Copy, ErrorNotice, Screen, Title, useTheme } from '../../src/ui';
+import { Button, Copy, ErrorNotice, Title, useReducedMotion, useTheme } from '../../src/ui';
+import { RestaurantMap, initialCenter } from '../../src/restaurant-map';
+import { DirectionsButton, RestaurantBadge } from '../../src/restaurant-components';
+import { distanceLabel, hasCoordinates, type Coordinates } from '../../src/restaurant-presentation';
+import { mergeRestaurantResults } from '../../src/restaurant-results';
+import { RestaurantRatingSummary } from '../../src/restaurant-rating';
 
-type Coordinates = { latitude: number; longitude: number };
-type SearchParams = { q: string; latitude?: number; longitude?: number };
-const initialCenter = { latitude: 40.4168, longitude: -3.7038 };
-const androidMapsConfigured = !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
+type SearchParams = Coordinates & { q: string };
+const emptyItems: Restaurant[] = [];
+const suggestionSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().optional(),
+      label: z.string(),
+      kind: z.enum(['restaurant', 'place']),
+      query: z.string(),
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+    }),
+  ),
+});
+type Suggestion = z.infer<typeof suggestionSchema>['items'][number];
+const filters = [
+  ['all', 'Todos'],
+  ['options', 'Con opciones'],
+  ['dedicated', 'Solo sin gluten'],
+] as const;
+type GlutenMode = (typeof filters)[number][0];
+function moved(a: Coordinates, b: Coordinates) {
+  return Math.abs(a.latitude - b.latitude) > 0.002 || Math.abs(a.longitude - b.longitude) > 0.003;
+}
 
 export default function Restaurants() {
-  const theme = useTheme();
+  const t = useTheme();
+  const reduced = useReducedMotion();
+  const client = useQueryClient();
   const appleMap = useRef<AppleMaps.MapView>(null);
-  const googleMap = useRef<GoogleMaps.MapView>(null);
+  const androidCamera = useRef<CameraRef>(null);
+  const center = useRef(initialCenter);
+  const lastSearch = useRef(initialCenter);
+  const ignoreMoveUntil = useRef(0);
+  const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didInteract = useRef(false);
   const [text, setText] = useState('');
-  const [params, setParams] = useState<SearchParams | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [params, setParams] = useState<SearchParams>({ q: 'restaurantes', ...initialCenter });
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mapCenter, setMapCenter] = useState<Coordinates>(initialCenter);
-  const [searchedCenter, setSearchedCenter] = useState<Coordinates | null>(null);
-  const [locationError, setLocationError] = useState<unknown>(null);
+  const [selectedItem, setSelectedItem] = useState<Restaurant | null>(null);
+  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
+  const [searchPinned, setSearchPinned] = useState(false);
+  const [position, setPosition] = useState<Coordinates | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
-  const [glutenOnly, setGlutenOnly] = useState(false);
+  const [locationGranted, setLocationGranted] = useState(false);
+  const [glutenMode, setGlutenMode] = useState<GlutenMode>('all');
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const [mapError, setMapError] = useState(false);
+  const [mapRevision, setMapRevision] = useState(0);
+  const [active, setActive] = useState(false);
   const settled = useDebounced(text.trim());
+  const suggestLatitude = Math.round(params.latitude * 100) / 100;
+  const suggestLongitude = Math.round(params.longitude * 100) / 100;
   const suggestions = useQuery({
-    queryKey: ['restaurant-suggestions', settled],
-    enabled: settled.length >= 3 && !params,
+    queryKey: ['restaurant-suggestions', settled, suggestLatitude, suggestLongitude],
+    enabled: active && editing && settled.length >= 3 && settled === text.trim(),
     queryFn: async ({ signal }) =>
-      z
-        .object({
-          items: z.array(
-            z.object({
-              label: z.string(),
-              kind: z.enum(['restaurant', 'city']),
-              query: z.string(),
-              latitude: z.number().optional(),
-              longitude: z.number().optional(),
-            }),
-          ),
-        })
-        .parse(await api(`/restaurants/suggest?q=${encodeURIComponent(settled)}`, { signal })),
+      suggestionSchema.parse(
+        await api(
+          `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}&localOnly=true`,
+          { signal },
+        ),
+      ),
     staleTime: 3600000,
+    gcTime: 300000,
   });
-  const search = useQuery({
-    queryKey: ['restaurants', params, glutenOnly],
-    enabled: !!params,
-    queryFn: async () => {
+  const places = useQuery({
+    queryKey: ['restaurant-place-suggestions', settled, suggestLatitude, suggestLongitude],
+    enabled:
+      active && editing && settled.length >= 3 && settled === text.trim() && suggestions.isSuccess,
+    queryFn: async ({ signal }) =>
+      suggestionSchema.parse(
+        await api(
+          `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}`,
+          { signal },
+        ),
+      ),
+    staleTime: 3600000,
+    gcTime: 300000,
+  });
+  const suggestionItems = useMemo(() => {
+    if (settled !== text.trim()) return [];
+    const seen = new Set<string>();
+    return [...(places.data?.items ?? []), ...(suggestions.data?.items ?? [])]
+      .filter((item) => {
+        const key = item.id ?? `${item.kind}:${item.label}:${item.latitude}:${item.longitude}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 5);
+  }, [places.data, suggestions.data, settled, text]);
+  const search = useQuery<{ items: Restaurant[] }>({
+    queryKey: ['restaurants', params, glutenMode],
+    enabled: active,
+    queryFn: async ({ signal }) => {
       const query = new URLSearchParams({
-        q: params!.q,
-        ...(params!.latitude !== undefined
-          ? { latitude: String(params!.latitude), longitude: String(params!.longitude) }
-          : {}),
-        ...(glutenOnly ? { glutenFree: 'true' } : {}),
+        q: params.q,
+        latitude: String(params.latitude),
+        longitude: String(params.longitude),
+        ...(glutenMode !== 'all' ? { glutenMode } : {}),
       });
       return z
         .object({ items: z.array(RestaurantSchema) })
-        .parse(await api(`/restaurants/search?${query}`));
+        .parse(await api(`/restaurants/search?${query}`, { signal }));
     },
-    gcTime: 0,
+    staleTime: 60000,
+    placeholderData: (previous, previousQuery) => {
+      const old = previousQuery?.queryKey[1] as SearchParams | undefined;
+      return old?.q === params.q && previousQuery?.queryKey[2] === glutenMode
+        ? previous
+        : undefined;
+    },
+    gcTime: 300000,
   });
-  const items = (search.data?.items ?? []).filter(
-    (item) =>
-      !glutenOnly ||
-      item.glutenSupport === 'DEDICATED_GLUTEN_FREE' ||
-      item.glutenSupport === 'GLUTEN_FREE_OPTIONS',
-  );
-  const mapped = items.filter(
-    (item): item is Restaurant & Coordinates =>
-      item.latitude !== undefined && item.longitude !== undefined,
-  );
-  const selected = items.find((item) => item.id === selectedId);
-
-  function focus(coordinates: Coordinates, zoom = 15) {
-    appleMap.current?.setCameraPosition({ coordinates, zoom });
-    googleMap.current?.setCameraPosition({ coordinates, zoom, duration: 300 });
-    setMapCenter(coordinates);
-  }
-
-  useEffect(() => {
-    if (!search.isSuccess) return;
-    const first = search.data.items.find(
-      (item) => item.latitude !== undefined && item.longitude !== undefined,
+  const selectedDetail = useQuery({
+    queryKey: ['restaurant', selectedId],
+    enabled: active && !!selectedId,
+    queryFn: async ({ signal }) =>
+      RestaurantSchema.parse(
+        await api(`/restaurants/${encodeURIComponent(selectedId!)}`, { signal }),
+      ),
+    initialData: () => (selectedItem?.id === selectedId ? selectedItem : undefined),
+    staleTime: 60000,
+    gcTime: 300000,
+  });
+  const items = useMemo(() => {
+    return mergeRestaurantResults(
+      search.data?.items ?? emptyItems,
+      emptyItems,
+      selectedDetail.data?.id === selectedId
+        ? selectedDetail.data
+        : selectedItem?.id === selectedId
+          ? selectedItem
+          : null,
     );
-    const center =
-      params?.latitude !== undefined && params.longitude !== undefined
-        ? { latitude: params.latitude, longitude: params.longitude }
-        : first?.latitude !== undefined && first.longitude !== undefined
-          ? { latitude: first.latitude, longitude: first.longitude }
-          : null;
-    setSelectedId(null);
-    if (center) {
-      focus(center, params?.latitude !== undefined ? 15 : 13);
-      setSearchedCenter(center);
+  }, [search.data, selectedItem, selectedId, selectedDetail.data]);
+  const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
+  const target = useQuery({
+    queryKey: ['restaurant', pendingTarget],
+    enabled: active && !!pendingTarget,
+    queryFn: async ({ signal }) =>
+      RestaurantSchema.parse(
+        await api(`/restaurants/${encodeURIComponent(pendingTarget!)}`, { signal }),
+      ),
+    staleTime: 60000,
+    gcTime: 300000,
+  });
+  useEffect(() => {
+    if (pendingTarget && target.data?.id === pendingTarget) {
+      setSelectedItem(target.data);
+      setSelectedId(target.data.id);
+      setPendingTarget(null);
     }
-  }, [params?.latitude, params?.longitude, search.data, search.isSuccess]);
+  }, [pendingTarget, target.data]);
+  const loading = search.isFetching || target.isFetching;
+  const searchError = search.error ?? target.error;
+  const mappedCount = useMemo(() => items.filter(hasCoordinates).length, [items]);
+  const selectedDistance = selected ? distanceLabel(selected, position) : null;
 
-  async function nearby() {
+  const cancelMove = useCallback(() => {
+    if (moveTimer.current) clearTimeout(moveTimer.current);
+    moveTimer.current = null;
+  }, []);
+  const dismissMapKeyboard = useCallback(() => {
+    if (Keyboard.isVisible()) Keyboard.dismiss();
+    setEditing(false);
+  }, []);
+  const focus = useCallback(
+    (coordinates: Coordinates, zoom = 15) => {
+      const point = { latitude: coordinates.latitude, longitude: coordinates.longitude };
+      cancelMove();
+      center.current = point;
+      lastSearch.current = point;
+      ignoreMoveUntil.current = Date.now() + 650;
+      appleMap.current?.setCameraPosition({ coordinates: point, zoom });
+      androidCamera.current?.easeTo({
+        center: [coordinates.longitude, coordinates.latitude],
+        zoom,
+        duration: reduced ? 0 : 250,
+      });
+    },
+    [cancelMove, reduced],
+  );
+  const searchZone = useCallback(
+    (coordinates: Coordinates) => {
+      if (
+        Date.now() < ignoreMoveUntil.current ||
+        !Number.isFinite(coordinates.latitude) ||
+        !Number.isFinite(coordinates.longitude)
+      )
+        return;
+      if (!moved(coordinates, center.current)) return;
+      didInteract.current = true;
+      center.current = coordinates;
+      cancelMove();
+      if (searchPinned || selectedId || editing) return;
+      moveTimer.current = setTimeout(() => {
+        if (!moved(coordinates, lastSearch.current)) return;
+        lastSearch.current = coordinates;
+        setParams({ q: 'restaurantes', ...coordinates });
+      }, 650);
+    },
+    [cancelMove, searchPinned, selectedId, editing],
+  );
+  useEffect(() => {
+    cancelMove();
+  }, [cancelMove, searchPinned, selectedId, editing]);
+
+  // Tabs stay mounted. GPS and pending searches must stop when this screen is hidden.
+  useFocusEffect(
+    useCallback(() => {
+      let disposed = false;
+      let generation = 0;
+      let watcher: Location.LocationSubscription | undefined;
+      const stop = () => {
+        ++generation;
+        watcher?.remove();
+        watcher = undefined;
+      };
+      async function start() {
+        stop();
+        const current = generation;
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (!disposed && current === generation && !permission.granted && locationGranted)
+          setLocationGranted(false);
+        if (!permission.granted || disposed || current !== generation) return;
+        const subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 10000 },
+          (result) => {
+            if (disposed || current !== generation) return;
+            const coordinates = {
+              latitude: result.coords.latitude,
+              longitude: result.coords.longitude,
+            };
+            setPosition(coordinates);
+            if (!didInteract.current) {
+              didInteract.current = true;
+              focus(coordinates);
+              setParams({ q: 'restaurantes', ...coordinates });
+            }
+          },
+        );
+        if (disposed || current !== generation) subscription.remove();
+        else watcher = subscription;
+      }
+      setActive(true);
+      void start().catch(() => {});
+      const app = AppState.addEventListener('change', (state) => {
+        setActive(state === 'active');
+        if (state === 'active') void start().catch(() => {});
+        else {
+          stop();
+          cancelMove();
+        }
+      });
+      return () => {
+        disposed = true;
+        stop();
+        app.remove();
+        cancelMove();
+        setActive(false);
+      };
+    }, [cancelMove, focus, locationGranted]),
+  );
+
+  async function locate() {
+    if (locating) return;
+    didInteract.current = true;
+    cancelMove();
     setLocating(true);
     setLocationError(null);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted)
-        throw new Error('Puedes seguir buscando por nombre y ciudad sin compartir tu ubicación.');
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setParams({
-        q: 'restaurantes',
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-      });
-      focus({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-    } catch (e) {
-      setLocationError(e);
+        throw new Error('Permite la ubicación en los ajustes del móvil para ver dónde estás.');
+      if (Platform.OS === 'android') await Location.enableNetworkProviderAsync().catch(() => {});
+      const result = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'No hemos podido obtener tu ubicación. Comprueba el GPS y vuelve a intentarlo.',
+                ),
+              ),
+            15000,
+          );
+        }),
+      ]);
+      const coordinates = { latitude: result.coords.latitude, longitude: result.coords.longitude };
+      setPosition(coordinates);
+      focus(coordinates, 16);
+      setText('');
+      setEditing(false);
+      setSelectedId(null);
+      setPendingTarget(null);
+      setSelectedItem(null);
+      setSearchPinned(false);
+      Keyboard.dismiss();
+      setParams({ q: 'restaurantes', ...coordinates });
+      if (result.coords.accuracy !== null && result.coords.accuracy > 100)
+        setLocationError(
+          'Tu ubicación es aproximada. Activa la ubicación precisa en los ajustes del móvil.',
+        );
+      setLocationGranted(true);
+    } catch (cause) {
+      setLocationError(
+        cause instanceof Error ? cause.message : 'No se ha podido obtener tu ubicación.',
+      );
     } finally {
+      if (timeout) clearTimeout(timeout);
       setLocating(false);
     }
   }
-
-  function select(item: Restaurant) {
-    setSelectedId(item.id);
-    if (item.latitude !== undefined && item.longitude !== undefined)
-      focus({ latitude: item.latitude, longitude: item.longitude }, 17);
+  const select = useCallback(
+    (item: Restaurant) => {
+      didInteract.current = true;
+      cancelMove();
+      Keyboard.dismiss();
+      setEditing(false);
+      setResultsOpen(false);
+      setSelectedId(item.id);
+      setPendingTarget(null);
+      setSelectedItem(item);
+      if (hasCoordinates(item)) focus(item, 17);
+    },
+    [cancelMove, focus],
+  );
+  function chooseSuggestion(suggestion: Suggestion) {
+    didInteract.current = true;
+    cancelMove();
+    Keyboard.dismiss();
+    setText(suggestion.label);
+    setEditing(false);
+    setSelectedId(null);
+    setSelectedItem(null);
+    setSearchPinned(true);
+    setPendingTarget(suggestion.kind === 'restaurant' ? (suggestion.id ?? null) : null);
+    const next = {
+      q: suggestion.kind === 'place' ? 'restaurantes' : suggestion.query,
+      ...center.current,
+    };
+    if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
+      const coordinates = { latitude: suggestion.latitude, longitude: suggestion.longitude };
+      focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
+      next.latitude = coordinates.latitude;
+      next.longitude = coordinates.longitude;
+      centeredSearch.current = next;
+    }
+    setParams(next);
   }
-
-  const mapAvailable =
-    Platform.OS === 'ios' || (Platform.OS === 'android' && androidMapsConfigured);
-  const searchOrigin = searchedCenter ?? initialCenter;
-  const canSearchArea =
-    mapAvailable &&
-    (Math.abs(mapCenter.latitude - searchOrigin.latitude) > 0.003 ||
-      Math.abs(mapCenter.longitude - searchOrigin.longitude) > 0.003);
+  function submit() {
+    const q = text.trim();
+    if (q.length < 2) return;
+    const exactPlace = suggestionItems.find(
+      (item) =>
+        item.kind === 'place' &&
+        item.label.split(' · ')[0]?.toLocaleLowerCase() === q.toLocaleLowerCase() &&
+        item.latitude !== undefined &&
+        item.longitude !== undefined,
+    );
+    if (exactPlace) {
+      chooseSuggestion(exactPlace);
+      return;
+    }
+    didInteract.current = true;
+    cancelMove();
+    Keyboard.dismiss();
+    setEditing(false);
+    setSelectedId(null);
+    setPendingTarget(null);
+    setSelectedItem(null);
+    setSearchPinned(true);
+    setParams({ q, ...center.current });
+  }
+  const centeredSearch = useRef<unknown>(null);
+  useEffect(() => {
+    if (
+      !active ||
+      !search.isSuccess ||
+      search.isPlaceholderData ||
+      params.q === 'restaurantes' ||
+      centeredSearch.current === params
+    )
+      return;
+    centeredSearch.current = params;
+    const first = search.data.items.find(hasCoordinates);
+    if (first) {
+      focus(first, 14);
+    }
+  }, [active, params, search.data, search.isSuccess, search.isPlaceholderData, focus]);
+  function openDetails(item: Restaurant) {
+    client.setQueryData(['restaurant', item.id], item);
+    router.push({ pathname: '/restaurant/[id]', params: { id: item.id } });
+  }
+  function addRestaurant() {
+    setResultsOpen(false);
+    router.push({
+      pathname: '/restaurant/new',
+      params: {
+        latitude: String(center.current.latitude),
+        longitude: String(center.current.longitude),
+      },
+    });
+  }
+  function retrySearch() {
+    void search.refetch();
+    if (pendingTarget) void target.refetch();
+  }
+  const emptyMessage =
+    glutenMode === 'all'
+      ? 'No encontramos restaurantes en esta zona.'
+      : 'No hay locales con estas opciones indicadas en esta zona.';
 
   return (
-    <Screen scroll={false}>
-      <Title>Comer fuera</Title>
-      <SearchField
-        label="Restaurante o ciudad"
-        value={text}
-        onChangeText={(value) => {
-          setText(value);
-          setParams(null);
-        }}
-        placeholder="Restaurante o ciudad…"
-        onSubmitEditing={() => {
-          if (text.trim().length >= 2) setParams({ q: text.trim() });
-        }}
-      />
-      {!params && !!suggestions.data?.items.length && (
-        <View style={{ backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }}>
-          {suggestions.data.items.slice(0, 4).map((suggestion, index) => (
-            <Pressable
-              key={`${suggestion.kind}-${suggestion.label}-${index}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Buscar ${suggestion.label}`}
-              onPress={() => {
-                setText(suggestion.label);
-                setParams({
-                  q: suggestion.query,
-                  latitude: suggestion.latitude,
-                  longitude: suggestion.longitude,
-                });
+    <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
+      <View style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 10, gap: 8, zIndex: 2 }}>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <View style={{ flex: 1 }}>
+            <SearchField
+              label="Buscar restaurante, calle o lugar"
+              value={text}
+              maxLength={120}
+              onFocus={() => setEditing(true)}
+              onChangeText={(value) => {
+                setText(value);
+                setEditing(true);
               }}
-              style={{ padding: 12, minHeight: 48 }}
+              placeholder="Restaurante, ciudad o calle"
+              onSubmitEditing={submit}
+            />
+          </View>
+          {!!text && !editing && (
+            <IconButton
+              icon="close"
+              label="Borrar búsqueda"
+              onPress={() => {
+                cancelMove();
+                setText('');
+                setSearchPinned(false);
+                setSelectedId(null);
+                setPendingTarget(null);
+                setSelectedItem(null);
+                setParams({ q: 'restaurantes', ...center.current });
+              }}
+            />
+          )}
+          {editing && (
+            <IconButton
+              icon="close"
+              label="Cerrar búsqueda"
+              onPress={() => {
+                setEditing(false);
+                Keyboard.dismiss();
+              }}
+            />
+          )}
+        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ gap: 8 }}
+        >
+          {filters.map(([value, label]) => (
+            <Pressable
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: glutenMode === value }}
+              onPress={() => {
+                didInteract.current = true;
+                cancelMove();
+                setEditing(false);
+                Keyboard.dismiss();
+                setSelectedId(null);
+                setPendingTarget(null);
+                setSelectedItem(null);
+                setGlutenMode(value);
+              }}
+              style={({ pressed }) => ({
+                minHeight: 44,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: glutenMode === value ? t.accent : t.line,
+                backgroundColor: glutenMode === value ? t.accent : t.card,
+                opacity: pressed ? 0.7 : 1,
+              })}
             >
-              <Copy>
-                {suggestion.kind === 'city' ? '⌖' : '⌕'} {suggestion.label}
+              <Copy size={13} bold color={glutenMode === value ? t.onAccent : t.text}>
+                {label}
               </Copy>
             </Pressable>
           ))}
-        </View>
-      )}
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Button
-            secondary
-            title={locating ? 'Localizando…' : 'Cerca de mí'}
-            disabled={locating}
-            onPress={() => void nearby()}
-          />
-        </View>
-        {canSearchArea && (
-          <View style={{ flex: 1 }}>
-            <Button
-              secondary
-              title="Buscar en esta zona"
-              onPress={() =>
-                setParams({
-                  q: 'restaurantes',
-                  latitude: mapCenter.latitude,
-                  longitude: mapCenter.longitude,
-                })
-              }
+        </ScrollView>
+      </View>
+      <View style={{ flex: 1, overflow: 'hidden', backgroundColor: t.line }}>
+        <RestaurantMap
+          key={mapRevision}
+          items={items}
+          selectedId={selected?.id ?? null}
+          position={position}
+          dark={t.dark}
+          appleMap={appleMap}
+          androidCamera={androidCamera}
+          onSelect={select}
+          onMove={searchZone}
+          onError={setMapError}
+          onMapPress={dismissMapKeyboard}
+          keyboardInteractionEnabled={editing}
+        />
+        {editing && settled.length >= 3 && (
+          <View style={[styles.suggestions, styles.shadow, { backgroundColor: t.card }]}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              style={{ maxHeight: 280 }}
+            >
+              {(suggestions.isFetching || settled !== text.trim()) && (
+                <View style={{ padding: 14 }}>
+                  <Copy muted size={13}>
+                    Buscando lugares…
+                  </Copy>
+                </View>
+              )}
+              {suggestionItems.map((suggestion, index) => (
+                <Pressable
+                  key={`${suggestion.kind}-${index}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Buscar ${suggestion.label}`}
+                  onPress={() => chooseSuggestion(suggestion)}
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    gap: 12,
+                    alignItems: 'center',
+                    minHeight: 56,
+                    padding: 14,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: t.line,
+                    opacity: pressed ? 0.6 : 1,
+                  })}
+                >
+                  <Ionicons
+                    name={suggestion.kind === 'place' ? 'location-outline' : 'restaurant-outline'}
+                    size={21}
+                    color={t.accent}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Copy size={14} numberOfLines={2}>
+                      {suggestion.label}
+                    </Copy>
+                  </View>
+                </Pressable>
+              ))}
+              {!suggestions.isFetching &&
+                !places.isFetching &&
+                !suggestionItems.length &&
+                settled === text.trim() && (
+                  <View style={{ padding: 14 }}>
+                    <Copy muted size={13}>
+                      Pulsa buscar en el teclado para buscar este lugar.
+                    </Copy>
+                  </View>
+                )}
+            </ScrollView>
+          </View>
+        )}
+        {!editing && (
+          <>
+            <View style={{ position: 'absolute', top: 12, right: 12, gap: 10 }}>
+              <View style={styles.shadow}>
+                <IconButton
+                  icon={locating ? 'hourglass-outline' : 'locate-outline'}
+                  label={locating ? 'Buscando tu ubicación' : 'Ir a mi ubicación'}
+                  disabled={locating}
+                  onPress={() => void locate()}
+                />
+              </View>
+              <View style={styles.shadow}>
+                <IconButton icon="add" label="Añadir restaurante" onPress={addRestaurant} />
+              </View>
+            </View>
+            <View
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                bottom: 16,
+                left: 12,
+                right: 12,
+                maxHeight: '65%',
+                gap: 8,
+              }}
+            >
+              {!!locationError && (
+                <View style={[styles.notice, { backgroundColor: t.card }]}>
+                  <View style={{ flex: 1 }}>
+                    <Copy size={13}>{locationError}</Copy>
+                  </View>
+                  <IconButton
+                    icon="close"
+                    label="Cerrar aviso de ubicación"
+                    onPress={() => setLocationError(null)}
+                  />
+                </View>
+              )}
+              {mapError && (
+                <View style={[styles.notice, { backgroundColor: t.card }]}>
+                  <View style={{ flex: 1 }}>
+                    <Copy size={13}>
+                      No se ha podido cargar el mapa. Puedes consultar los resultados.
+                    </Copy>
+                  </View>
+                  <IconButton
+                    icon="refresh"
+                    label="Reintentar mapa"
+                    onPress={() => {
+                      setMapError(false);
+                      setMapRevision((n) => n + 1);
+                    }}
+                  />
+                </View>
+              )}
+              {selected ? (
+                <View style={[styles.preview, styles.shadow, { backgroundColor: t.card }]}>
+                  <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Ver ficha de ${selected.name}`}
+                        onPress={() => openDetails(selected)}
+                        style={{ flex: 1, gap: 4 }}
+                      >
+                        <Copy bold size={21} numberOfLines={2}>
+                          {selected.name}
+                        </Copy>
+                        <Copy muted size={13} numberOfLines={2}>
+                          {selected.address || 'Dirección no disponible'}
+                          {selectedDistance ? ` · ${selectedDistance} en línea recta` : ''}
+                        </Copy>
+                      </Pressable>
+                      <IconButton
+                        icon="close"
+                        label="Cerrar restaurante seleccionado"
+                        onPress={() => setSelectedId(null)}
+                      />
+                    </View>
+                    <RestaurantBadge restaurant={selected} />
+                    <RestaurantRatingSummary restaurant={selected} />
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <DirectionsButton restaurant={selected} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Button secondary title="Ver ficha" onPress={() => openDetails(selected)} />
+                      </View>
+                    </View>
+                  </ScrollView>
+                </View>
+              ) : (
+                <View style={[styles.preview, styles.shadow, { backgroundColor: t.card }]}>
+                  <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                    {loading ? (
+                      <ActivityIndicator
+                        color={t.accent}
+                        accessibilityLabel="Buscando restaurantes"
+                      />
+                    ) : (
+                      <Ionicons
+                        name={items.length ? 'restaurant-outline' : 'search-outline'}
+                        color={t.accent}
+                        size={24}
+                      />
+                    )}
+                    <View style={{ flex: 1, gap: 3 }}>
+                      <Copy bold size={16}>
+                        {loading
+                          ? 'Buscando en esta zona…'
+                          : searchError
+                            ? 'No se han podido cargar los lugares'
+                            : items.length
+                              ? `${items.length}${items.length >= 100 ? '+' : ''} lugares para descubrir`
+                              : emptyMessage}
+                      </Copy>
+                      <Copy muted size={12}>
+                        {searchError
+                          ? 'Comprueba tu conexión y vuelve a intentarlo.'
+                          : items.length
+                            ? 'Toca un marcador o abre los resultados'
+                            : 'Mueve el mapa o prueba otra búsqueda.'}
+                      </Copy>
+                    </View>
+                    {!!searchError && (
+                      <IconButton
+                        icon="refresh"
+                        label="Reintentar búsqueda"
+                        onPress={retrySearch}
+                      />
+                    )}
+                  </View>
+                </View>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Ver resultados, ${items.length} restaurantes`}
+                onPress={() => {
+                  cancelMove();
+                  setResultsOpen(true);
+                }}
+                style={({ pressed }) => [
+                  styles.resultsButton,
+                  styles.shadow,
+                  { backgroundColor: t.card, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Ionicons name="list-outline" size={20} color={t.text} />
+                <Copy bold size={14}>
+                  Ver resultados{items.length ? ` · ${items.length}` : ''}
+                </Copy>
+                {selected && loading && <ActivityIndicator size="small" color={t.accent} />}
+              </Pressable>
+            </View>
+          </>
+        )}
+      </View>
+      <Modal
+        visible={resultsOpen}
+        animationType={reduced ? 'none' : 'slide'}
+        onRequestClose={() => setResultsOpen(false)}
+        presentationStyle="fullScreen"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', padding: 16 }}>
+            <View style={{ flex: 1 }}>
+              <Title>Dónde comer</Title>
+              <Copy muted size={13}>
+                {items.length} resultados · {filters.find(([value]) => value === glutenMode)?.[1]}
+              </Copy>
+            </View>
+            <IconButton
+              icon="map-outline"
+              label="Volver al mapa"
+              onPress={() => setResultsOpen(false)}
             />
           </View>
-        )}
-      </View>
-      {!!locationError && <ErrorNotice error={locationError} />}
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <Pressable
-          accessibilityRole="switch"
-          accessibilityState={{ checked: glutenOnly }}
-          onPress={() => setGlutenOnly((value) => !value)}
-          style={{
-            padding: 10,
-            borderRadius: 14,
-            backgroundColor: glutenOnly ? theme.accent : theme.card,
-          }}
-        >
-          <Copy bold size={13}>
-            ✓ Opciones sin gluten
-          </Copy>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Añadir restaurante"
-          onPress={() =>
-            router.push({
-              pathname: '/restaurant/new',
-              params: {
-                latitude: String(mapCenter.latitude),
-                longitude: String(mapCenter.longitude),
-              },
-            })
-          }
-          style={{
-            marginLeft: 'auto',
-            minWidth: 44,
-            minHeight: 44,
-            borderRadius: 14,
-            backgroundColor: theme.card,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Copy bold size={24}>
-            +
-          </Copy>
-        </Pressable>
-      </View>
-      <View
-        style={{ height: 300, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.line }}
-      >
-        {Platform.OS === 'ios' ? (
-          <AppleMaps.View
-            ref={appleMap}
-            style={{ flex: 1 }}
-            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
-            markers={mapped.map((item) => ({
-              id: item.id,
-              coordinates: { latitude: item.latitude, longitude: item.longitude },
-              title: item.name,
-              tintColor: item.glutenSupport === 'UNKNOWN' ? theme.muted : theme.accent,
-            }))}
-            onMarkerClick={(marker) => {
-              const item = items.find((candidate) => candidate.id === marker.id);
-              if (item) select(item);
-            }}
-            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
+          <FlatList
+            data={items}
+            keyExtractor={(item) => item.id}
+            initialNumToRender={8}
+            maxToRenderPerBatch={8}
+            windowSize={5}
+            contentContainerStyle={{ padding: 16, paddingTop: 0, gap: 10, paddingBottom: 32 }}
+            ListHeaderComponent={
+              <View style={{ gap: 12, paddingBottom: 12 }}>
+                <Copy muted size={13}>
+                  Elige un restaurante para verlo en el mapa. Confirma las opciones sin gluten con
+                  el personal.
+                </Copy>
+                {loading && <ActivityIndicator color={t.accent} />}
+                {!!searchError && <ErrorNotice error={searchError} retry={retrySearch} />}
+                {mappedCount < items.length && (
+                  <Copy muted size={12}>
+                    Algunos lugares aún no tienen ubicación en el mapa.
+                  </Copy>
+                )}
+              </View>
+            }
+            ListEmptyComponent={
+              <View style={{ gap: 16, paddingVertical: 32 }}>
+                <Copy bold>{loading ? 'Buscando restaurantes…' : emptyMessage}</Copy>
+                <Button title="Volver al mapa" onPress={() => setResultsOpen(false)} />
+                <Button secondary title="Añadir un restaurante" onPress={addRestaurant} />
+              </View>
+            }
+            renderItem={({ item }) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Seleccionar ${item.name}`}
+                onPress={() => select(item)}
+                style={({ pressed }) => ({
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 16,
+                  borderRadius: 20,
+                  backgroundColor: t.card,
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <View
+                  style={{
+                    height: 44,
+                    width: 44,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 15,
+                    backgroundColor: t.bg,
+                  }}
+                >
+                  <Ionicons name="restaurant-outline" size={23} color={t.accent} />
+                </View>
+                <View style={{ flex: 1, gap: 5 }}>
+                  <Copy bold>{item.name}</Copy>
+                  <Copy muted size={12} numberOfLines={2}>
+                    {item.address || 'Dirección no disponible'}
+                  </Copy>
+                  <RestaurantBadge restaurant={item} />
+                  <RestaurantRatingSummary restaurant={item} />
+                  {distanceLabel(item, position) && (
+                    <Copy muted size={12}>
+                      {distanceLabel(item, position)} en línea recta
+                    </Copy>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={19} color={t.muted} />
+              </Pressable>
+            )}
           />
-        ) : Platform.OS === 'android' && androidMapsConfigured ? (
-          <GoogleMaps.View
-            ref={googleMap}
-            style={{ flex: 1 }}
-            cameraPosition={{ coordinates: initialCenter, zoom: 12 }}
-            markers={mapped.map((item) => ({
-              id: item.id,
-              coordinates: { latitude: item.latitude, longitude: item.longitude },
-              title: item.name,
-            }))}
-            onMarkerClick={(marker) => {
-              const item = items.find((candidate) => candidate.id === marker.id);
-              if (item) select(item);
-            }}
-            onCameraMove={(event) => setMapCenter(event.coordinates as Coordinates)}
-          />
-        ) : (
-          <View style={{ flex: 1, justifyContent: 'center', padding: 20 }}>
-            <Copy>
-              El mapa no está disponible en este dispositivo. Puedes consultar la lista de
-              restaurantes.
-            </Copy>
-          </View>
-        )}
-      </View>
-      {selected && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(`/restaurant/${selected.id}`)}
-        >
-          <Card style={{ borderWidth: 1, borderColor: theme.accent }}>
-            <Copy bold>{selected.name} ›</Copy>
-            <Copy muted size={13}>
-              {selected.address}
-            </Copy>
-          </Card>
-        </Pressable>
-      )}
-      {search.isFetching && <Copy muted>Buscando restaurantes…</Copy>}
-      {search.error && <ErrorNotice error={search.error} retry={() => void search.refetch()} />}
-      <Copy muted size={12}>
-        {mapAvailable ? `${mapped.length} restaurantes en el mapa · ` : ''}
-        {restaurantDisclaimer}
-      </Copy>
-      <FlatList
-        style={{ flex: 1 }}
-        data={items}
-        keyExtractor={(item) => item.id}
-        ListEmptyComponent={
-          <Copy muted>
-            {search.isSuccess
-              ? 'No se han encontrado restaurantes. Prueba otra zona.'
-              : 'Busca un restaurante, una ciudad o usa tu ubicación.'}
-          </Copy>
-        }
-        renderItem={({ item }) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Seleccionar ${item.name}`}
-            onPress={() => select(item)}
-            style={{ marginBottom: 10 }}
-          >
-            <Card
-              style={{ borderWidth: selectedId === item.id ? 1 : 0, borderColor: theme.accent }}
-            >
-              <Copy bold>{item.name}</Copy>
-              <Copy muted size={13}>
-                {item.address}
-              </Copy>
-              <Copy muted size={12}>
-                {item.glutenSupport === 'UNKNOWN'
-                  ? '⚠ No verificado'
-                  : item.glutenSupport === 'NO_GLUTEN_FREE_OPTIONS'
-                    ? 'Sin opciones sin gluten indicadas'
-                    : '✓ Opciones sin gluten indicadas'}
-              </Copy>
-              {selectedId === item.id && (
-                <Button
-                  title="Ver restaurante"
-                  onPress={() => router.push(`/restaurant/${item.id}`)}
-                />
-              )}
-            </Card>
-          </Pressable>
-        )}
-      />
-    </Screen>
+        </SafeAreaView>
+      </Modal>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  shadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.13,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  suggestions: {
+    position: 'absolute',
+    top: 8,
+    left: 12,
+    right: 12,
+    borderRadius: 18,
+    overflow: 'hidden',
+    zIndex: 5,
+  },
+  notice: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 12, borderRadius: 18 },
+  preview: { padding: 16, borderRadius: 24, flexShrink: 1 },
+  resultsButton: {
+    maxWidth: '100%',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 28,
+  },
+});

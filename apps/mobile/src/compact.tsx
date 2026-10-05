@@ -1,5 +1,5 @@
-import type { PropsWithChildren, ComponentProps } from 'react';
-import { Pressable, View, TextInput, type TextInputProps } from 'react-native';
+import { type PropsWithChildren, type ComponentProps } from 'react';
+import { Keyboard, Pressable, View, TextInput, type TextInputProps } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Copy, useTheme } from './ui';
@@ -66,12 +66,17 @@ export function SearchField({ label, ...props }: TextInputProps & { label: strin
       <Ionicons name="search-outline" size={21} color={t.muted} />
       <TextInput
         {...props}
+        onSubmitEditing={(event) => {
+          props.onSubmitEditing?.(event);
+          Keyboard.dismiss();
+        }}
         accessibilityLabel={label}
         placeholderTextColor={t.muted}
         returnKeyType="search"
         autoCorrect={false}
         style={{
           flex: 1,
+          minWidth: 0,
           minHeight: 48,
           paddingVertical: 12,
           color: t.text,

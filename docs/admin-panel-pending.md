@@ -1,0 +1,15 @@
+# SafeEat 1.0.12 — verificación de productos desde administración
+
+La API 1.0.12 ya está desplegada. La APK Android (versionCode 88) y la IPA iOS 1.0.12 están publicadas. Esta versión añade la verificación manual de productos solo desde el panel y rechaza las confirmaciones hechas por ADMIN desde la ficha normal. La instalación en los dispositivos de los usuarios no se ha comprobado.
+
+La migración `009_admin_moderation.sql` se aplicó directamente a la BBDD de producción tras una copia de seguridad. Se creó el rol `ADMIN`, se asignó a la cuenta solicitada y se registró el alta en la auditoría. La migración está en `schema_migrations` y el despliegue siguiente la omite.
+
+El panel se abre desde «Tu espacio → Administración» para administradores. Incluye búsqueda de usuarios por nombre o correo, gestión de la autorización de celíacos, revisión de productos y restaurantes, estados activo/revocado y acceso a la ficha. En productos añade «Verificar producto» para confirmar manualmente una aportación desde el panel. El servidor rechaza que ADMIN use el botón o la ruta normal de confirmación de productos; las demás cuentas mantienen el flujo comunitario.
+
+Cada modificación exige una sesión vigente y ADMIN en el servidor. La sesión y el rol se vuelven a comprobar dentro de la transacción. El panel únicamente gestiona `authorized_celiac`; no permite elevar cuentas a ADMIN. Los cambios quedan en `admin_audit_log`. Las revisiones se revocan sin borrar su contenido, con autor de la decisión, fecha y motivo. No cuentan en las fichas, herencia de cadenas, verificaciones ni filtros del catálogo, y el autor no puede republicarlas para saltarse la decisión. Restaurarlas requiere una nueva decisión administrativa; las confirmaciones manuales anteriores se invalidan. Una revisión modificada desde que se abrió se rechaza con conflicto para evitar moderar un texto distinto.
+
+Solo las cuentas con `authorized_celiac` pueden enviar motivos vacíos, omitidos o breves, en productos, restaurantes y la revisión inicial de un nuevo restaurante. Se mantiene el límite de 500 caracteres. Para el resto siguen siendo necesarios al menos diez caracteres. ADMIN por sí solo no implica esa autorización. El rol se consulta en BBDD; no se confía en permisos enviados por el cliente. Una revisión sin texto se muestra como «Sin motivo añadido», sin inventar una explicación.
+
+Las consultas administrativas no se persisten en disco y se eliminan de la caché al cerrar sesión. La moderación invalida las fichas y resultados afectados; la selección del mapa consulta la ficha actual y el historial de un producto moderado se actualiza con los datos del servidor.
+
+Validación de código: tipos, lint, formato, 146 pruebas unitarias y 44 de integración con PostgreSQL/PostGIS aislado. La integración cubre que ADMIN recibe 403 al confirmar un producto desde la ficha y puede hacerlo desde el endpoint exclusivo del panel, que registra auditoría. La interfaz queda pendiente de comprobación en dispositivo con la versión 1.0.12.

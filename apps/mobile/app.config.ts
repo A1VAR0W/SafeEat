@@ -1,5 +1,6 @@
 import type { ExpoConfig } from 'expo/config';
 import { version } from '../../package.json';
+import { androidVersionCode } from '../../release.json';
 const environment = process.env.APP_ENV ?? 'development';
 if (!['development', 'preproduction', 'production'].includes(environment))
   throw new Error('Invalid APP_ENV');
@@ -56,14 +57,11 @@ const config: ExpoConfig = {
   },
   android: {
     package: 'com.a1var0w.safeeat',
-    ...(process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY
-      ? { config: { googleMaps: { apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY } } }
-      : {}),
     adaptiveIcon: {
       foregroundImage: './assets/safeeat-adaptive-foreground.png',
       backgroundColor: '#006B4E',
     },
-    versionCode: Number(process.env.BUILD_NUMBER ?? 1),
+    versionCode: androidVersionCode,
     allowBackup: false,
     blockedPermissions: [
       'android.permission.RECORD_AUDIO',
@@ -85,7 +83,17 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/safeeat-splash.png',
+        imageWidth: 200,
+        backgroundColor: '#F5F9F4',
+        dark: { backgroundColor: '#071C16' },
+      },
+    ],
     'expo-maps',
+    '@maplibre/maplibre-react-native',
     '@react-native-community/datetimepicker',
     [
       'expo-camera',

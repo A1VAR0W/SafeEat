@@ -63,8 +63,6 @@ export class GooglePlacesProvider implements RestaurantProvider {
   async search(params: RestaurantSearch) {
     const body = {
       textQuery: params.query,
-      includedType: 'restaurant',
-      strictTypeFiltering: true,
       languageCode: 'es',
       pageSize: 20,
       ...(params.latitude !== undefined && params.longitude !== undefined
@@ -91,13 +89,23 @@ export class GooglePlacesProvider implements RestaurantProvider {
     const parsed = z.object({ places: z.array(z.unknown()).default([]) }).parse(result);
     return parsed.places.map(normalize);
   }
-  async suggest(query: string): Promise<RestaurantSuggestion[]> {
+  async suggest(
+    query: string,
+    location?: { latitude: number; longitude: number },
+    signal?: AbortSignal,
+  ): Promise<RestaurantSuggestion[]> {
     const result = await providerJson('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
+      signal,
       headers: this.headers(
         'suggestions.placePrediction.text,suggestions.placePrediction.types,suggestions.queryPrediction.text',
       ),
-      body: JSON.stringify({ input: query, languageCode: 'es', includeQueryPredictions: true }),
+      body: JSON.stringify({
+        input: query,
+        languageCode: 'es',
+        includeQueryPredictions: true,
+        ...(location ? { locationBias: { circle: { center: location, radius: 15000 } } } : {}),
+      }),
     });
     const parsed = z
       .object({
@@ -124,9 +132,16 @@ export class GooglePlacesProvider implements RestaurantProvider {
           label,
           query: label,
           kind: s.placePrediction?.types?.some((t) =>
-            ['locality', 'administrative_area_level_1', 'administrative_area_level_2'].includes(t),
+            [
+              'locality',
+              'administrative_area_level_1',
+              'administrative_area_level_2',
+              'route',
+              'street_address',
+              'point_of_interest',
+            ].includes(t),
           )
-            ? ('city' as const)
+            ? ('place' as const)
             : ('restaurant' as const),
         },
       ];

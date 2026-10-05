@@ -24,6 +24,7 @@ declare module '@fastify/jwt' {
 type UserRow = {
   id: string;
   email: string;
+  roles: ('authorized_celiac' | 'ADMIN')[];
   password_hash: string;
   first_name: string | null;
   last_name: string | null;
@@ -40,13 +41,14 @@ type SessionRow = {
   revoked_at: Date | null;
 };
 const columns =
-  'id,email,password_hash,first_name,last_name,date_of_birth::text,product_updates_consent,product_updates_consent_at,product_updates_consent_version';
+  "id,email,password_hash,first_name,last_name,date_of_birth::text,product_updates_consent,product_updates_consent_at,product_updates_consent_version,COALESCE((SELECT array_agg(role_code ORDER BY role_code) FROM user_roles WHERE user_id=users.id),'{}') AS roles";
 const hashPassword = (password: string) =>
   argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
 function publicUser(user: UserRow) {
   return UserSchema.parse({
     id: user.id,
     email: user.email,
+    roles: user.roles,
     firstName: user.first_name,
     lastName: user.last_name,
     dateOfBirth: user.date_of_birth,

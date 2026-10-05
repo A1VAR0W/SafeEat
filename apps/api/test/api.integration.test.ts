@@ -19,6 +19,10 @@ let one: Session;
 let two: Session;
 const suffix = randomUUID();
 let providerUnavailable = false;
+let suggestionFailure = false;
+let suggestionSlow = false;
+let suggestionCalls = 0;
+let suggestionCancelled = false;
 const external: ExternalProduct = {
   barcode: '8410000000001',
   name: 'Integration oats',
@@ -29,6 +33,30 @@ const external: ExternalProduct = {
   sourceUrl: 'https://example.org/product',
 };
 const restaurants: RestaurantProvider = {
+  async suggest(_query, _location, signal) {
+    suggestionCalls++;
+    if (suggestionFailure) throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Provider unavailable');
+    if (suggestionSlow)
+      await new Promise<void>((_resolve, reject) =>
+        signal!.addEventListener(
+          'abort',
+          () => {
+            suggestionCancelled = true;
+            reject(new Error('cancelled'));
+          },
+          { once: true },
+        ),
+      );
+    return [
+      {
+        label: 'Madrid · España',
+        kind: 'place',
+        query: 'restaurantes',
+        latitude: 40.4,
+        longitude: -3.7,
+      },
+    ];
+  },
   async search() {
     return [(await this.getById('restaurant-1'))!];
   },
@@ -40,6 +68,7 @@ const restaurants: RestaurantProvider = {
       mapsUrl: 'https://maps.google.com',
       source: 'Google Maps',
       glutenSupport: 'UNKNOWN',
+      chain: id.startsWith('chain-') ? { key: 'Q999999999', name: 'Test chain' } : undefined,
       evidence: [],
       attributions: [],
       fetchedAt: new Date().toISOString(),
@@ -120,6 +149,34 @@ describe.sequential('real PostgreSQL API', () => {
       (await db.query('SELECT token_hash FROM refresh_sessions WHERE user_id=$1', [one.user.id]))
         .rows[0].token_hash,
     ).not.toBe(one.refreshToken);
+  });
+  it('serves fast local suggestions and preserves them when external suggestions fail or time out', async () => {
+    const id = `se_${randomUUID().replace(/-/g, '')}`;
+    await db.query(
+      'INSERT INTO community_restaurants(id,user_id,name,address,latitude,longitude) VALUES($1,$2,$3,$4,40.4,-3.7)',
+      [id, one.user.id, 'Provider Cafe', 'Integration test address'],
+    );
+    try {
+      const calls = suggestionCalls;
+      const local = await app.inject('/api/v1/restaurants/suggest?q=Provider&localOnly=true');
+      expect(local.statusCode).toBe(200);
+      expect(local.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      expect(suggestionCalls).toBe(calls);
+      suggestionFailure = true;
+      const fallback = await app.inject('/api/v1/restaurants/suggest?q=Provider');
+      expect(fallback.statusCode).toBe(200);
+      expect(fallback.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      suggestionFailure = false;
+      suggestionSlow = true;
+      const timed = await app.inject('/api/v1/restaurants/suggest?q=Provider');
+      expect(timed.statusCode).toBe(200);
+      expect(timed.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      expect(suggestionCancelled).toBe(true);
+    } finally {
+      suggestionFailure = false;
+      suggestionSlow = false;
+      await db.query('DELETE FROM community_restaurants WHERE id=$1', [id]);
+    }
   });
   it('rejects duplicate emails and invalid payloads', async () => {
     expect(
@@ -404,6 +461,17 @@ describe.sequential('real PostgreSQL API', () => {
       '/api/v1/restaurants/search?q=restaurantes&latitude=40.4168&longitude=-3.7038',
     );
     expect(nearby.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+    const named = await app.inject(
+      '/api/v1/restaurants/search?q=Integration&latitude=40.4168&longitude=-3.7038',
+    );
+    expect(named.json().items.map((item: { id: string }) => item.id)).toEqual(['restaurant-1']);
+    expect(
+      (
+        await app.inject(
+          '/api/v1/restaurants/search?q=NothingMatchesThis&latitude=40.4168&longitude=-3.7038',
+        )
+      ).json().items,
+    ).toEqual([]);
     const second = await app.inject({
       method: 'POST',
       url: `/api/v1/restaurants/${id}/gluten-report`,
@@ -531,6 +599,314 @@ describe.sequential('real PostgreSQL API', () => {
     expect(read.body).not.toContain('password');
     expect((await app.inject(`/api/v1/public/shares/${'f'.repeat(48)}`)).statusCode).toBe(404);
     expect((await app.inject('/api/v1/public/shares/invalid')).statusCode).toBe(400);
+  });
+  it('averages one rating per user and branch, isolates editing, validates stars and removes ratings', async () => {
+    const path = '/api/v1/restaurants/chain-rating/rating';
+    const put = (stars: number, session = one) =>
+      app.inject({ method: 'PUT', url: path, payload: { stars }, headers: bearer(session) });
+    expect((await app.inject({ method: 'PUT', url: path, payload: { stars: 5 } })).statusCode).toBe(
+      401,
+    );
+    for (const stars of [0, 6, 2.5]) expect((await put(stars)).statusCode).toBe(400);
+    expect((await put(5)).json().rating).toEqual({ average: 5, count: 1 });
+    expect((await put(1, two)).json().rating).toEqual({ average: 3, count: 2 });
+    expect((await put(3)).json().rating).toEqual({ average: 2, count: 2 });
+    expect((await app.inject({ url: path, headers: bearer(two) })).json()).toEqual({ stars: 1 });
+    expect((await app.inject(path)).json()).toEqual({ stars: null });
+    expect(
+      (await app.inject('/api/v1/restaurants/chain-other-branch')).json().rating,
+    ).toBeUndefined();
+    expect((await app.inject('/api/v1/restaurants/chain-rating')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    expect(
+      (await app.inject({ method: 'DELETE', url: path, headers: bearer(one) })).json().rating,
+    ).toEqual({ average: 1, count: 1 });
+    expect(
+      (await app.inject({ method: 'DELETE', url: path, headers: bearer(two) })).json().rating,
+    ).toBeUndefined();
+  });
+  it('lets users choose one local or all same-name locations without inventing brand identity', async () => {
+    const ids = [0, 1, 2].map(() => `se_${randomUUID().replace(/-/g, '')}`);
+    try {
+      for (const [i, id] of ids.entries())
+        await db.query(
+          'INSERT INTO community_restaurants(id,user_id,name,address,latitude,longitude) VALUES($1,$2,$3,$4,40.4,-3.7)',
+          [
+            id,
+            one.user.id,
+            i === 2 ? 'Hamburguesa Nostra Familiar' : 'Hamburguesa Nostra',
+            'Dirección de prueba',
+          ],
+        );
+      const detail = (await app.inject(`/api/v1/restaurants/${ids[0]}`)).json();
+      expect(detail.chain).toBeUndefined();
+      expect(detail.reviewGroup).toMatchObject({ key: 'name:hamburguesanostra', count: 2 });
+      const post = (scope: string) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/v1/restaurants/${ids[0]}/gluten-report`,
+          remoteAddress: '192.0.2.88',
+          headers: bearer(one),
+          payload: {
+            support: 'GLUTEN_FREE_OPTIONS',
+            note: 'Carta comprobada con opciones sin gluten.',
+            scope,
+          },
+        });
+      expect((await post('local')).statusCode).toBe(200);
+      expect((await app.inject(`/api/v1/restaurants/${ids[1]}`)).json().glutenSupport).toBe(
+        'UNKNOWN',
+      );
+      expect((await post('chain')).statusCode).toBe(200);
+      expect((await app.inject(`/api/v1/restaurants/${ids[1]}`)).json().glutenSupport).toBe(
+        'GLUTEN_FREE_OPTIONS',
+      );
+      expect((await app.inject(`/api/v1/restaurants/${ids[2]}`)).json().glutenSupport).toBe(
+        'UNKNOWN',
+      );
+      expect(
+        (await app.inject(`/api/v1/restaurants/${ids[1]}/reviews`)).json().items[0].inherited,
+      ).toBe(true);
+      expect(
+        (
+          await app.inject(
+            '/api/v1/restaurants/search?q=Hamburguesa%20Nostra&latitude=40.4&longitude=-3.7&glutenMode=options',
+          )
+        )
+          .json()
+          .items.map((r: { id: string }) => r.id),
+      ).toEqual(expect.arrayContaining(ids.slice(0, 2)));
+      await post('local');
+      expect((await app.inject(`/api/v1/restaurants/${ids[1]}`)).json().glutenSupport).toBe(
+        'UNKNOWN',
+      );
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/v1/restaurants/unrelated/gluten-report',
+            remoteAddress: '192.0.2.88',
+            headers: bearer(two),
+            payload: {
+              support: 'GLUTEN_FREE_OPTIONS',
+              note: 'Carta comprobada con opciones sin gluten.',
+              scope: 'chain',
+            },
+          })
+        ).statusCode,
+      ).toBe(400);
+      for (const scope of ['local', 'chain']) {
+        expect(
+          (
+            await app.inject({
+              method: 'POST',
+              url: '/api/v1/restaurants/chain-choice/gluten-report',
+              headers: bearer(one),
+              remoteAddress: '192.0.2.88',
+              payload: {
+                scope,
+                support: 'GLUTEN_FREE_OPTIONS',
+                note: 'Opciones comprobadas con el restaurante.',
+              },
+            })
+          ).statusCode,
+        ).toBe(200);
+        expect(
+          (await app.inject('/api/v1/restaurants/chain-choice-peer')).json().glutenSupport,
+        ).toBe(scope === 'local' ? 'UNKNOWN' : 'GLUTEN_FREE_OPTIONS');
+      }
+    } finally {
+      await db.query('DELETE FROM community_restaurants WHERE id=ANY($1::text[])', [ids]);
+      await db.query("DELETE FROM restaurant_gluten_reports WHERE restaurant_id='chain-choice'");
+    }
+  });
+  it('automatically verifies authorized restaurant and product reviews, rechecks edits and revocation, and rejects self-assigned roles', async () => {
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/v1/auth/register',
+          payload: {
+            email: `role-${suffix}@example.org`,
+            password: 'test-password-long-enough',
+            firstName: 'Prueba',
+            dateOfBirth: '1990-06-15',
+            role: 'authorized_celiac',
+          },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await db.query("INSERT INTO user_roles(user_id,role_code) VALUES($1,'authorized_celiac')", [
+      one.user.id,
+    ]);
+    try {
+      await app.inject('/api/v1/products/barcode/8410000000001');
+      for (const [kind, id, status] of [
+        ['restaurants', 'authorized-venue', 'GLUTEN_FREE_OPTIONS'],
+        ['products', 'off-8410000000001', 'CONTAINS_GLUTEN'],
+      ] as const) {
+        const base = `/api/v1/${kind}/${id}`;
+        const write = (note: string) =>
+          app.inject({
+            method: 'POST',
+            url: base + '/gluten-report',
+            remoteAddress: '192.0.2.89',
+            headers: bearer(one),
+            payload: { [kind === 'restaurants' ? 'support' : 'status']: status, note },
+          });
+        expect((await write('Motivo comprobado por una persona autorizada.')).statusCode).toBe(200);
+        const read = async () =>
+          (await app.inject({ url: base + '/reviews', headers: bearer(one) }))
+            .json()
+            .items.find((r: { own: boolean }) => r.own);
+        const before = await read();
+        if (kind === 'products')
+          expect((await app.inject(base)).json().verifiedGlutenReports.containsGluten).toBe(1);
+        expect(before.verificationMethod).toBe('authorized');
+        expect(before.verifiedAt).toBeTruthy();
+        expect(before.confirmations).toBe(0);
+        await write('Motivo actualizado tras una nueva comprobación.');
+        const edited = await read();
+        expect(edited.revision).not.toBe(before.revision);
+        expect(edited.verificationMethod).toBe('authorized');
+      }
+    } finally {
+      await db.query("DELETE FROM user_roles WHERE user_id=$1 AND role_code='authorized_celiac'", [
+        one.user.id,
+      ]);
+    }
+    const revoked = (await app.inject('/api/v1/restaurants/authorized-venue/reviews')).json()
+      .items[0];
+    expect(revoked.verifiedAt).toBeNull();
+    expect(revoked.verificationMethod).toBeNull();
+    expect(
+      (await app.inject('/api/v1/products/off-8410000000001')).json().verifiedGlutenReports
+        .containsGluten,
+    ).toBe(0);
+  });
+  it('shows reasons, requires another user, rejects stale confirmations and propagates chain reports', async () => {
+    const reportUrl = '/api/v1/restaurants/chain-one/gluten-report';
+    const post = (url: string, payload: object, session = one) =>
+      app.inject({ method: 'POST', url, payload, headers: bearer(session) });
+    expect(
+      (
+        await post(reportUrl, {
+          support: 'GLUTEN_FREE_OPTIONS',
+          note: 'El personal confirmó una carta sin gluten.',
+        })
+      ).statusCode,
+    ).toBe(200);
+    const sibling = await app.inject('/api/v1/restaurants/chain-two');
+    expect(sibling.json().glutenSupport).toBe('GLUTEN_FREE_OPTIONS');
+    expect((await app.inject('/api/v1/restaurants/unrelated')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    const reviewsUrl = '/api/v1/restaurants/chain-two/reviews';
+    const read = await app.inject(reviewsUrl);
+    expect(read.statusCode).toBe(200);
+    const review = read.json().items[0];
+    expect(review.note).toContain('El personal');
+    expect(review.inherited).toBe(true);
+    expect(review.verifiedAt).toBeNull();
+    expect(read.body).not.toContain(one.user.id);
+    const confirmUrl = `${reviewsUrl}/${review.id}/confirm`;
+    expect((await post(confirmUrl, { revision: review.revision })).statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: confirmUrl,
+          payload: { revision: review.revision },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(200);
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(200);
+    const confirmed = (await app.inject({ url: reviewsUrl, headers: bearer(two) })).json().items[0];
+    expect(confirmed.confirmations).toBe(1);
+    expect(confirmed.confirmedByMe).toBe(true);
+    expect(confirmed.verifiedAt).toBeTruthy();
+    expect(
+      (
+        await post(
+          '/api/v1/restaurants/unrelated/reviews/' + review.id + '/confirm',
+          { revision: review.revision },
+          two,
+        )
+      ).statusCode,
+    ).toBe(404);
+    await post(reportUrl, {
+      support: 'DEDICATED_GLUTEN_FREE',
+      note: 'El personal confirmó que toda la carta es sin gluten.',
+    });
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(409);
+    const changed = (await app.inject(reviewsUrl)).json().items[0];
+    expect(changed.verifiedAt).toBeNull();
+    expect(changed.revision).not.toBe(review.revision);
+    expect((await app.inject('/api/v1/restaurants/chain-two')).json().glutenSupport).toBe(
+      'DEDICATED_GLUTEN_FREE',
+    );
+    await post(
+      '/api/v1/restaurants/chain-two/gluten-report',
+      {
+        support: 'NO_GLUTEN_FREE_OPTIONS',
+        note: 'En este local nos indicaron que no hay opciones.',
+      },
+      two,
+    );
+    expect((await app.inject('/api/v1/restaurants/chain-two')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    expect((await app.inject('/api/v1/restaurants/chain-three')).json().glutenSupport).toBe(
+      'DEDICATED_GLUTEN_FREE',
+    );
+    await post('/api/v1/restaurants/chain-four/gluten-report', {
+      support: 'GLUTEN_FREE_OPTIONS',
+      note: 'He comprobado de nuevo la carta actual de la cadena.',
+    });
+    expect((await app.inject('/api/v1/restaurants/chain-three')).json().glutenReports).toEqual({
+      dedicated: 0,
+      options: 1,
+      noOptions: 0,
+    });
+  });
+  it('also confirms product reasons and invalidates them when edited', async () => {
+    await app.inject('/api/v1/products/barcode/8410000000001');
+    const base = '/api/v1/products/off-8410000000001';
+    const report = (note: string) =>
+      app.inject({
+        method: 'POST',
+        url: `${base}/gluten-report`,
+        headers: bearer(one),
+        payload: { status: 'GLUTEN_FREE', note },
+      });
+    expect((await report('La etiqueta actual indica sin gluten.')).statusCode).toBe(200);
+    const review = (await app.inject(`${base}/reviews`))
+      .json()
+      .items.find((r: { note: string }) => r.note.startsWith('La etiqueta actual'));
+    expect(review).toBeTruthy();
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/reviews/${review.id}/confirm`,
+          headers: bearer(two),
+          payload: { revision: review.revision },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (await app.inject(`${base}/reviews`))
+        .json()
+        .items.find((r: { id: string }) => r.id === review.id).verifiedAt,
+    ).toBeTruthy();
+    await report('La etiqueta nueva también indica sin gluten.');
+    expect(
+      (await app.inject(`${base}/reviews`))
+        .json()
+        .items.find((r: { id: string }) => r.id === review.id).verifiedAt,
+    ).toBeNull();
   });
   it('rotates refresh credentials and revokes the family on reuse', async () => {
     const r = await app.inject({

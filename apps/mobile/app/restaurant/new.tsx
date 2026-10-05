@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { AppleMaps, GoogleMaps } from 'expo-maps';
+import { AppleMaps } from 'expo-maps';
+import { Camera, Map, type CameraRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { useQueryClient } from '@tanstack/react-query';
 import { RestaurantSchema } from '@safeeat/contracts';
 import { RestaurantSupportPicker, type RestaurantSupport } from '../../src/restaurant-support';
 import { api, useSession } from '../../src/session';
+import { usePermissions } from '../../src/permissions';
 import { Button, Copy, ErrorNotice, Field, Screen, Title, useTheme } from '../../src/ui';
 
 export default function NewRestaurant() {
@@ -16,10 +18,11 @@ export default function NewRestaurant() {
     longitude: Number.isFinite(Number(params.longitude)) ? Number(params.longitude) : -3.7038,
   };
   const { user } = useSession();
+  const { authorized } = usePermissions();
   const client = useQueryClient();
   const t = useTheme();
   const appleMap = useRef<AppleMaps.MapView>(null);
-  const googleMap = useRef<GoogleMaps.MapView>(null);
+  const androidCamera = useRef<CameraRef>(null);
   const [position, setPosition] = useState(initial);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -27,19 +30,21 @@ export default function NewRestaurant() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const androidMap =
-    Platform.OS === 'android' && !!process.env.EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY;
   async function locate() {
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (!permission.granted) throw new Error('No se ha concedido acceso a la ubicación.');
       const result = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.Highest,
       });
       const coordinates = { latitude: result.coords.latitude, longitude: result.coords.longitude };
       setPosition(coordinates);
       appleMap.current?.setCameraPosition({ coordinates, zoom: 17 });
-      googleMap.current?.setCameraPosition({ coordinates, zoom: 17 });
+      androidCamera.current?.easeTo({
+        center: [coordinates.longitude, coordinates.latitude],
+        zoom: 17,
+        duration: 300,
+      });
     } catch (cause) {
       setError(cause);
     }
@@ -49,7 +54,7 @@ export default function NewRestaurant() {
       !support ||
       name.trim().length < 2 ||
       address.trim().length < 5 ||
-      note.trim().length < 10 ||
+      (!authorized && note.trim().length < 10) ||
       busy
     )
       return;
@@ -93,19 +98,26 @@ export default function NewRestaurant() {
             cameraPosition={{ coordinates: initial, zoom: 16 }}
             onCameraMove={(event) => setPosition(event.coordinates as typeof position)}
           />
-        ) : androidMap ? (
-          <GoogleMaps.View
-            ref={googleMap}
+        ) : Platform.OS === 'android' ? (
+          <Map
+            mapStyle="https://tiles.openfreemap.org/styles/liberty"
             style={{ flex: 1 }}
-            cameraPosition={{ coordinates: initial, zoom: 16 }}
-            onCameraMove={(event) => setPosition(event.coordinates as typeof position)}
-          />
+            onRegionDidChange={(event) => {
+              const [longitude, latitude] = event.nativeEvent.center;
+              setPosition({ latitude, longitude });
+            }}
+          >
+            <Camera
+              ref={androidCamera}
+              initialViewState={{ center: [initial.longitude, initial.latitude], zoom: 16 }}
+            />
+          </Map>
         ) : (
           <View style={{ flex: 1, justifyContent: 'center', padding: 16 }}>
             <Copy>Usa tu ubicación para situar el restaurante.</Copy>
           </View>
         )}
-        {(Platform.OS === 'ios' || androidMap) && (
+        {(Platform.OS === 'ios' || Platform.OS === 'android') && (
           <View
             pointerEvents="none"
             style={{ position: 'absolute', left: 0, right: 0, top: 92, alignItems: 'center' }}
@@ -122,7 +134,7 @@ export default function NewRestaurant() {
       <Copy bold>Opciones sin gluten indicadas</Copy>
       <RestaurantSupportPicker value={support} onChange={setSupport} />
       <Field
-        label="¿Qué has comprobado?"
+        label={authorized ? 'Motivo (opcional)' : '¿Qué has comprobado?'}
         value={note}
         onChangeText={setNote}
         multiline
@@ -141,7 +153,7 @@ export default function NewRestaurant() {
           !support ||
           name.trim().length < 2 ||
           address.trim().length < 5 ||
-          note.trim().length < 10
+          (!authorized && note.trim().length < 10)
         }
         onPress={() => void create()}
       />

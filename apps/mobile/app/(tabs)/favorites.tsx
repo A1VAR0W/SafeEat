@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { Alert, FlatList, Pressable, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { ProductSchema, RestaurantSchema } from '@safeeat/contracts';
@@ -11,18 +11,25 @@ import { api } from '../../src/session';
 import { GridPicker, useProductColumns } from '../../src/grid';
 import { Button, Copy, ErrorNotice, ProductTile, Screen, Skeleton, useTheme } from '../../src/ui';
 export default function Favorites() {
+  const [active, setActive] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setActive(true);
+      return () => setActive(false);
+    }, []),
+  );
   const [kind, setKind] = useState<'products' | 'restaurants'>('products');
   const [selected, setSelected] = useState('favorites');
   const { columns, choose } = useProductColumns();
   const [error, setError] = useState<unknown>(null);
-  const { items, query, user } = useFavorites(kind);
+  const { items, query, user } = useFavorites(kind, undefined, active);
   const collections = useCollections();
   const client = useQueryClient();
   const t = useTheme();
   const activeCollection = kind === 'products' && selected !== 'favorites';
   const grouped = useQuery({
     queryKey: ['collection-products', user?.id, selected],
-    enabled: !!user && activeCollection,
+    enabled: active && !!user && activeCollection,
     queryFn: async () =>
       z
         .object({ items: z.array(ProductSchema) })
@@ -68,6 +75,9 @@ export default function Favorites() {
           numColumns={kind === 'products' ? columns : 1}
           columnWrapperStyle={kind === 'products' && columns > 1 ? {} : undefined}
           data={activeCollection ? (grouped.data ?? []) : items}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          windowSize={5}
           keyExtractor={(i) => i.id}
           onEndReached={() => {
             if (!activeCollection && query.hasNextPage && !query.isFetching)
@@ -77,7 +87,7 @@ export default function Favorites() {
             'name' in item ? (
               <ProductTile item={item} columns={columns} />
             ) : (
-              <SavedRestaurant id={item.id} />
+              <SavedRestaurant id={item.id} active={active} />
             )
           }
           ListEmptyComponent={
@@ -194,10 +204,17 @@ export default function Favorites() {
     </Screen>
   );
 }
-function SavedRestaurant({ id }: { id: string }) {
+const SavedRestaurant = memo(function SavedRestaurant({
+  id,
+  active,
+}: {
+  id: string;
+  active: boolean;
+}) {
   const t = useTheme();
   const details = useQuery({
     queryKey: ['restaurant', id],
+    enabled: active,
     queryFn: async () =>
       RestaurantSchema.parse(await api(`/restaurants/${encodeURIComponent(id)}`)),
   });
@@ -214,4 +231,4 @@ function SavedRestaurant({ id }: { id: string }) {
       </View>
     </Pressable>
   );
-}
+});

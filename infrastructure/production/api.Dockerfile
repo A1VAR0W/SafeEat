@@ -26,6 +26,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/package.json ./package.json
 COPY --from=build /build/apps/api/dist ./dist
 COPY apps/api/src/db/migrations ./migrations
+COPY scripts/import-restaurant-catalog.mjs ./scripts/import-restaurant-catalog.mjs
 USER node
 EXPOSE 4000
 HEALTHCHECK --interval=20s --timeout=4s --start-period=20s CMD node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:17.9-alpine
+        image: postgis/postgis:17-3.5-alpine
         env:
           POSTGRES_USER: safeeat
           POSTGRES_PASSWORD: ci-only-isolated
@@ -29,6 +29,7 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
+      - run: python3 -m unittest discover -s infrastructure/production -p test_release_publisher.py
       - run: npm run test:integration
       - run: npm run build
       - run: npm run mobile:check
@@ -36,7 +37,7 @@ jobs:
         working-directory: apps/mobile
       - name: Validate infrastructure and workflows
         run: |
-          bash -n scripts/deploy-server.sh scripts/backup-postgres.sh scripts/build-android.sh scripts/package-ios.sh
+          bash -n scripts/deploy-server.sh scripts/backup-postgres.sh scripts/build-android.sh scripts/package-ios.sh scripts/update-restaurant-catalog.sh
           docker compose config --quiet
           cp infrastructure/production/.env.example infrastructure/production/.env
           docker compose -f infrastructure/production/docker-compose.yml config --quiet

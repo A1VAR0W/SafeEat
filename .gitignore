@@ -21,3 +21,4 @@ artifacts/
 *.p12
 *.mobileprovision
 backups/
+__pycache__/

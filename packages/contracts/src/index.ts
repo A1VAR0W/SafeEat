@@ -50,6 +50,9 @@ export const ProductSchema = z.object({
   glutenReports: z
     .object({ glutenFree: z.number().int().min(0), containsGluten: z.number().int().min(0) })
     .optional(),
+  verifiedGlutenReports: z
+    .object({ glutenFree: z.number().int().min(0), containsGluten: z.number().int().min(0) })
+    .optional(),
   ingredients: z.string().optional(),
   assessment: AssessmentSchema,
   nutrition: NutritionInputSchema,
@@ -62,6 +65,20 @@ export const ProductSchema = z.object({
   userCreated: z.boolean().default(false),
 });
 export type Product = z.infer<typeof ProductSchema>;
+export const CommunityReviewSchema = z.object({
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  own: z.boolean(),
+  confirmedByMe: z.boolean(),
+  note: z.string(),
+  status: z.string(),
+  updatedAt: z.string(),
+  verifiedAt: z.string().nullable(),
+  verificationMethod: z.enum(['manual', 'authorized']).nullable().default(null),
+  confirmations: z.number().int(),
+  inherited: z.boolean(),
+});
+export type CommunityReview = z.infer<typeof CommunityReviewSchema>;
 export const RestaurantSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -78,6 +95,16 @@ export const RestaurantSchema = z.object({
     'UNKNOWN',
   ]),
   communityCreated: z.boolean().optional(),
+  chain: z.object({ key: z.string(), name: z.string() }).optional(),
+  reviewGroup: z
+    .object({ key: z.string(), name: z.string(), count: z.number().int().min(2) })
+    .optional(),
+  rating: z
+    .object({
+      average: z.number().min(1).max(5),
+      count: z.number().int().positive(),
+    })
+    .optional(),
   glutenReports: z
     .object({
       dedicated: z.number().int().min(0),
@@ -151,6 +178,7 @@ export const analyzeSchema = z
 export const UserSchema = z.object({
   id: z.string().uuid(),
   email: z.email(),
+  roles: z.array(z.enum(['authorized_celiac', 'ADMIN'])).default([]),
   firstName: z.string().nullable().default(null),
   lastName: z.string().nullable().default(null),
   dateOfBirth: z.iso.date().nullable().default(null),

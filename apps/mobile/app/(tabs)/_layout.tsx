@@ -18,13 +18,14 @@ export default function TabLayout() {
         animation: 'none',
         tabBarActiveTintColor: t.accent,
         tabBarInactiveTintColor: t.muted,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: { backgroundColor: t.card, borderTopColor: t.line },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
       {(
         [
-          { name: 'home', title: 'Explorar', icon: 'compass-outline' },
+          { name: 'index', title: 'Explorar', icon: 'compass-outline' },
           { name: 'restaurants', title: 'Restaurantes', icon: 'restaurant-outline' },
           { name: 'favorites', title: 'Guardados', icon: 'bookmark-outline' },
         ] as const

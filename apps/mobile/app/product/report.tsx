@@ -4,12 +4,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ProductSchema } from '@safeeat/contracts';
 import { api, useSession } from '../../src/session';
+import { usePermissions } from '../../src/permissions';
 import { Button, Copy, ErrorNotice, Field, Screen, Title, useTheme } from '../../src/ui';
 
 type Choice = 'GLUTEN_FREE' | 'CONTAINS_GLUTEN';
 export default function ProductReport() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
+  const { authorized } = usePermissions();
   const client = useQueryClient();
   const t = useTheme();
   const [status, setStatus] = useState<Choice | null>(null);
@@ -17,7 +19,7 @@ export default function ProductReport() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   async function save() {
-    if (!status || note.trim().length < 10 || busy) return;
+    if (!status || (!authorized && note.trim().length < 10) || busy) return;
     if (!user) return router.push('/auth/login');
     setBusy(true);
     setError(null);
@@ -32,6 +34,7 @@ export default function ProductReport() {
       client.setQueryData(['product', id], product);
       await client.invalidateQueries({ queryKey: ['product', id] });
       await client.invalidateQueries({ queryKey: ['favorites-products'] });
+      await client.invalidateQueries({ queryKey: ['reviews'] });
       router.back();
     } catch (cause) {
       setError(cause);
@@ -70,7 +73,7 @@ export default function ProductReport() {
         </Pressable>
       ))}
       <Field
-        label="¿Qué has comprobado?"
+        label={authorized ? 'Motivo (opcional)' : '¿Qué has comprobado?'}
         value={note}
         onChangeText={setNote}
         multiline
@@ -84,7 +87,7 @@ export default function ProductReport() {
       {!!error && <ErrorNotice error={error} />}
       <Button
         title={busy ? 'Guardando…' : 'Enviar revisión'}
-        disabled={busy || !status || note.trim().length < 10}
+        disabled={busy || !status || (!authorized && note.trim().length < 10)}
         onPress={() => void save()}
       />
     </Screen>

@@ -1,10 +1,9 @@
-import { useEffect, useState, type PropsWithChildren } from 'react';
+import { memo, useEffect, useState, type PropsWithChildren } from 'react';
 import {
   AccessibilityInfo,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -13,6 +12,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
+import { KeyboardAwareScrollView, KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -72,6 +73,8 @@ export function Copy({
         fontSize: size * t.textScale,
         lineHeight: size * 1.45 * t.textScale,
         fontWeight: bold ? '700' : '400',
+        flexShrink: 1,
+        minWidth: 0,
       }}
     >
       {children}
@@ -88,6 +91,8 @@ export function Title({ children }: PropsWithChildren) {
         lineHeight: 29 * t.textScale,
         fontWeight: '800',
         letterSpacing: -0.4,
+        flexShrink: 1,
+        minWidth: 0,
         color: t.text,
         marginBottom: 2,
       }}
@@ -98,30 +103,39 @@ export function Title({ children }: PropsWithChildren) {
 }
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
   const t = useTheme();
+  const headerHeight = useHeaderHeight();
   return (
     <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        {scroll ? (
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
-          >
-            {children}
-          </ScrollView>
-        ) : (
+      {scroll ? (
+        <KeyboardAwareScrollView
+          bottomOffset={20}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
+        >
+          {children}
+        </KeyboardAwareScrollView>
+      ) : (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior="padding"
+          keyboardVerticalOffset={headerHeight}
+        >
           <View style={{ flex: 1, padding: 16, gap: 12 }}>{children}</View>
-        )}
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
   );
 }
 export function Card({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
   const t = useTheme();
   return (
-    <View style={[{ padding: 16, borderRadius: 20, backgroundColor: t.card, gap: 10 }, style]}>
+    <View
+      style={[
+        { padding: 16, borderRadius: 20, backgroundColor: t.card, gap: 10, minWidth: 0 },
+        style,
+      ]}
+    >
       {children}
     </View>
   );
@@ -166,6 +180,8 @@ export function Button({
           fontWeight: '700',
           color: secondary ? t.text : t.onAccent,
           textAlign: 'center',
+          flexShrink: 1,
+          maxWidth: '100%',
         }}
       >
         {title}
@@ -179,9 +195,14 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
     <View style={{ gap: 6 }}>
       <Copy bold>{label}</Copy>
       <TextInput
+        returnKeyType={props.multiline ? 'default' : 'done'}
         accessibilityLabel={label}
         placeholderTextColor={t.muted}
         {...props}
+        onSubmitEditing={(event) => {
+          props.onSubmitEditing?.(event);
+          if (!props.multiline) Keyboard.dismiss();
+        }}
         style={[
           {
             minHeight: 48,
@@ -224,7 +245,13 @@ export function Skeleton() {
     </View>
   );
 }
-export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => void }) {
+export const ProductRow = memo(function ProductRow({
+  item,
+  onOpen,
+}: {
+  item: Product;
+  onOpen?: () => void;
+}) {
   const t = useTheme();
   const needsDetail = item.stale && item.informationSource === 'unknown';
   return (
@@ -278,7 +305,7 @@ export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => voi
       </View>
     </Pressable>
   );
-}
+});
 export function ProductGlutenLabel({
   product,
   compact = false,
@@ -286,32 +313,51 @@ export function ProductGlutenLabel({
   product: Product;
   compact?: boolean;
 }) {
+  const t = useTheme();
   const free = product.glutenReports?.glutenFree ?? 0;
   const contains = product.glutenReports?.containsGluten ?? 0;
   const unknown = product.assessment.status === 'UNKNOWN';
+  const verified =
+    (contains > 0 && free === 0 && !!product.verifiedGlutenReports?.containsGluten) ||
+    (free > 0 && contains === 0 && !!product.verifiedGlutenReports?.glutenFree);
   const conflict =
     (free > 0 && contains > 0) ||
     (contains > 0 && product.assessment.status === 'GLUTEN_FREE') ||
     (free > 0 && product.assessment.status === 'CONTAINS_GLUTEN');
   const report = conflict
     ? 'Información sobre gluten contradictoria'
-    : unknown && contains
-      ? `${contains} usuario${contains === 1 ? '' : 's'} indica${contains === 1 ? '' : 'n'} gluten`
-      : unknown && free
-        ? `${free} usuario${free === 1 ? '' : 's'} indica${free === 1 ? '' : 'n'} sin gluten`
-        : null;
-  const warning = unknown || conflict;
+    : unknown && verified
+      ? `Revisión verificada: ${contains ? 'contiene gluten' : 'sin gluten'}`
+      : unknown && contains
+        ? `${contains} usuario${contains === 1 ? '' : 's'} indica${contains === 1 ? '' : 'n'} gluten`
+        : unknown && free
+          ? `${free} usuario${free === 1 ? '' : 's'} indica${free === 1 ? '' : 'n'} sin gluten`
+          : null;
+  const warning = (unknown && !verified) || conflict;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        flexShrink: 1,
+        flexWrap: 'wrap',
+        minWidth: 0,
+      }}
+    >
       {warning ? (
         <Ionicons name="alert-circle-outline" size={compact ? 16 : 22} color="#D4A017" />
+      ) : unknown && verified ? (
+        <Ionicons name="checkmark-circle" size={compact ? 16 : 22} color={t.accent} />
       ) : (
         <Copy size={compact ? 12 : 18}>{statusLabels[product.assessment.status].icon}</Copy>
       )}
-      <Copy size={compact ? 12 : 17} bold={!compact}>
-        {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
-      </Copy>
-      {report && unknown && free > 0 && !contains && (
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Copy size={compact ? 12 : 17} bold={!compact}>
+          {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
+        </Copy>
+      </View>
+      {report && unknown && free > 0 && !contains && !verified && (
         <Copy muted size={11}>
           · sin confirmar
         </Copy>
@@ -319,13 +365,13 @@ export function ProductGlutenLabel({
     </View>
   );
 }
-export function ProductTile({
+export const ProductTile = memo(function ProductTile({
   item,
   columns,
   onOpen,
 }: {
   item: Product;
-  columns: 1 | 2 | 4;
+  columns: 1 | 2 | 3;
   onOpen?: () => void;
 }) {
   const t = useTheme();
@@ -340,13 +386,13 @@ export function ProductTile({
       }}
       style={({ pressed }) => ({
         flex: 1,
-        maxWidth: columns === 2 ? '50%' : '25%',
+        maxWidth: columns === 2 ? '50%' : '33.33%',
         margin: 3,
-        padding: columns === 4 ? 6 : 10,
+        padding: columns === 3 ? 6 : 10,
         borderRadius: 16,
         backgroundColor: t.card,
         opacity: pressed ? 0.7 : 1,
-        minHeight: columns === 4 ? 135 : 190,
+        minHeight: columns === 3 ? 145 : 190,
       })}
     >
       {item.imageUrl ? (
@@ -354,12 +400,12 @@ export function ProductTile({
           source={item.imageUrl}
           contentFit="contain"
           cachePolicy="memory-disk"
-          style={{ width: '100%', height: columns === 4 ? 68 : 105 }}
+          style={{ width: '100%', height: columns === 3 ? 76 : 105 }}
         />
       ) : (
         <View
           style={{
-            height: columns === 4 ? 68 : 105,
+            height: columns === 3 ? 76 : 105,
             alignItems: 'center',
             justifyContent: 'center',
           }}
@@ -367,16 +413,16 @@ export function ProductTile({
           <Copy muted>▥</Copy>
         </View>
       )}
-      <Copy bold size={columns === 4 ? 10 : 13} numberOfLines={columns === 4 ? 2 : 3}>
+      <Copy bold size={columns === 3 ? 11 : 13} numberOfLines={columns === 3 ? 2 : 3}>
         {item.name}
       </Copy>
       {columns === 2 && <ProductGlutenLabel product={item} compact />}
-      {columns === 4 && item.assessment.status === 'UNKNOWN' && (
+      {columns === 3 && item.assessment.status === 'UNKNOWN' && (
         <Ionicons name="alert-circle-outline" size={16} color="#D4A017" />
       )}
     </Pressable>
   );
-}
+});
 export function Assessment({ product }: { product: Product }) {
   const t = useTheme();
   const { assessment: a } = product;
@@ -421,7 +467,7 @@ export function Assessment({ product }: { product: Product }) {
     </Card>
   );
 }
-export function RecentProducts({ columns = 1 }: { columns?: 1 | 2 | 4 }) {
+export function RecentProducts({ columns = 1 }: { columns?: 1 | 2 | 3 }) {
   const query = useQuery<Product[]>({
     queryKey: ['recent'],
     queryFn: async () => [],

@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { adminRoutes } from './modules/admin';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
@@ -127,6 +128,7 @@ export async function createApp(
     }
   });
   const auth = authService(app, db, env);
+  adminRoutes(app, db, auth);
   const off = new OpenFoodFactsProvider(env.OPENFOODFACTS_USER_AGENT, env.OPENFOODFACTS_BASE_URL);
   const products = productService(
     app,

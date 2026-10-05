@@ -1,6 +1,6 @@
 {
   "name": "safeeat",
-  "version": "0.2.2",
+  "version": "1.0.12",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -44,5 +44,10 @@
   "overrides": {
     "react": "19.2.0",
     "react-dom": "19.2.0"
+  },
+  "dependencies": {
+    "expo": "~55.0.31",
+    "react": "19.2.0",
+    "react-native": "0.83.10"
   }
 }

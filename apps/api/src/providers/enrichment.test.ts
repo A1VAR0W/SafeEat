@@ -54,6 +54,7 @@ describe('additional real-data sources', () => {
                     osm_type: 'N',
                     osm_id: 3265474259,
                     osm_key: 'amenity',
+                    osm_value: 'restaurant',
                     name: 'La Tagliatella',
                     city: 'Madrid',
                     country: 'España',
@@ -76,7 +77,7 @@ describe('additional real-data sources', () => {
   });
   it('resolves a city to nearby restaurants with map coordinates', async () => {
     const request = vi.fn(
-      async (url: string) =>
+      async (url: string, _options?: RequestInit) =>
         new Response(
           JSON.stringify(
             url.includes('photon.komoot.io')
@@ -119,12 +120,123 @@ describe('additional real-data sources', () => {
       },
     ]);
     expect(request.mock.calls.map(([url]) => url)).toEqual([
-      expect.stringContaining('osm_tag=place%3Acity'),
+      expect.stringContaining('photon.komoot.io'),
       expect.stringContaining('overpass-api.de'),
     ]);
     expect((await provider.search({ query: 'Madrid', glutenFree: true }))[0]?.glutenSupport).toBe(
       'GLUTEN_FREE_OPTIONS',
     );
-    expect(request.mock.calls[3]?.[0]).toContain('diet%3Agluten_free');
+    expect(request.mock.calls[3]?.[1]?.body).toContain('diet%3Agluten_free');
+    expect(request.mock.calls[3]?.[1]?.body).toContain('around%3A4000');
+  });
+  it('uses the visible map area for street suggestions and removes duplicate segments', async () => {
+    const request = vi.fn(
+      async (_url: string) =>
+        new Response(
+          JSON.stringify({
+            features: [
+              {
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 1,
+                  name: 'Gran Vía',
+                  city: 'Madrid',
+                  osm_key: 'highway',
+                  osm_value: 'tertiary',
+                },
+                geometry: { coordinates: [-3.704, 40.42] },
+              },
+              {
+                properties: {
+                  osm_type: 'W',
+                  osm_id: 2,
+                  name: 'Gran Vía',
+                  city: 'Madrid',
+                  osm_key: 'highway',
+                  osm_value: 'tertiary',
+                },
+                geometry: { coordinates: [-3.71, 40.423] },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+    const suggestions = await new OpenStreetMapProvider('SafeEat test').suggest('Gran Vía', {
+      latitude: 40.4168,
+      longitude: -3.7038,
+    });
+    expect(suggestions).toMatchObject([
+      { label: 'Gran Vía · Madrid', kind: 'place', query: 'restaurantes' },
+    ]);
+    expect(request.mock.calls[0]?.[0]).toContain('lat=40.42');
+    expect(request.mock.calls[0]?.[0]).toContain('lon=-3.7');
+  });
+  it('falls back to nearby gluten-named food establishments if Overpass is unavailable', async () => {
+    const request = vi.fn(async (url: string) => {
+      if (url.includes('overpass-api.de')) return new Response('busy', { status: 504 });
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              properties: {
+                osm_type: 'N',
+                osm_id: 99,
+                name: 'Celicioso',
+                city: 'Madrid',
+                osm_key: 'amenity',
+                osm_value: 'restaurant',
+              },
+              geometry: { coordinates: [-3.701, 40.42] },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', request);
+    const items = await new OpenStreetMapProvider('SafeEat test').search({
+      query: 'restaurantes',
+      latitude: 40.4168,
+      longitude: -3.7038,
+      glutenFree: true,
+    });
+    expect(items).toMatchObject([{ id: 'osm_n_99', name: 'Celicioso', glutenSupport: 'UNKNOWN' }]);
+    expect(items[0]?.evidence[0]?.text).toContain('nombre de la ficha');
+  });
+  it('keeps a general map search available through Photon if Overpass is unavailable', async () => {
+    const request = vi.fn(async (url: string) => {
+      if (url.includes('overpass-api.de')) return new Response('busy', { status: 504 });
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              properties: {
+                osm_type: 'N',
+                osm_id: 123,
+                name: 'Cafetería cercana',
+                city: 'Madrid',
+                osm_key: 'amenity',
+                osm_value: 'cafe',
+              },
+              geometry: { coordinates: [-3.701, 40.42] },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal('fetch', request);
+    const items = await new OpenStreetMapProvider('SafeEat test').search({
+      query: 'restaurantes',
+      latitude: 40.4168,
+      longitude: -3.7038,
+    });
+    expect(items).toMatchObject([{ id: 'osm_n_123', name: 'Cafetería cercana' }]);
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      expect.stringContaining('overpass-api.de'),
+      expect.stringContaining('photon.komoot.io'),
+    ]);
   });
 });
