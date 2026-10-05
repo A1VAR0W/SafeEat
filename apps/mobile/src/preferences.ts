@@ -10,6 +10,12 @@ let preferences: Preferences = { theme: 'system', textSize: 'standard' };
 let revision = 0;
 let pending: Promise<void> = Promise.resolve();
 const listeners = new Set<() => void>();
+const subscribe = (fn: () => void) => {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+};
 const key = 'safeeat.preferences.v2';
 export const getPreferences = () => preferences;
 export async function loadPreferences() {
@@ -24,22 +30,19 @@ export async function loadPreferences() {
   }
 }
 export function setPreferences(value: Partial<Preferences>) {
-  preferences = schema.parse({ ...preferences, ...value });
+  const nextPreferences = schema.parse({ ...preferences, ...value });
+  const changed =
+    nextPreferences.theme !== preferences.theme ||
+    nextPreferences.textSize !== preferences.textSize;
+  if (changed) preferences = nextPreferences;
   ++revision;
-  listeners.forEach((fn) => fn());
+  if (changed) listeners.forEach((fn) => fn());
   const saved = JSON.stringify(preferences);
   const next = pending.then(() => AsyncStorage.setItem(key, saved));
   pending = next.catch(() => {});
   return next;
 }
 export function usePreferences() {
-  return useSyncExternalStore(
-    (fn) => {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
-    getPreferences,
-    getPreferences,
-  );
+  return useSyncExternalStore(subscribe, getPreferences, getPreferences);
 }
 export const textScales = { small: 0.9, standard: 1, large: 1.15 } as const;

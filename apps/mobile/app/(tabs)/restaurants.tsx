@@ -27,9 +27,23 @@ import { Button, Copy, ErrorNotice, Title, useReducedMotion, useTheme } from '..
 import { RestaurantMap, initialCenter } from '../../src/restaurant-map';
 import { DirectionsButton, RestaurantBadge } from '../../src/restaurant-components';
 import { distanceLabel, hasCoordinates, type Coordinates } from '../../src/restaurant-presentation';
+import { mergeRestaurantResults } from '../../src/restaurant-results';
 
 type SearchParams = Coordinates & { q: string };
 const emptyItems: Restaurant[] = [];
+const suggestionSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().optional(),
+      label: z.string(),
+      kind: z.enum(['restaurant', 'place']),
+      query: z.string(),
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+    }),
+  ),
+});
+type Suggestion = z.infer<typeof suggestionSchema>['items'][number];
 const filters = [
   ['all', 'Todos'],
   ['options', 'Con opciones'],
@@ -56,6 +70,7 @@ export default function Restaurants() {
   const [params, setParams] = useState<SearchParams>({ q: 'restaurantes', ...initialCenter });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<Restaurant | null>(null);
+  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const [searchPinned, setSearchPinned] = useState(false);
   const [nearbyCenter, setNearbyCenter] = useState<Coordinates>(initialCenter);
   const [position, setPosition] = useState<Coordinates | null>(null);
@@ -72,29 +87,43 @@ export default function Restaurants() {
   const suggestLongitude = Math.round(params.longitude * 100) / 100;
   const suggestions = useQuery({
     queryKey: ['restaurant-suggestions', settled, suggestLatitude, suggestLongitude],
-    enabled: active && editing && settled.length >= 3,
+    enabled: active && editing && settled.length >= 3 && settled === text.trim(),
     queryFn: async ({ signal }) =>
-      z
-        .object({
-          items: z.array(
-            z.object({
-              label: z.string(),
-              kind: z.enum(['restaurant', 'place']),
-              query: z.string(),
-              latitude: z.number().optional(),
-              longitude: z.number().optional(),
-            }),
-          ),
-        })
-        .parse(
-          await api(
-            `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}`,
-            { signal },
-          ),
+      suggestionSchema.parse(
+        await api(
+          `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}&localOnly=true`,
+          { signal },
         ),
+      ),
     staleTime: 3600000,
     gcTime: 300000,
   });
+  const places = useQuery({
+    queryKey: ['restaurant-place-suggestions', settled, suggestLatitude, suggestLongitude],
+    enabled:
+      active && editing && settled.length >= 3 && settled === text.trim() && suggestions.isSuccess,
+    queryFn: async ({ signal }) =>
+      suggestionSchema.parse(
+        await api(
+          `/restaurants/suggest?q=${encodeURIComponent(settled)}&latitude=${suggestLatitude}&longitude=${suggestLongitude}`,
+          { signal },
+        ),
+      ),
+    staleTime: 3600000,
+    gcTime: 300000,
+  });
+  const suggestionItems = useMemo(() => {
+    if (settled !== text.trim()) return [];
+    const seen = new Set<string>();
+    return [...(places.data?.items ?? []), ...(suggestions.data?.items ?? [])]
+      .filter((item) => {
+        const key = item.id ?? `${item.kind}:${item.label}:${item.latitude}:${item.longitude}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 5);
+  }, [places.data, suggestions.data, settled, text]);
   const search = useQuery({
     queryKey: ['restaurants', params, glutenMode],
     enabled: active,
@@ -133,17 +162,33 @@ export default function Restaurants() {
   });
   const items = useMemo(() => {
     const results = params.q === 'restaurantes' ? search.data?.items : nearby.data?.items;
-    const combined = [
-      ...(results ?? emptyItems),
-      ...(params.q !== 'restaurantes' ? (search.data?.items ?? emptyItems) : emptyItems),
-    ];
-    if (selectedItem && selectedItem.id === selectedId) combined.push(selectedItem);
-    return [...new Map(combined.map((item) => [item.id, item])).values()];
+    return mergeRestaurantResults(
+      results ?? emptyItems,
+      params.q !== 'restaurantes' ? (search.data?.items ?? emptyItems) : emptyItems,
+      selectedItem?.id === selectedId ? selectedItem : null,
+    );
   }, [params.q, search.data, nearby.data, selectedItem, selectedId]);
   const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
+  const target = useQuery({
+    queryKey: ['restaurant', pendingTarget],
+    enabled: active && !!pendingTarget,
+    queryFn: async ({ signal }) =>
+      RestaurantSchema.parse(
+        await api(`/restaurants/${encodeURIComponent(pendingTarget!)}`, { signal }),
+      ),
+    staleTime: 60000,
+    gcTime: 300000,
+  });
+  useEffect(() => {
+    if (pendingTarget && target.data?.id === pendingTarget) {
+      setSelectedItem(target.data);
+      setSelectedId(target.data.id);
+      setPendingTarget(null);
+    }
+  }, [pendingTarget, target.data]);
   const mapSearch = params.q === 'restaurantes' ? search : nearby;
-  const loading = search.isFetching || mapSearch.isFetching;
-  const searchError = search.error ?? mapSearch.error;
+  const loading = search.isFetching || mapSearch.isFetching || target.isFetching;
+  const searchError = search.error ?? mapSearch.error ?? target.error;
   const mappedCount = useMemo(() => items.filter(hasCoordinates).length, [items]);
   const selectedDistance = selected ? distanceLabel(selected, position) : null;
 
@@ -151,13 +196,18 @@ export default function Restaurants() {
     if (moveTimer.current) clearTimeout(moveTimer.current);
     moveTimer.current = null;
   }, []);
+  const dismissMapKeyboard = useCallback(() => {
+    if (Keyboard.isVisible()) Keyboard.dismiss();
+    setEditing(false);
+  }, []);
   const focus = useCallback(
     (coordinates: Coordinates, zoom = 15) => {
+      const point = { latitude: coordinates.latitude, longitude: coordinates.longitude };
       cancelMove();
-      center.current = coordinates;
-      lastSearch.current = coordinates;
+      center.current = point;
+      lastSearch.current = point;
       ignoreMoveUntil.current = Date.now() + 650;
-      appleMap.current?.setCameraPosition({ coordinates, zoom });
+      appleMap.current?.setCameraPosition({ coordinates: point, zoom });
       androidCamera.current?.easeTo({
         center: [coordinates.longitude, coordinates.latitude],
         zoom,
@@ -280,6 +330,7 @@ export default function Restaurants() {
       setText('');
       setEditing(false);
       setSelectedId(null);
+      setPendingTarget(null);
       setSelectedItem(null);
       setSearchPinned(false);
       Keyboard.dismiss();
@@ -306,19 +357,56 @@ export default function Restaurants() {
       setEditing(false);
       setResultsOpen(false);
       setSelectedId(item.id);
+      setPendingTarget(null);
       setSelectedItem(item);
       if (hasCoordinates(item)) focus(item, 17);
     },
     [cancelMove, focus],
   );
+  function chooseSuggestion(suggestion: Suggestion) {
+    didInteract.current = true;
+    cancelMove();
+    Keyboard.dismiss();
+    setText(suggestion.label);
+    setEditing(false);
+    setSelectedId(null);
+    setSelectedItem(null);
+    setSearchPinned(true);
+    setPendingTarget(suggestion.kind === 'restaurant' ? (suggestion.id ?? null) : null);
+    const next = {
+      q: suggestion.kind === 'place' ? 'restaurantes' : suggestion.query,
+      ...center.current,
+    };
+    if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
+      const coordinates = { latitude: suggestion.latitude, longitude: suggestion.longitude };
+      focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
+      setNearbyCenter(coordinates);
+      next.latitude = coordinates.latitude;
+      next.longitude = coordinates.longitude;
+      centeredSearch.current = next;
+    }
+    setParams(next);
+  }
   function submit() {
     const q = text.trim();
     if (q.length < 2) return;
+    const exactPlace = suggestionItems.find(
+      (item) =>
+        item.kind === 'place' &&
+        item.label.split(' · ')[0]?.toLocaleLowerCase() === q.toLocaleLowerCase() &&
+        item.latitude !== undefined &&
+        item.longitude !== undefined,
+    );
+    if (exactPlace) {
+      chooseSuggestion(exactPlace);
+      return;
+    }
     didInteract.current = true;
     cancelMove();
     Keyboard.dismiss();
     setEditing(false);
     setSelectedId(null);
+    setPendingTarget(null);
     setSelectedItem(null);
     setSearchPinned(true);
     setNearbyCenter(center.current);
@@ -338,7 +426,7 @@ export default function Restaurants() {
     const first = search.data.items.find(hasCoordinates);
     if (first) {
       focus(first, 14);
-      setNearbyCenter(first);
+      setNearbyCenter({ latitude: first.latitude, longitude: first.longitude });
     }
   }, [active, params, search.data, search.isSuccess, search.isPlaceholderData, focus]);
   function openDetails(item: Restaurant) {
@@ -354,6 +442,11 @@ export default function Restaurants() {
         longitude: String(center.current.longitude),
       },
     });
+  }
+  function retrySearch() {
+    void search.refetch();
+    if (params.q !== 'restaurantes') void nearby.refetch();
+    if (pendingTarget) void target.refetch();
   }
   const emptyMessage =
     glutenMode === 'all'
@@ -387,6 +480,7 @@ export default function Restaurants() {
                 setText('');
                 setSearchPinned(false);
                 setSelectedId(null);
+                setPendingTarget(null);
                 setSelectedItem(null);
                 setParams({ q: 'restaurantes', ...center.current });
               }}
@@ -420,6 +514,7 @@ export default function Restaurants() {
                 setEditing(false);
                 Keyboard.dismiss();
                 setSelectedId(null);
+                setPendingTarget(null);
                 setSelectedItem(null);
                 setGlutenMode(value);
               }}
@@ -453,10 +548,8 @@ export default function Restaurants() {
           onSelect={select}
           onMove={searchZone}
           onError={setMapError}
-          onMapPress={() => {
-            Keyboard.dismiss();
-            setEditing(false);
-          }}
+          onMapPress={dismissMapKeyboard}
+          keyboardInteractionEnabled={editing}
         />
         {editing && settled.length >= 3 && (
           <View style={[styles.suggestions, styles.shadow, { backgroundColor: t.card }]}>
@@ -465,40 +558,19 @@ export default function Restaurants() {
               keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               style={{ maxHeight: 280 }}
             >
-              {suggestions.isFetching && (
+              {(suggestions.isFetching || settled !== text.trim()) && (
                 <View style={{ padding: 14 }}>
                   <Copy muted size={13}>
                     Buscando lugares…
                   </Copy>
                 </View>
               )}
-              {suggestions.data?.items.slice(0, 5).map((suggestion, index) => (
+              {suggestionItems.map((suggestion, index) => (
                 <Pressable
                   key={`${suggestion.kind}-${index}`}
                   accessibilityRole="button"
                   accessibilityLabel={`Buscar ${suggestion.label}`}
-                  onPress={() => {
-                    didInteract.current = true;
-                    cancelMove();
-                    Keyboard.dismiss();
-                    setText(suggestion.label);
-                    setEditing(false);
-                    setSelectedId(null);
-                    setSelectedItem(null);
-                    setSearchPinned(true);
-                    if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
-                      const coordinates = {
-                        latitude: suggestion.latitude,
-                        longitude: suggestion.longitude,
-                      };
-                      focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
-                      setNearbyCenter(coordinates);
-                      setParams({
-                        q: suggestion.kind === 'place' ? 'restaurantes' : suggestion.query,
-                        ...coordinates,
-                      });
-                    } else setParams({ q: suggestion.query, ...center.current });
-                  }}
+                  onPress={() => chooseSuggestion(suggestion)}
                   style={({ pressed }) => ({
                     flexDirection: 'row',
                     gap: 12,
@@ -522,13 +594,16 @@ export default function Restaurants() {
                   </View>
                 </Pressable>
               ))}
-              {!suggestions.isFetching && !suggestions.data?.items.length && (
-                <View style={{ padding: 14 }}>
-                  <Copy muted size={13}>
-                    Pulsa buscar en el teclado para buscar este lugar.
-                  </Copy>
-                </View>
-              )}
+              {!suggestions.isFetching &&
+                !places.isFetching &&
+                !suggestionItems.length &&
+                settled === text.trim() && (
+                  <View style={{ padding: 14 }}>
+                    <Copy muted size={13}>
+                      Pulsa buscar en el teclado para buscar este lugar.
+                    </Copy>
+                  </View>
+                )}
             </ScrollView>
           </View>
         )}
@@ -659,10 +734,7 @@ export default function Restaurants() {
                       <IconButton
                         icon="refresh"
                         label="Reintentar búsqueda"
-                        onPress={() => {
-                          void search.refetch();
-                          if (params.q !== 'restaurantes') void nearby.refetch();
-                        }}
+                        onPress={retrySearch}
                       />
                     )}
                   </View>
@@ -725,15 +797,7 @@ export default function Restaurants() {
                   el personal.
                 </Copy>
                 {loading && <ActivityIndicator color={t.accent} />}
-                {!!searchError && (
-                  <ErrorNotice
-                    error={searchError}
-                    retry={() => {
-                      void search.refetch();
-                      if (params.q !== 'restaurantes') void nearby.refetch();
-                    }}
-                  />
-                )}
+                {!!searchError && <ErrorNotice error={searchError} retry={retrySearch} />}
                 {mappedCount < items.length && (
                   <Copy muted size={12}>
                     Algunos lugares aún no tienen ubicación en el mapa.

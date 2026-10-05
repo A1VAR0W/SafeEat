@@ -105,12 +105,16 @@ export function restaurantCatalog(db: Database) {
     return result.rows.map(catalogRestaurant);
   }
 
-  async function suggest(query: string): Promise<RestaurantSuggestion[]> {
+  async function suggest(
+    query: string,
+    location?: { latitude: number; longitude: number },
+  ): Promise<RestaurantSuggestion[]> {
     const result = await db.query<CatalogRow>(
-      `SELECT ${fields} FROM restaurant_catalog WHERE name ILIKE '%' || $1 || '%' ORDER BY similarity(name,$1) DESC LIMIT 5`,
-      [query],
+      `SELECT ${fields} FROM restaurant_catalog WHERE name ILIKE '%' || $1 || '%' ORDER BY ${location ? 'location <-> ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,' : ''} similarity(name,$1) DESC LIMIT 5`,
+      location ? [query, location.longitude, location.latitude] : [query],
     );
     return result.rows.map((row) => ({
+      id: row.id,
       label: [row.name, row.address].filter(Boolean).join(' · '),
       kind: 'restaurant' as const,
       query: row.name,

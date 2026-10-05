@@ -26,6 +26,7 @@ export type RestaurantSearch = {
   glutenMode?: 'dedicated' | 'options';
 };
 export type RestaurantSuggestion = {
+  id?: string;
   label: string;
   kind: 'restaurant' | 'place';
   query: string;
@@ -38,5 +39,6 @@ export interface RestaurantProvider {
   suggest?(
     query: string,
     location?: { latitude: number; longitude: number },
+    signal?: AbortSignal,
   ): Promise<RestaurantSuggestion[]>;
 }

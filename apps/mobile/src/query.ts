@@ -15,6 +15,7 @@ export const queryClient = new QueryClient({
 });
 queryClient.getQueryCache().subscribe((event) => {
   if (event.type !== 'updated' || event.action.type !== 'success') return;
+  if (!['product', 'barcode'].includes(String(event.query.queryKey[0]))) return;
   const details = queryClient
     .getQueryCache()
     .getAll()

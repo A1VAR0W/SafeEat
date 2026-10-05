@@ -8,6 +8,7 @@ import type { RestaurantProvider, RestaurantSearch } from '../../providers/types
 import { notFound } from '../../plugins/errors';
 import { restaurantCatalog } from './catalog';
 import { reviewRoutes } from '../reviews';
+import { combineSuggestions } from './suggestions';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -159,38 +160,63 @@ export function restaurantService(
 
   app.get(
     '/api/v1/restaurants/suggest',
-    { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
-    async (request) => {
-      const { q, latitude, longitude } = z
+    { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const { q, latitude, longitude, localOnly } = z
         .object({
           q: z.string().trim().min(2).max(120),
           latitude: z.coerce.number().min(-90).max(90).optional(),
           longitude: z.coerce.number().min(-180).max(180).optional(),
+          localOnly: z
+            .enum(['true', 'false'])
+            .transform((value) => value === 'true')
+            .optional(),
         })
         .refine((value) => (value.latitude === undefined) === (value.longitude === undefined))
         .parse(request.query);
-      const local = await db.query<{ name: string }>(
-        'SELECT name FROM community_restaurants WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 4',
-        [`%${q.replace(/[\\%_]/g, '\\$&')}%`],
-      );
-      const indexed = await catalog.suggest(q);
-      const external = provider.suggest
-        ? await provider.suggest(
-            q,
-            latitude !== undefined && longitude !== undefined ? { latitude, longitude } : undefined,
-          )
-        : [];
-      return {
-        items: [
-          ...local.rows.map((row) => ({
-            label: row.name,
-            kind: 'restaurant' as const,
-            query: row.name,
-          })),
-          ...indexed,
-          ...external,
-        ],
+      const location =
+        latitude !== undefined && longitude !== undefined ? { latitude, longitude } : undefined;
+      const disconnected = new AbortController();
+      const close = () => {
+        if (!reply.raw.writableFinished) disconnected.abort();
       };
+      reply.raw.once('close', close);
+      try {
+        const [local, indexed, external] = await Promise.all([
+          db.query<{ id: string; name: string; latitude: number; longitude: number }>(
+            'SELECT id,name,latitude,longitude FROM community_restaurants WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 4',
+            [`%${q.replace(/[\\%_]/g, '\\$&')}%`],
+          ),
+          catalog.suggest(q, location),
+          !localOnly && provider.suggest
+            ? provider
+                .suggest(
+                  q,
+                  location,
+                  AbortSignal.any([disconnected.signal, AbortSignal.timeout(1800)]),
+                )
+                .catch(() => [])
+            : Promise.resolve([]),
+        ]);
+        return {
+          items: combineSuggestions(
+            [
+              ...local.rows.map((row) => ({
+                id: row.id,
+                label: row.name,
+                kind: 'restaurant' as const,
+                query: row.name,
+                latitude: row.latitude,
+                longitude: row.longitude,
+              })),
+              ...indexed,
+            ],
+            external,
+          ),
+        };
+      } finally {
+        reply.raw.off('close', close);
+      }
     },
   );
   app.get(

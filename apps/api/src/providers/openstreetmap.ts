@@ -142,6 +142,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     tag?: string,
     limit = 10,
     location?: { lat: number; lon: number },
+    signal?: AbortSignal,
   ) {
     this.budget.take();
     // Photon does not support Spanish as a language code. Omitting `lang`
@@ -156,6 +157,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
     return features.parse(
       await providerJson(`https://photon.komoot.io/api/?${params}`, {
         headers: { 'User-Agent': this.userAgent },
+        signal,
       }),
     ).features;
   }
@@ -171,6 +173,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
   async suggest(
     query: string,
     location?: { latitude: number; longitude: number },
+    signal?: AbortSignal,
   ): Promise<RestaurantSuggestion[]> {
     const lat = location && Math.round(location.latitude * 100) / 100;
     const lon = location && Math.round(location.longitude * 100) / 100;
@@ -182,6 +185,7 @@ export class OpenStreetMapProvider implements RestaurantProvider {
       undefined,
       12,
       lat !== undefined && lon !== undefined ? { lat, lon } : undefined,
+      signal,
     );
     const seen = new Set<string>();
     return this.store(

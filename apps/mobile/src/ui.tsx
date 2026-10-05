@@ -1,4 +1,4 @@
-import { useEffect, useState, type PropsWithChildren } from 'react';
+import { memo, useEffect, useState, type PropsWithChildren } from 'react';
 import {
   AccessibilityInfo,
   Keyboard,
@@ -245,7 +245,13 @@ export function Skeleton() {
     </View>
   );
 }
-export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => void }) {
+export const ProductRow = memo(function ProductRow({
+  item,
+  onOpen,
+}: {
+  item: Product;
+  onOpen?: () => void;
+}) {
   const t = useTheme();
   const needsDetail = item.stale && item.informationSource === 'unknown';
   return (
@@ -299,7 +305,7 @@ export function ProductRow({ item, onOpen }: { item: Product; onOpen?: () => voi
       </View>
     </Pressable>
   );
-}
+});
 export function ProductGlutenLabel({
   product,
   compact = false,
@@ -351,7 +357,7 @@ export function ProductGlutenLabel({
     </View>
   );
 }
-export function ProductTile({
+export const ProductTile = memo(function ProductTile({
   item,
   columns,
   onOpen,
@@ -408,7 +414,7 @@ export function ProductTile({
       )}
     </Pressable>
   );
-}
+});
 export function Assessment({ product }: { product: Product }) {
   const t = useTheme();
   const { assessment: a } = product;

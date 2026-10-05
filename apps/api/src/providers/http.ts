@@ -7,7 +7,9 @@ export async function providerJson(
   try {
     const response = await fetch(url, {
       ...init,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
+        : AbortSignal.timeout(timeoutMs),
       redirect: 'error',
     });
     if (response.status === 404) return null;

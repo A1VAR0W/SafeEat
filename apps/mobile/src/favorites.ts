@@ -1,9 +1,10 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ProductSchema, type Product } from '@safeeat/contracts';
 import { z } from 'zod';
+import { useMemo } from 'react';
 import { api, useSession } from './session';
 type Page<T> = { items: T[]; nextCursor: string | null };
-export function useFavorites(kind: 'products' | 'restaurants', itemId?: string) {
+export function useFavorites(kind: 'products' | 'restaurants', itemId?: string, active = true) {
   const { user } = useSession();
   const client = useQueryClient();
   const key = [`favorites-${kind}`, user?.id];
@@ -18,7 +19,7 @@ export function useFavorites(kind: 'products' | 'restaurants', itemId?: string) 
   });
   const query = useInfiniteQuery({
     queryKey: key,
-    enabled: !!user && !itemId,
+    enabled: !!user && !itemId && active,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const raw = await api(
@@ -76,11 +77,12 @@ export function useFavorites(kind: 'products' | 'restaurants', itemId?: string) 
       await client.invalidateQueries({ queryKey: ['favorite', kind, user?.id] });
     },
   });
+  const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   return {
     query,
     membership,
     mutation,
-    items: query.data?.pages.flatMap((p) => p.items) ?? [],
+    items,
     user,
   };
 }

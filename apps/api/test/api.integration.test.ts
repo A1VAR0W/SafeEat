@@ -19,6 +19,10 @@ let one: Session;
 let two: Session;
 const suffix = randomUUID();
 let providerUnavailable = false;
+let suggestionFailure = false;
+let suggestionSlow = false;
+let suggestionCalls = 0;
+let suggestionCancelled = false;
 const external: ExternalProduct = {
   barcode: '8410000000001',
   name: 'Integration oats',
@@ -29,6 +33,30 @@ const external: ExternalProduct = {
   sourceUrl: 'https://example.org/product',
 };
 const restaurants: RestaurantProvider = {
+  async suggest(_query, _location, signal) {
+    suggestionCalls++;
+    if (suggestionFailure) throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Provider unavailable');
+    if (suggestionSlow)
+      await new Promise<void>((_resolve, reject) =>
+        signal!.addEventListener(
+          'abort',
+          () => {
+            suggestionCancelled = true;
+            reject(new Error('cancelled'));
+          },
+          { once: true },
+        ),
+      );
+    return [
+      {
+        label: 'Madrid · España',
+        kind: 'place',
+        query: 'restaurantes',
+        latitude: 40.4,
+        longitude: -3.7,
+      },
+    ];
+  },
   async search() {
     return [(await this.getById('restaurant-1'))!];
   },
@@ -121,6 +149,34 @@ describe.sequential('real PostgreSQL API', () => {
       (await db.query('SELECT token_hash FROM refresh_sessions WHERE user_id=$1', [one.user.id]))
         .rows[0].token_hash,
     ).not.toBe(one.refreshToken);
+  });
+  it('serves fast local suggestions and preserves them when external suggestions fail or time out', async () => {
+    const id = `se_${randomUUID().replace(/-/g, '')}`;
+    await db.query(
+      'INSERT INTO community_restaurants(id,user_id,name,address,latitude,longitude) VALUES($1,$2,$3,$4,40.4,-3.7)',
+      [id, one.user.id, 'Provider Cafe', 'Integration test address'],
+    );
+    try {
+      const calls = suggestionCalls;
+      const local = await app.inject('/api/v1/restaurants/suggest?q=Provider&localOnly=true');
+      expect(local.statusCode).toBe(200);
+      expect(local.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      expect(suggestionCalls).toBe(calls);
+      suggestionFailure = true;
+      const fallback = await app.inject('/api/v1/restaurants/suggest?q=Provider');
+      expect(fallback.statusCode).toBe(200);
+      expect(fallback.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      suggestionFailure = false;
+      suggestionSlow = true;
+      const timed = await app.inject('/api/v1/restaurants/suggest?q=Provider');
+      expect(timed.statusCode).toBe(200);
+      expect(timed.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+      expect(suggestionCancelled).toBe(true);
+    } finally {
+      suggestionFailure = false;
+      suggestionSlow = false;
+      await db.query('DELETE FROM community_restaurants WHERE id=$1', [id]);
+    }
   });
   it('rejects duplicate emails and invalid payloads', async () => {
     expect(

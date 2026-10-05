@@ -92,9 +92,11 @@ export class GooglePlacesProvider implements RestaurantProvider {
   async suggest(
     query: string,
     location?: { latitude: number; longitude: number },
+    signal?: AbortSignal,
   ): Promise<RestaurantSuggestion[]> {
     const result = await providerJson('https://places.googleapis.com/v1/places:autocomplete', {
       method: 'POST',
+      signal,
       headers: this.headers(
         'suggestions.placePrediction.text,suggestions.placePrediction.types,suggestions.queryPrediction.text',
       ),

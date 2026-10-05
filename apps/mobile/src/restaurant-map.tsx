@@ -35,6 +35,7 @@ export const RestaurantMap = memo(function RestaurantMap({
   onMove,
   onError,
   onMapPress,
+  keyboardInteractionEnabled,
 }: {
   items: Restaurant[];
   selectedId: string | null;
@@ -46,6 +47,7 @@ export const RestaurantMap = memo(function RestaurantMap({
   onMove: (coordinates: Coordinates) => void;
   onError: (failed: boolean) => void;
   onMapPress: () => void;
+  keyboardInteractionEnabled: boolean;
 }) {
   const source = useRef<GeoJSONSourceRef>(null);
   const features = useMemo(() => restaurantFeatures(items), [items]);
@@ -78,7 +80,10 @@ export const RestaurantMap = memo(function RestaurantMap({
 
   if (Platform.OS === 'ios')
     return (
-      <View style={StyleSheet.absoluteFill} onTouchMove={onMapPress}>
+      <View
+        style={StyleSheet.absoluteFill}
+        onTouchMove={keyboardInteractionEnabled ? onMapPress : undefined}
+      >
         <AppleMaps.View
           ref={appleMap}
           style={StyleSheet.absoluteFill}
@@ -115,7 +120,9 @@ export const RestaurantMap = memo(function RestaurantMap({
       onDidFinishLoadingMap={() => onError(false)}
       onDidFailLoadingMap={() => onError(true)}
       onPress={onMapPress}
-      onTouchMove={onMapPress}
+      onRegionWillChange={(event) => {
+        if (keyboardInteractionEnabled && event.nativeEvent.userInteraction) onMapPress();
+      }}
       onRegionDidChange={(event) => {
         if (!event.nativeEvent.userInteraction) return;
         const [longitude, latitude] = event.nativeEvent.center;
