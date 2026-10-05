@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "versionDate": "2026-10-05",
-      "versionDescription": "Oculta el teclado fácilmente. El mapa conserva la búsqueda, la selección y los demás restaurantes al cambiar el zoom. Mejor ajuste de textos en tarjetas. Incluye las revisiones confirmadas manualmente con fecha.",
-      "size": 18603983
+      "versionDescription": "Los formularios mantienen visible el campo y el cursor al escribir. El teclado se cierra con gestos o al tocar fuera. Se han retirado el botón y el icono para ocultarlo.",
+      "size": 19822325
     }
   ]
 }
