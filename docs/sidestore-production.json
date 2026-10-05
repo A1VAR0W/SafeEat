@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "versionDate": "2026-10-05",
-      "versionDescription": "Mejor detección de cadenas para compartir sus indicaciones sin gluten. Valoraciones de 1 a 5 estrellas por local, con media, edición y eliminación de tu puntuación.",
-      "size": 19828715
+      "versionDescription": "Buscar una cadena o un restaurante muestra únicamente sus locales en el mapa y en los resultados. Borrar la búsqueda vuelve a mostrar restaurantes de la zona.",
+      "size": 19828335
     }
   ]
 }

@@ -1,0 +1,11 @@
+# SafeEat 1.0.9
+
+Buscar una cadena o un restaurante filtra tanto los marcadores como la lista. Se elimina la segunda consulta de restaurantes cercanos y la mezcla con los resultados por nombre. La búsqueda anterior solo se conserva mientras carga una consulta del mismo nombre y filtro; cambiar de nombre no muestra locales ajenos de la búsqueda anterior.
+
+El servidor busca por la identidad de una cadena reconocida, incluyendo sucursales cuyo nombre no contiene literalmente el nombre de marca. La selección de una sugerencia de cadena utiliza su marca como consulta y conserva la sucursal elegida para abrir su tarjeta. Para nombres sin cadena reconocida se normalizan tildes, espacios y puntuación. Las aportaciones comunitarias y los resultados externos también se filtran por la consulta. Sin coincidencias se devuelve una lista vacía.
+
+Las búsquedas de ciudades y calles siguen centrando el mapa y mostrando restaurantes de la zona. Borrar la búsqueda o usar la ubicación vuelve a los resultados generales; mover o ampliar el mapa conserva la búsqueda y la selección, como en las versiones anteriores.
+
+Validación de código: tipos, lint, 146 pruebas unitarias y 38 pruebas de integración con PostgreSQL/PostGIS aislado. Se comprueban sucursales de una marca con nombres diferentes, exclusión de establecimientos parecidos o cercanos, normalización de nombres, aportaciones comunitarias ajenas a la búsqueda y resultados externos sin coincidencias. En emulador Android 15 se comprobó la búsqueda Burger King: lista con sucursales de esa cadena y mapa sin la mezcla anterior. La APK Release conserva el certificado existente y se instala como actualización.
+
+Producción: Burger King devolvió 100 resultados, todos con identidad Q177054; McDonalds devolvió 94, todos Q38076; Artemisa devolvió únicamente sus dos locales. Pasó el smoke de producción. En Android también se comprobó que mover el mapa conserva el nombre buscado y que borrar la búsqueda restaura los resultados generales. Sin errores de ejecución registrados durante esas pruebas. La IPA de producción compiló en GitHub Actions; ambas plataformas pasan la validación de configuración y bundle embebidos. La APK usa versionCode 85. iPhone pendiente de prueba física.
