@@ -31,6 +31,23 @@ afterAll(async () => {
 });
 
 describe('local restaurant catalog', () => {
+  it('searches only matching branches using the brand identity and ignores unrelated nearby venues', async () => {
+    const items = await catalog.search({
+      query: 'Cadena Prueba',
+      latitude: 40.42,
+      longitude: -3.71,
+    });
+    expect(items.map((item) => item.id).sort()).toEqual([
+      'osm_n_987654324',
+      'osm_n_987654325',
+      'osm_n_987654326',
+    ]);
+    expect(
+      (await catalog.search({ query: 'Casa Sin Gluten', latitude: 40.42, longitude: -3.71 })).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['osm_n_987654321']);
+  });
   it('prioritizes matching branches near the map and exposes their identity for direct selection', async () => {
     const items = await catalog.suggest('Cadena', { latitude: 40.42, longitude: -3.71 });
     expect(items[0]?.id).toBe('osm_n_987654325');

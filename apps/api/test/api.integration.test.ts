@@ -461,6 +461,17 @@ describe.sequential('real PostgreSQL API', () => {
       '/api/v1/restaurants/search?q=restaurantes&latitude=40.4168&longitude=-3.7038',
     );
     expect(nearby.json().items.some((item: { id: string }) => item.id === id)).toBe(true);
+    const named = await app.inject(
+      '/api/v1/restaurants/search?q=Integration&latitude=40.4168&longitude=-3.7038',
+    );
+    expect(named.json().items.map((item: { id: string }) => item.id)).toEqual(['restaurant-1']);
+    expect(
+      (
+        await app.inject(
+          '/api/v1/restaurants/search?q=NothingMatchesThis&latitude=40.4168&longitude=-3.7038',
+        )
+      ).json().items,
+    ).toEqual([]);
     const second = await app.inject({
       method: 'POST',
       url: `/api/v1/restaurants/${id}/gluten-report`,

@@ -73,7 +73,6 @@ export default function Restaurants() {
   const [selectedItem, setSelectedItem] = useState<Restaurant | null>(null);
   const [pendingTarget, setPendingTarget] = useState<string | null>(null);
   const [searchPinned, setSearchPinned] = useState(false);
-  const [nearbyCenter, setNearbyCenter] = useState<Coordinates>(initialCenter);
   const [position, setPosition] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
@@ -125,7 +124,7 @@ export default function Restaurants() {
       })
       .slice(0, 5);
   }, [places.data, suggestions.data, settled, text]);
-  const search = useQuery({
+  const search = useQuery<{ items: Restaurant[] }>({
     queryKey: ['restaurants', params, glutenMode],
     enabled: active,
     queryFn: async ({ signal }) => {
@@ -140,35 +139,21 @@ export default function Restaurants() {
         .parse(await api(`/restaurants/search?${query}`, { signal }));
     },
     staleTime: 60000,
-    placeholderData: (previous) => previous,
-    gcTime: 300000,
-  });
-  const nearby = useQuery({
-    queryKey: ['restaurants', { q: 'restaurantes', ...nearbyCenter }, glutenMode],
-    enabled: active && params.q !== 'restaurantes',
-    queryFn: async ({ signal }) => {
-      const query = new URLSearchParams({
-        q: 'restaurantes',
-        latitude: String(nearbyCenter.latitude),
-        longitude: String(nearbyCenter.longitude),
-        ...(glutenMode !== 'all' ? { glutenMode } : {}),
-      });
-      return z
-        .object({ items: z.array(RestaurantSchema) })
-        .parse(await api(`/restaurants/search?${query}`, { signal }));
+    placeholderData: (previous, previousQuery) => {
+      const old = previousQuery?.queryKey[1] as SearchParams | undefined;
+      return old?.q === params.q && previousQuery?.queryKey[2] === glutenMode
+        ? previous
+        : undefined;
     },
-    staleTime: 60000,
-    placeholderData: (previous) => previous,
     gcTime: 300000,
   });
   const items = useMemo(() => {
-    const results = params.q === 'restaurantes' ? search.data?.items : nearby.data?.items;
     return mergeRestaurantResults(
-      results ?? emptyItems,
-      params.q !== 'restaurantes' ? (search.data?.items ?? emptyItems) : emptyItems,
+      search.data?.items ?? emptyItems,
+      emptyItems,
       selectedItem?.id === selectedId ? selectedItem : null,
     );
-  }, [params.q, search.data, nearby.data, selectedItem, selectedId]);
+  }, [search.data, selectedItem, selectedId]);
   const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
   const target = useQuery({
     queryKey: ['restaurant', pendingTarget],
@@ -187,9 +172,8 @@ export default function Restaurants() {
       setPendingTarget(null);
     }
   }, [pendingTarget, target.data]);
-  const mapSearch = params.q === 'restaurantes' ? search : nearby;
-  const loading = search.isFetching || mapSearch.isFetching || target.isFetching;
-  const searchError = search.error ?? mapSearch.error ?? target.error;
+  const loading = search.isFetching || target.isFetching;
+  const searchError = search.error ?? target.error;
   const mappedCount = useMemo(() => items.filter(hasCoordinates).length, [items]);
   const selectedDistance = selected ? distanceLabel(selected, position) : null;
 
@@ -381,7 +365,6 @@ export default function Restaurants() {
     if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
       const coordinates = { latitude: suggestion.latitude, longitude: suggestion.longitude };
       focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
-      setNearbyCenter(coordinates);
       next.latitude = coordinates.latitude;
       next.longitude = coordinates.longitude;
       centeredSearch.current = next;
@@ -410,7 +393,6 @@ export default function Restaurants() {
     setPendingTarget(null);
     setSelectedItem(null);
     setSearchPinned(true);
-    setNearbyCenter(center.current);
     setParams({ q, ...center.current });
   }
   const centeredSearch = useRef<unknown>(null);
@@ -427,7 +409,6 @@ export default function Restaurants() {
     const first = search.data.items.find(hasCoordinates);
     if (first) {
       focus(first, 14);
-      setNearbyCenter({ latitude: first.latitude, longitude: first.longitude });
     }
   }, [active, params, search.data, search.isSuccess, search.isPlaceholderData, focus]);
   function openDetails(item: Restaurant) {
@@ -446,7 +427,6 @@ export default function Restaurants() {
   }
   function retrySearch() {
     void search.refetch();
-    if (params.q !== 'restaurantes') void nearby.refetch();
     if (pendingTarget) void target.refetch();
   }
   const emptyMessage =

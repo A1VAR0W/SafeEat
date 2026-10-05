@@ -10,6 +10,7 @@ import { restaurantCatalog } from './catalog';
 import { reviewRoutes } from '../reviews';
 import { combineSuggestions } from './suggestions';
 import { restaurantRatings } from './ratings';
+import { matchesRestaurantSearch } from './search';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -156,16 +157,18 @@ export function restaurantService(
     const nearby = params.latitude !== undefined && params.longitude !== undefined;
     const communityRows = await db.query<CommunityRow>(
       nearby
-        ? 'SELECT id,name,address,latitude,longitude,created_at FROM community_restaurants WHERE latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4 ORDER BY created_at DESC LIMIT 20'
-        : 'SELECT id,name,address,latitude,longitude,created_at FROM community_restaurants WHERE name ILIKE $1 ORDER BY created_at DESC LIMIT 20',
+        ? 'SELECT id,name,address,latitude,longitude,created_at FROM community_restaurants WHERE latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4 AND ($5::boolean OR position(restaurant_brand_name($6) in restaurant_brand_name(name))>0) ORDER BY created_at DESC LIMIT 20'
+        : 'SELECT id,name,address,latitude,longitude,created_at FROM community_restaurants WHERE position(restaurant_brand_name($1) in restaurant_brand_name(name))>0 ORDER BY created_at DESC LIMIT 20',
       nearby
         ? [
             params.latitude! - 0.025,
             params.latitude! + 0.025,
             params.longitude! - 0.035,
             params.longitude! + 0.035,
+            /^(restaurantes?|cerca de m[ií])$/i.test(params.query),
+            params.query,
           ]
-        : [`%${params.query.replace(/[\\%_]/g, '\\$&')}%`],
+        : [params.query],
     );
     const local = communityRows.rows.map(community);
     let external: Restaurant[];
@@ -180,7 +183,13 @@ export function restaurantService(
       if (!local.length) throw error;
       external = [];
     }
-    const merged = await withReports([...local, ...external]);
+    const alias = await db.query<{ chain_key: string }>(
+      'SELECT chain_key FROM restaurant_chain_aliases WHERE alias=restaurant_brand_name($1)',
+      [params.query],
+    );
+    const merged = (await withReports([...local, ...external])).filter((item) =>
+      matchesRestaurantSearch(item, params.query, alias.rows[0]?.chain_key),
+    );
     return params.glutenMode === 'dedicated'
       ? merged.filter((item) => item.glutenSupport === 'DEDICATED_GLUTEN_FREE')
       : params.glutenFree || params.glutenMode === 'options'

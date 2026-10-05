@@ -91,7 +91,12 @@ export function restaurantCatalog(db: Database) {
           : '';
     const point = 'ST_SetSRID(ST_MakePoint($2,$3),4326)::geography';
     const location = nearby ? `AND ST_DWithin(location,${point},$4)` : '';
-    const name = broad ? 'AND $1::text IS NOT NULL' : "AND name ILIKE '%' || $1 || '%'";
+    const name = broad
+      ? 'AND $1::text IS NOT NULL'
+      : `AND CASE
+      WHEN EXISTS(SELECT 1 FROM restaurant_chain_aliases WHERE alias=restaurant_brand_name($1))
+      THEN chain_key=(SELECT chain_key FROM restaurant_chain_aliases WHERE alias=restaurant_brand_name($1))
+      ELSE position(restaurant_brand_name($1) in restaurant_brand_name(name))>0 END`;
     const order = nearby
       ? `ORDER BY ${broad ? '' : 'similarity(name,$1) DESC,'} location <-> ${point}`
       : 'ORDER BY similarity(name,$1) DESC, name';
@@ -117,7 +122,7 @@ export function restaurantCatalog(db: Database) {
       id: row.id,
       label: [row.name, row.address].filter(Boolean).join(' · '),
       kind: 'restaurant' as const,
-      query: row.name,
+      query: row.chain_name || row.name,
       latitude: row.latitude,
       longitude: row.longitude,
     }));
