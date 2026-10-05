@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "versionDate": "2026-10-05",
-      "versionDescription": "Búsquedas más ágiles, mapa estable al escribir y tarjetas sin saltos de zoom. Los resultados permanecen visibles durante la carga y las imágenes se cargan por adelantado.",
-      "size": 19824877
+      "versionDescription": "Mejor detección de cadenas para compartir sus indicaciones sin gluten. Valoraciones de 1 a 5 estrellas por local, con media, edición y eliminación de tu puntuación.",
+      "size": 19828715
     }
   ]
 }
