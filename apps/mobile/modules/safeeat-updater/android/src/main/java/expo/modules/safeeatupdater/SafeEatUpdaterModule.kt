@@ -32,7 +32,11 @@ class SafeEatUpdaterModule : Module() {
   private val apk get() = File(directory, "SafeEat.apk")
   @Suppress("DEPRECATION")
   private fun code(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
-  private val flags get() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+  // Android 9/10 only collect archive certificates when GET_SIGNATURES is also set.
+  // Request both flags, but compare current signingInfo on API 28+ (never downgrade
+  // a known mismatch to a legacy certificate or accept missing certificates).
+  @Suppress("DEPRECATION")
+  private val flags get() = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES else PackageManager.GET_SIGNATURES
   @Suppress("DEPRECATION")
   private fun installed() = context.packageManager.getPackageInfo(context.packageName, flags)
   @Suppress("DEPRECATION")
@@ -55,7 +59,10 @@ class SafeEatUpdaterModule : Module() {
     val current = installed()
     require(candidate.packageName == "com.a1var0w.safeeat" && candidate.packageName == context.packageName) { "El archivo no corresponde a SafeEat." }
     require(candidate.versionName == version && code(candidate) == versionCode && versionCode > code(current)) { "La versión descargada no corresponde a esta actualización." }
-    require(signatures(candidate).isNotEmpty() && signatures(candidate) == signatures(current)) { "La firma de la actualización no coincide con SafeEat." }
+    val candidateSignatures = signatures(candidate)
+    val installedSignatures = signatures(current)
+    require(candidateSignatures.isNotEmpty() && installedSignatures.isNotEmpty()) { "No se ha podido comprobar la firma de la actualización. Vuelve a intentarlo." }
+    require(candidateSignatures == installedSignatures) { "La firma de la actualización no coincide con SafeEat." }
   }
   private fun allowed(url: URL) = url.protocol == "https" && url.host == "chat-ink.tail552c89.ts.net" && url.port == 10000 && url.userInfo == null && url.query == null && url.ref == null && Regex("/safeeat-downloads/releases/SafeEat-[0-9]+\\.[0-9]+\\.[0-9]+\\.apk").matches(url.path)
   private fun canInstall() = Build.VERSION.SDK_INT < 26 || context.packageManager.canRequestPackageInstalls()
