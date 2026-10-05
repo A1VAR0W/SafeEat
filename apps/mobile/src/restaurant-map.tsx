@@ -34,6 +34,7 @@ export const RestaurantMap = memo(function RestaurantMap({
   onSelect,
   onMove,
   onError,
+  onMapPress,
 }: {
   items: Restaurant[];
   selectedId: string | null;
@@ -44,6 +45,7 @@ export const RestaurantMap = memo(function RestaurantMap({
   onSelect: (item: Restaurant) => void;
   onMove: (coordinates: Coordinates) => void;
   onError: (failed: boolean) => void;
+  onMapPress: () => void;
 }) {
   const source = useRef<GeoJSONSourceRef>(null);
   const features = useMemo(() => restaurantFeatures(items), [items]);
@@ -84,6 +86,7 @@ export const RestaurantMap = memo(function RestaurantMap({
         properties={{ isMyLocationEnabled: !!position, selectionEnabled: false }}
         uiSettings={{ myLocationButtonEnabled: false, togglePitchEnabled: false }}
         markers={markers}
+        onMapClick={onMapPress}
         onMarkerClick={(marker) => {
           const item = items.find((r) => r.id === marker.id);
           if (item) onSelect(item);
@@ -109,6 +112,7 @@ export const RestaurantMap = memo(function RestaurantMap({
       compassPosition={{ right: 12, top: 126 }}
       onDidFinishLoadingMap={() => onError(false)}
       onDidFailLoadingMap={() => onError(true)}
+      onPress={onMapPress}
       onRegionDidChange={(event) => {
         if (!event.nativeEvent.userInteraction) return;
         const [longitude, latitude] = event.nativeEvent.center;

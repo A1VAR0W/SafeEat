@@ -2,6 +2,7 @@ import { useEffect, useState, type PropsWithChildren } from 'react';
 import {
   AccessibilityInfo,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -72,6 +73,8 @@ export function Copy({
         fontSize: size * t.textScale,
         lineHeight: size * 1.45 * t.textScale,
         fontWeight: bold ? '700' : '400',
+        flexShrink: 1,
+        minWidth: 0,
       }}
     >
       {children}
@@ -88,6 +91,8 @@ export function Title({ children }: PropsWithChildren) {
         lineHeight: 29 * t.textScale,
         fontWeight: '800',
         letterSpacing: -0.4,
+        flexShrink: 1,
+        minWidth: 0,
         color: t.text,
         marginBottom: 2,
       }}
@@ -107,6 +112,8 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
         {scroll ? (
           <ScrollView
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            onScrollBeginDrag={Keyboard.dismiss}
             contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
           >
             {children}
@@ -114,14 +121,56 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
         ) : (
           <View style={{ flex: 1, padding: 16, gap: 12 }}>{children}</View>
         )}
+        <KeyboardDismissControl />
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+export function KeyboardDismissControl() {
+  const t = useTheme();
+  const [visible, setVisible] = useState(() => Keyboard.isVisible());
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  if (!visible) return null;
+  return (
+    <View
+      style={{
+        alignItems: 'flex-end',
+        paddingHorizontal: 16,
+        backgroundColor: t.card,
+        borderTopWidth: 1,
+        borderColor: t.line,
+      }}
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Ocultar teclado"
+        onPress={Keyboard.dismiss}
+        style={{ minHeight: 44, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+      >
+        <Ionicons name="chevron-down" size={20} color={t.accent} />
+        <Copy bold color={t.accent} size={14}>
+          Ocultar teclado
+        </Copy>
+      </Pressable>
+    </View>
   );
 }
 export function Card({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
   const t = useTheme();
   return (
-    <View style={[{ padding: 16, borderRadius: 20, backgroundColor: t.card, gap: 10 }, style]}>
+    <View
+      style={[
+        { padding: 16, borderRadius: 20, backgroundColor: t.card, gap: 10, minWidth: 0 },
+        style,
+      ]}
+    >
       {children}
     </View>
   );
@@ -166,6 +215,8 @@ export function Button({
           fontWeight: '700',
           color: secondary ? t.text : t.onAccent,
           textAlign: 'center',
+          flexShrink: 1,
+          maxWidth: '100%',
         }}
       >
         {title}
@@ -179,9 +230,14 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
     <View style={{ gap: 6 }}>
       <Copy bold>{label}</Copy>
       <TextInput
+        returnKeyType={props.multiline ? 'default' : 'done'}
         accessibilityLabel={label}
         placeholderTextColor={t.muted}
         {...props}
+        onSubmitEditing={(event) => {
+          props.onSubmitEditing?.(event);
+          if (!props.multiline) Keyboard.dismiss();
+        }}
         style={[
           {
             minHeight: 48,
@@ -302,15 +358,26 @@ export function ProductGlutenLabel({
         : null;
   const warning = unknown || conflict;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1 }}>
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        flexShrink: 1,
+        flexWrap: 'wrap',
+        minWidth: 0,
+      }}
+    >
       {warning ? (
         <Ionicons name="alert-circle-outline" size={compact ? 16 : 22} color="#D4A017" />
       ) : (
         <Copy size={compact ? 12 : 18}>{statusLabels[product.assessment.status].icon}</Copy>
       )}
-      <Copy size={compact ? 12 : 17} bold={!compact}>
-        {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
-      </Copy>
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Copy size={compact ? 12 : 17} bold={!compact}>
+          {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
+        </Copy>
+      </View>
       {report && unknown && free > 0 && !contains && (
         <Copy muted size={11}>
           · sin confirmar

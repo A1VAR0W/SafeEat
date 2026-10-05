@@ -55,6 +55,9 @@ export default function Restaurants() {
   const [editing, setEditing] = useState(false);
   const [params, setParams] = useState<SearchParams>({ q: 'restaurantes', ...initialCenter });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Restaurant | null>(null);
+  const [searchPinned, setSearchPinned] = useState(false);
+  const [nearbyCenter, setNearbyCenter] = useState<Coordinates>(initialCenter);
   const [position, setPosition] = useState<Coordinates | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
@@ -107,10 +110,40 @@ export default function Restaurants() {
         .parse(await api(`/restaurants/search?${query}`, { signal }));
     },
     staleTime: 60000,
+    placeholderData: (previous) => previous,
     gcTime: 300000,
   });
-  const items = search.data?.items ?? emptyItems;
-  const selected = items.find((item) => item.id === selectedId);
+  const nearby = useQuery({
+    queryKey: ['restaurants', { q: 'restaurantes', ...nearbyCenter }, glutenMode],
+    enabled: active && params.q !== 'restaurantes',
+    queryFn: async ({ signal }) => {
+      const query = new URLSearchParams({
+        q: 'restaurantes',
+        latitude: String(nearbyCenter.latitude),
+        longitude: String(nearbyCenter.longitude),
+        ...(glutenMode !== 'all' ? { glutenMode } : {}),
+      });
+      return z
+        .object({ items: z.array(RestaurantSchema) })
+        .parse(await api(`/restaurants/search?${query}`, { signal }));
+    },
+    staleTime: 60000,
+    placeholderData: (previous) => previous,
+    gcTime: 300000,
+  });
+  const items = useMemo(() => {
+    const results = params.q === 'restaurantes' ? search.data?.items : nearby.data?.items;
+    const combined = [
+      ...(results ?? emptyItems),
+      ...(params.q !== 'restaurantes' ? (search.data?.items ?? emptyItems) : emptyItems),
+    ];
+    if (selectedItem && selectedItem.id === selectedId) combined.push(selectedItem);
+    return [...new Map(combined.map((item) => [item.id, item])).values()];
+  }, [params.q, search.data, nearby.data, selectedItem, selectedId]);
+  const selected = selectedId ? items.find((item) => item.id === selectedId) : undefined;
+  const mapSearch = params.q === 'restaurantes' ? search : nearby;
+  const loading = search.isFetching || mapSearch.isFetching;
+  const searchError = search.error ?? mapSearch.error;
   const mappedCount = useMemo(() => items.filter(hasCoordinates).length, [items]);
   const selectedDistance = selected ? distanceLabel(selected, position) : null;
 
@@ -145,17 +178,18 @@ export default function Restaurants() {
       didInteract.current = true;
       center.current = coordinates;
       cancelMove();
+      if (searchPinned || selectedId || editing) return;
       moveTimer.current = setTimeout(() => {
         if (!moved(coordinates, lastSearch.current)) return;
         lastSearch.current = coordinates;
-        setSelectedId(null);
-        setText('');
-        setEditing(false);
         setParams({ q: 'restaurantes', ...coordinates });
       }, 650);
     },
-    [cancelMove],
+    [cancelMove, searchPinned, selectedId, editing],
   );
+  useEffect(() => {
+    cancelMove();
+  }, [cancelMove, searchPinned, selectedId, editing]);
 
   // Tabs stay mounted. GPS and pending searches must stop when this screen is hidden.
   useFocusEffect(
@@ -246,6 +280,8 @@ export default function Restaurants() {
       setText('');
       setEditing(false);
       setSelectedId(null);
+      setSelectedItem(null);
+      setSearchPinned(false);
       Keyboard.dismiss();
       setParams({ q: 'restaurantes', ...coordinates });
       if (result.coords.accuracy !== null && result.coords.accuracy > 100)
@@ -270,6 +306,7 @@ export default function Restaurants() {
       setEditing(false);
       setResultsOpen(false);
       setSelectedId(item.id);
+      setSelectedItem(item);
       if (hasCoordinates(item)) focus(item, 17);
     },
     [cancelMove, focus],
@@ -282,6 +319,9 @@ export default function Restaurants() {
     Keyboard.dismiss();
     setEditing(false);
     setSelectedId(null);
+    setSelectedItem(null);
+    setSearchPinned(true);
+    setNearbyCenter(center.current);
     setParams({ q, ...center.current });
   }
   const centeredSearch = useRef<unknown>(null);
@@ -289,14 +329,18 @@ export default function Restaurants() {
     if (
       !active ||
       !search.isSuccess ||
+      search.isPlaceholderData ||
       params.q === 'restaurantes' ||
-      centeredSearch.current === search.data
+      centeredSearch.current === params
     )
       return;
-    centeredSearch.current = search.data;
+    centeredSearch.current = params;
     const first = search.data.items.find(hasCoordinates);
-    if (first) focus(first, 14);
-  }, [active, params.q, search.data, search.isSuccess, focus]);
+    if (first) {
+      focus(first, 14);
+      setNearbyCenter(first);
+    }
+  }, [active, params, search.data, search.isSuccess, search.isPlaceholderData, focus]);
   function openDetails(item: Restaurant) {
     client.setQueryData(['restaurant', item.id], item);
     router.push({ pathname: '/restaurant/[id]', params: { id: item.id } });
@@ -334,6 +378,20 @@ export default function Restaurants() {
               onSubmitEditing={submit}
             />
           </View>
+          {!!text && !editing && (
+            <IconButton
+              icon="close"
+              label="Borrar búsqueda"
+              onPress={() => {
+                cancelMove();
+                setText('');
+                setSearchPinned(false);
+                setSelectedId(null);
+                setSelectedItem(null);
+                setParams({ q: 'restaurantes', ...center.current });
+              }}
+            />
+          )}
           {editing && (
             <IconButton
               icon="close"
@@ -362,6 +420,7 @@ export default function Restaurants() {
                 setEditing(false);
                 Keyboard.dismiss();
                 setSelectedId(null);
+                setSelectedItem(null);
                 setGlutenMode(value);
               }}
               style={({ pressed }) => ({
@@ -394,6 +453,10 @@ export default function Restaurants() {
           onSelect={select}
           onMove={searchZone}
           onError={setMapError}
+          onMapPress={() => {
+            Keyboard.dismiss();
+            setEditing(false);
+          }}
         />
         {editing && settled.length >= 3 && (
           <View style={[styles.suggestions, styles.shadow, { backgroundColor: t.card }]}>
@@ -417,13 +480,19 @@ export default function Restaurants() {
                     setText(suggestion.label);
                     setEditing(false);
                     setSelectedId(null);
+                    setSelectedItem(null);
+                    setSearchPinned(true);
                     if (suggestion.latitude !== undefined && suggestion.longitude !== undefined) {
                       const coordinates = {
                         latitude: suggestion.latitude,
                         longitude: suggestion.longitude,
                       };
                       focus(coordinates, suggestion.kind === 'place' ? 14 : 16);
-                      setParams({ q: suggestion.query, ...coordinates });
+                      setNearbyCenter(coordinates);
+                      setParams({
+                        q: suggestion.kind === 'place' ? 'restaurantes' : suggestion.query,
+                        ...coordinates,
+                      });
                     } else setParams({ q: suggestion.query, ...center.current });
                   }}
                   style={({ pressed }) => ({
@@ -552,7 +621,7 @@ export default function Restaurants() {
               ) : (
                 <View style={[styles.preview, styles.shadow, { backgroundColor: t.card }]}>
                   <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                    {search.isFetching ? (
+                    {loading ? (
                       <ActivityIndicator
                         color={t.accent}
                         accessibilityLabel="Buscando restaurantes"
@@ -566,27 +635,30 @@ export default function Restaurants() {
                     )}
                     <View style={{ flex: 1, gap: 3 }}>
                       <Copy bold size={16}>
-                        {search.isFetching
+                        {loading
                           ? 'Buscando en esta zona…'
-                          : search.isError
+                          : searchError
                             ? 'No se han podido cargar los lugares'
                             : items.length
                               ? `${items.length}${items.length >= 100 ? '+' : ''} lugares para descubrir`
                               : emptyMessage}
                       </Copy>
                       <Copy muted size={12}>
-                        {search.isError
+                        {searchError
                           ? 'Comprueba tu conexión y vuelve a intentarlo.'
                           : items.length
                             ? 'Toca un marcador o abre los resultados'
                             : 'Mueve el mapa o prueba otra búsqueda.'}
                       </Copy>
                     </View>
-                    {search.isError && (
+                    {!!searchError && (
                       <IconButton
                         icon="refresh"
                         label="Reintentar búsqueda"
-                        onPress={() => void search.refetch()}
+                        onPress={() => {
+                          void search.refetch();
+                          if (params.q !== 'restaurantes') void nearby.refetch();
+                        }}
                       />
                     )}
                   </View>
@@ -609,9 +681,7 @@ export default function Restaurants() {
                 <Copy bold size={14}>
                   Ver resultados{items.length ? ` · ${items.length}` : ''}
                 </Copy>
-                {selected && search.isFetching && (
-                  <ActivityIndicator size="small" color={t.accent} />
-                )}
+                {selected && loading && <ActivityIndicator size="small" color={t.accent} />}
               </Pressable>
             </View>
           </>
@@ -650,9 +720,15 @@ export default function Restaurants() {
                   Elige un restaurante para verlo en el mapa. Confirma las opciones sin gluten con
                   el personal.
                 </Copy>
-                {search.isFetching && <ActivityIndicator color={t.accent} />}
-                {search.error && (
-                  <ErrorNotice error={search.error} retry={() => void search.refetch()} />
+                {loading && <ActivityIndicator color={t.accent} />}
+                {!!searchError && (
+                  <ErrorNotice
+                    error={searchError}
+                    retry={() => {
+                      void search.refetch();
+                      if (params.q !== 'restaurantes') void nearby.refetch();
+                    }}
+                  />
                 )}
                 {mappedCount < items.length && (
                   <Copy muted size={12}>
@@ -663,7 +739,7 @@ export default function Restaurants() {
             }
             ListEmptyComponent={
               <View style={{ gap: 16, paddingVertical: 32 }}>
-                <Copy bold>{search.isFetching ? 'Buscando restaurantes…' : emptyMessage}</Copy>
+                <Copy bold>{loading ? 'Buscando restaurantes…' : emptyMessage}</Copy>
                 <Button title="Volver al mapa" onPress={() => setResultsOpen(false)} />
                 <Button secondary title="Añadir un restaurante" onPress={addRestaurant} />
               </View>
@@ -737,6 +813,7 @@ const styles = StyleSheet.create({
   notice: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 12, borderRadius: 18 },
   preview: { padding: 16, borderRadius: 24, flexShrink: 1 },
   resultsButton: {
+    maxWidth: '100%',
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',

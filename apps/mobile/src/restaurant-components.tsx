@@ -16,9 +16,11 @@ export function RestaurantBadge({ restaurant }: { restaurant: Restaurant }) {
         ? t.muted
         : t.accent;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <View
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0, flexShrink: 1 }}
+    >
       <Ionicons name={status.icon} color={color} size={18} />
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Copy size={13} bold color={color}>
           {status.label}
         </Copy>
@@ -59,9 +61,11 @@ export function DirectionsButton({ restaurant }: { restaurant: Restaurant }) {
       })}
     >
       <Ionicons name="navigate" color={t.onAccent} size={19} />
-      <Copy bold color={t.onAccent}>
-        Cómo llegar
-      </Copy>
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <Copy bold color={t.onAccent}>
+          Cómo llegar
+        </Copy>
+      </View>
     </Pressable>
   );
 }
