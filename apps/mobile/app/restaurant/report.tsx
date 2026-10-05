@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RestaurantSchema } from '@safeeat/contracts';
 import { RestaurantSupportPicker, type RestaurantSupport } from '../../src/restaurant-support';
 import { api, useSession } from '../../src/session';
@@ -10,6 +10,11 @@ export default function RestaurantReport() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useSession();
   const client = useQueryClient();
+  const restaurant = useQuery({
+    queryKey: ['restaurant', id],
+    queryFn: async () =>
+      RestaurantSchema.parse(await api(`/restaurants/${encodeURIComponent(id)}`)),
+  });
   const [support, setSupport] = useState<RestaurantSupport | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -32,6 +37,8 @@ export default function RestaurantReport() {
       );
       client.setQueryData(['restaurant', id], item);
       await client.invalidateQueries({ queryKey: ['restaurants'] });
+      await client.invalidateQueries({ queryKey: ['restaurant'] });
+      await client.invalidateQueries({ queryKey: ['reviews'] });
       router.back();
     } catch (cause) {
       setError(cause);
@@ -47,6 +54,12 @@ export default function RestaurantReport() {
         usuario.
       </Copy>
       <RestaurantSupportPicker value={support} onChange={setSupport} />
+      {restaurant.data?.chain && support !== 'NO_GLUTEN_FREE_OPTIONS' && (
+        <Copy muted>
+          La clasificación se compartirá con los demás locales de {restaurant.data.chain.name}. La
+          preparación puede variar en cada establecimiento.
+        </Copy>
+      )}
       <Field
         label="¿Qué has comprobado?"
         value={note}

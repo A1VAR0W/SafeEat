@@ -31,6 +31,32 @@ afterAll(async () => {
 });
 
 describe('local restaurant catalog', () => {
+  it('imports chain identity and includes sibling branches in dietary searches', async () => {
+    expect((await catalog.get('osm_n_987654324'))?.chain).toEqual({
+      key: 'Q999999998',
+      name: 'Cadena Prueba',
+    });
+    const user = (
+      await db.query(
+        "INSERT INTO users(id,email,password_hash) VALUES(gen_random_uuid(),'catalog-chain-test@example.org','test-only') RETURNING id",
+      )
+    ).rows[0].id;
+    try {
+      await db.query(
+        "INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key) VALUES('osm_n_987654324',$1,'GLUTEN_FREE_OPTIONS','Carta con opciones sin gluten','Q999999998')",
+        [user],
+      );
+      const params = { query: 'restaurantes', latitude: 40.4168, longitude: -3.7038 };
+      expect(
+        (await catalog.search({ ...params, glutenMode: 'options' })).map((r) => r.id),
+      ).toContain('osm_n_987654325');
+      expect(
+        (await catalog.search({ ...params, glutenMode: 'dedicated' })).map((r) => r.id),
+      ).not.toContain('osm_n_987654325');
+    } finally {
+      await db.query('DELETE FROM users WHERE id=$1', [user]);
+    }
+  });
   it('serves the map without an external provider and keeps dietary filters distinct', async () => {
     const nearby = { query: 'restaurantes', latitude: 40.4168, longitude: -3.7038 };
     const all = await catalog.search(nearby);

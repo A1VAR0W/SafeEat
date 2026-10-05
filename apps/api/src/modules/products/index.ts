@@ -9,6 +9,7 @@ import type { Database } from '../../db/pool';
 import type { ProductProvider, ExternalProduct } from '../../providers/types';
 import type { Auth } from '../auth';
 import { notFound, ApiError } from '../../plugins/errors';
+import { reviewRoutes } from '../reviews';
 export function productService(
   app: FastifyInstance,
   db: Database,
@@ -365,6 +366,10 @@ export function productService(
       .header('Content-Type', 'image/jpeg')
       .header('Cache-Control', 'public, max-age=300')
       .send(result.rows[0].photo);
+  });
+  reviewRoutes(app, db, auth, 'products', async (id, user) => {
+    await get(id, user);
+    return {};
   });
   return { get, barcode, hydrateStored };
 }

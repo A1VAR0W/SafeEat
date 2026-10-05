@@ -70,6 +70,8 @@ function record(feature) {
     /^https?:\/\//i.test(website ?? '') ? website : null,
     tags.phone || tags['contact:phone'] || null,
     tags['diet:gluten_free'] || null,
+    /^Q\d+$/.test(tags['brand:wikidata'] ?? '') ? tags['brand:wikidata'] : null,
+    tags.brand || null,
   ];
 }
 
@@ -90,11 +92,11 @@ try {
     const placeholders = batch
       .map(
         (_, i) =>
-          `(${Array.from({ length: 5 }, (_, j) => `$${i * 10 + j + 1}`).join(',')},ST_SetSRID(ST_MakePoint($${i * 10 + 6},$${i * 10 + 7}),4326)::geography,$${i * 10 + 8},$${i * 10 + 9},$${i * 10 + 10})`,
+          `(${Array.from({ length: 5 }, (_, j) => `$${i * 12 + j + 1}`).join(',')},ST_SetSRID(ST_MakePoint($${i * 12 + 6},$${i * 12 + 7}),4326)::geography,$${i * 12 + 8},$${i * 12 + 9},$${i * 12 + 10},$${i * 12 + 11},$${i * 12 + 12})`,
       )
       .join(',');
     await db.query(
-      `INSERT INTO incoming_restaurants(id,region,name,address,category,location,website,phone,gluten_tag) VALUES ${placeholders} ON CONFLICT(id) DO NOTHING`,
+      `INSERT INTO incoming_restaurants(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name) VALUES ${placeholders} ON CONFLICT(id) DO NOTHING`,
       values,
     );
     batch = [];
@@ -114,11 +116,16 @@ try {
   if (!count) throw new Error('No food establishments found; keeping the existing catalog');
   await db.query('DELETE FROM restaurant_catalog WHERE region=$1', [region]);
   await db.query(
-    'INSERT INTO restaurant_catalog(id,region,name,address,category,location,website,phone,gluten_tag) SELECT id,region,name,address,category,location,website,phone,gluten_tag FROM incoming_restaurants ON CONFLICT(id) DO UPDATE SET region=EXCLUDED.region,name=EXCLUDED.name,address=EXCLUDED.address,category=EXCLUDED.category,location=EXCLUDED.location,website=EXCLUDED.website,phone=EXCLUDED.phone,gluten_tag=EXCLUDED.gluten_tag,imported_at=now()',
+    'INSERT INTO restaurant_catalog(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name) SELECT id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name FROM incoming_restaurants ON CONFLICT(id) DO UPDATE SET region=EXCLUDED.region,name=EXCLUDED.name,address=EXCLUDED.address,category=EXCLUDED.category,location=EXCLUDED.location,website=EXCLUDED.website,phone=EXCLUDED.phone,gluten_tag=EXCLUDED.gluten_tag,chain_key=EXCLUDED.chain_key,chain_name=EXCLUDED.chain_name,imported_at=now()',
   );
   await db.query(
     'INSERT INTO restaurant_catalog_imports(region,item_count) VALUES($1,$2) ON CONFLICT(region) DO UPDATE SET imported_at=now(),item_count=$2',
     [region, count],
+  );
+  // Preserve the original reason while extending existing positive reports to known siblings.
+  await db.query(
+    "UPDATE restaurant_gluten_reports r SET chain_key=c.chain_key FROM restaurant_catalog c WHERE r.restaurant_id=c.id AND c.region=$1 AND c.chain_key IS NOT NULL AND r.chain_key IS DISTINCT FROM c.chain_key AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')",
+    [region],
   );
   await db.query('COMMIT');
   console.log(`Imported ${count} ${region} restaurants`);

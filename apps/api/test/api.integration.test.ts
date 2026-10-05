@@ -40,6 +40,7 @@ const restaurants: RestaurantProvider = {
       mapsUrl: 'https://maps.google.com',
       source: 'Google Maps',
       glutenSupport: 'UNKNOWN',
+      chain: id.startsWith('chain-') ? { key: 'Q999999999', name: 'Test chain' } : undefined,
       evidence: [],
       attributions: [],
       fetchedAt: new Date().toISOString(),
@@ -531,6 +532,120 @@ describe.sequential('real PostgreSQL API', () => {
     expect(read.body).not.toContain('password');
     expect((await app.inject(`/api/v1/public/shares/${'f'.repeat(48)}`)).statusCode).toBe(404);
     expect((await app.inject('/api/v1/public/shares/invalid')).statusCode).toBe(400);
+  });
+  it('shows reasons, requires another user, rejects stale confirmations and propagates chain reports', async () => {
+    const reportUrl = '/api/v1/restaurants/chain-one/gluten-report';
+    const post = (url: string, payload: object, session = one) =>
+      app.inject({ method: 'POST', url, payload, headers: bearer(session) });
+    expect(
+      (
+        await post(reportUrl, {
+          support: 'GLUTEN_FREE_OPTIONS',
+          note: 'El personal confirmó una carta sin gluten.',
+        })
+      ).statusCode,
+    ).toBe(200);
+    const sibling = await app.inject('/api/v1/restaurants/chain-two');
+    expect(sibling.json().glutenSupport).toBe('GLUTEN_FREE_OPTIONS');
+    expect((await app.inject('/api/v1/restaurants/unrelated')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    const reviewsUrl = '/api/v1/restaurants/chain-two/reviews';
+    const read = await app.inject(reviewsUrl);
+    expect(read.statusCode).toBe(200);
+    const review = read.json().items[0];
+    expect(review.note).toContain('El personal');
+    expect(review.inherited).toBe(true);
+    expect(review.verifiedAt).toBeNull();
+    expect(read.body).not.toContain(one.user.id);
+    const confirmUrl = `${reviewsUrl}/${review.id}/confirm`;
+    expect((await post(confirmUrl, { revision: review.revision })).statusCode).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: confirmUrl,
+          payload: { revision: review.revision },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(200);
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(200);
+    const confirmed = (await app.inject({ url: reviewsUrl, headers: bearer(two) })).json().items[0];
+    expect(confirmed.confirmations).toBe(1);
+    expect(confirmed.confirmedByMe).toBe(true);
+    expect(confirmed.verifiedAt).toBeTruthy();
+    expect(
+      (
+        await post(
+          '/api/v1/restaurants/unrelated/reviews/' + review.id + '/confirm',
+          { revision: review.revision },
+          two,
+        )
+      ).statusCode,
+    ).toBe(404);
+    await post(reportUrl, {
+      support: 'DEDICATED_GLUTEN_FREE',
+      note: 'El personal confirmó que toda la carta es sin gluten.',
+    });
+    expect((await post(confirmUrl, { revision: review.revision }, two)).statusCode).toBe(409);
+    const changed = (await app.inject(reviewsUrl)).json().items[0];
+    expect(changed.verifiedAt).toBeNull();
+    expect(changed.revision).not.toBe(review.revision);
+    expect((await app.inject('/api/v1/restaurants/chain-two')).json().glutenSupport).toBe(
+      'DEDICATED_GLUTEN_FREE',
+    );
+    await post(
+      '/api/v1/restaurants/chain-two/gluten-report',
+      {
+        support: 'NO_GLUTEN_FREE_OPTIONS',
+        note: 'En este local nos indicaron que no hay opciones.',
+      },
+      two,
+    );
+    expect((await app.inject('/api/v1/restaurants/chain-two')).json().glutenSupport).toBe(
+      'UNKNOWN',
+    );
+    expect((await app.inject('/api/v1/restaurants/chain-three')).json().glutenSupport).toBe(
+      'DEDICATED_GLUTEN_FREE',
+    );
+  });
+  it('also confirms product reasons and invalidates them when edited', async () => {
+    await app.inject('/api/v1/products/barcode/8410000000001');
+    const base = '/api/v1/products/off-8410000000001';
+    const report = (note: string) =>
+      app.inject({
+        method: 'POST',
+        url: `${base}/gluten-report`,
+        headers: bearer(one),
+        payload: { status: 'GLUTEN_FREE', note },
+      });
+    expect((await report('La etiqueta actual indica sin gluten.')).statusCode).toBe(200);
+    const review = (await app.inject(`${base}/reviews`))
+      .json()
+      .items.find((r: { note: string }) => r.note.startsWith('La etiqueta actual'));
+    expect(review).toBeTruthy();
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/reviews/${review.id}/confirm`,
+          headers: bearer(two),
+          payload: { revision: review.revision },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (await app.inject(`${base}/reviews`))
+        .json()
+        .items.find((r: { id: string }) => r.id === review.id).verifiedAt,
+    ).toBeTruthy();
+    await report('La etiqueta nueva también indica sin gluten.');
+    expect(
+      (await app.inject(`${base}/reviews`))
+        .json()
+        .items.find((r: { id: string }) => r.id === review.id).verifiedAt,
+    ).toBeNull();
   });
   it('rotates refresh credentials and revokes the family on reuse', async () => {
     const r = await app.inject({

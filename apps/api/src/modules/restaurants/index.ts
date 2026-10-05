@@ -7,6 +7,7 @@ import type { Auth } from '../auth';
 import type { RestaurantProvider, RestaurantSearch } from '../../providers/types';
 import { notFound } from '../../plugins/errors';
 import { restaurantCatalog } from './catalog';
+import { reviewRoutes } from '../reviews';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -49,8 +50,11 @@ export function restaurantService(
       options: number;
       no_options: number;
     }>(
-      "SELECT restaurant_id,count(*) FILTER (WHERE support='DEDICATED_GLUTEN_FREE')::int AS dedicated,count(*) FILTER (WHERE support='GLUTEN_FREE_OPTIONS')::int AS options,count(*) FILTER (WHERE support='NO_GLUTEN_FREE_OPTIONS')::int AS no_options FROM restaurant_gluten_reports WHERE restaurant_id=ANY($1::text[]) GROUP BY restaurant_id",
-      [items.map((item) => item.id)],
+      `SELECT target.id AS restaurant_id,count(*) FILTER (WHERE r.support='DEDICATED_GLUTEN_FREE')::int AS dedicated,count(*) FILTER (WHERE r.support='GLUTEN_FREE_OPTIONS')::int AS options,count(*) FILTER (WHERE r.support='NO_GLUTEN_FREE_OPTIONS')::int AS no_options
+       FROM unnest($1::text[],$2::text[]) AS target(id,chain_key)
+       JOIN restaurant_gluten_reports r ON r.restaurant_id=target.id OR (r.chain_key=target.chain_key AND r.chain_key IS NOT NULL)
+       GROUP BY target.id`,
+      [items.map((item) => item.id), items.map((item) => item.chain?.key ?? null)],
     );
     const byId = new Map(reports.rows.map((report) => [report.restaurant_id, report]));
     return items.map((item) => {
@@ -77,9 +81,9 @@ export function restaurantService(
         ...item,
         glutenSupport: conflict
           ? 'UNKNOWN'
-          : item.glutenSupport === 'UNKNOWN'
-            ? fromUsers
-            : item.glutenSupport,
+          : fromUsers === 'UNKNOWN'
+            ? item.glutenSupport
+            : fromUsers,
         evidence: [
           ...(item.glutenSupport === 'UNKNOWN' ? [] : item.evidence),
           {
@@ -274,10 +278,16 @@ export function restaurantService(
         .object({ support, note: z.string().trim().min(10).max(500) })
         .strict()
         .parse(request.body);
-      await get(id);
+      const item = await get(id);
       await db.query(
-        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note) VALUES($1,$2,$3,$4) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,updated_at=now()',
-        [id, request.user.sub, body.support, body.note],
+        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,chain_key=$5,updated_at=now()',
+        [
+          id,
+          request.user.sub,
+          body.support,
+          body.note,
+          body.support === 'NO_GLUTEN_FREE_OPTIONS' ? null : (item.chain?.key ?? null),
+        ],
       );
       return get(id);
     },
@@ -285,6 +295,7 @@ export function restaurantService(
   app.get('/api/v1/restaurants/:id', async (request) =>
     get(z.object({ id: restaurantId }).parse(request.params).id),
   );
+  reviewRoutes(app, db, auth, 'restaurants', get);
   return { get };
 }
 export type Restaurants = ReturnType<typeof restaurantService>;

@@ -19,6 +19,7 @@ import {
 } from '../../src/ui';
 import { es } from '../../src/i18n';
 import { CollectionPicker } from '../../src/collections';
+import { CommunityReviews } from '../../src/community-reviews';
 export default function ProductDetail() {
   const { id, shareToken } = useLocalSearchParams<{ id: string; shareToken?: string }>();
   const query = useProduct(id, shareToken),
@@ -72,6 +73,7 @@ export default function ProductDetail() {
             </Copy>
           )}
           {!shareToken && <CollectionPicker productId={p.id} />}
+          {!shareToken && !p.userCreated && <CommunityReviews kind="products" id={p.id} />}
           {(p.stale ||
             query.isError ||
             Date.now() - new Date(p.fetchedAt).getTime() > 86400000) && (

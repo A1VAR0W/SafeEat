@@ -13,6 +13,7 @@ import {
   RestaurantBadge,
 } from '../../src/restaurant-components';
 import { restaurantStatus } from '../../src/restaurant-presentation';
+import { CommunityReviews } from '../../src/community-reviews';
 
 export default function RestaurantDetail() {
   const t = useTheme();
@@ -136,6 +137,7 @@ export default function RestaurantDetail() {
               onPress={() => router.push({ pathname: '/restaurant/report', params: { id: r.id } })}
             />
           </Card>
+          <CommunityReviews kind="restaurants" id={r.id} />
         </>
       )}
     </Screen>

@@ -32,6 +32,7 @@ export default function ProductReport() {
       client.setQueryData(['product', id], product);
       await client.invalidateQueries({ queryKey: ['product', id] });
       await client.invalidateQueries({ queryKey: ['favorites-products'] });
+      await client.invalidateQueries({ queryKey: ['reviews'] });
       router.back();
     } catch (cause) {
       setError(cause);

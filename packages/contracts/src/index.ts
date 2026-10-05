@@ -62,6 +62,19 @@ export const ProductSchema = z.object({
   userCreated: z.boolean().default(false),
 });
 export type Product = z.infer<typeof ProductSchema>;
+export const CommunityReviewSchema = z.object({
+  id: z.string().uuid(),
+  revision: z.string().uuid(),
+  own: z.boolean(),
+  confirmedByMe: z.boolean(),
+  note: z.string(),
+  status: z.string(),
+  updatedAt: z.string(),
+  verifiedAt: z.string().nullable(),
+  confirmations: z.number().int(),
+  inherited: z.boolean(),
+});
+export type CommunityReview = z.infer<typeof CommunityReviewSchema>;
 export const RestaurantSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -78,6 +91,7 @@ export const RestaurantSchema = z.object({
     'UNKNOWN',
   ]),
   communityCreated: z.boolean().optional(),
+  chain: z.object({ key: z.string(), name: z.string() }).optional(),
   glutenReports: z
     .object({
       dedicated: z.number().int().min(0),

@@ -11,6 +11,8 @@ type CatalogRow = {
   website: string | null;
   phone: string | null;
   gluten_tag: string | null;
+  chain_key?: string | null;
+  chain_name?: string | null;
   imported_at: Date;
 };
 
@@ -35,6 +37,7 @@ export function catalogRestaurant(row: CatalogRow): Restaurant {
     phone: row.phone || undefined,
     mapsUrl: `https://www.openstreetmap.org/${osmKind}/${osmId}`,
     glutenSupport,
+    chain: row.chain_key ? { key: row.chain_key, name: row.chain_name || row.name } : undefined,
     evidence: [
       {
         source: 'OpenStreetMap',
@@ -58,7 +61,7 @@ export function catalogRestaurant(row: CatalogRow): Restaurant {
 }
 
 const fields =
-  'id,name,address,ST_Y(location::geometry) AS latitude,ST_X(location::geometry) AS longitude,website,phone,gluten_tag,imported_at';
+  'id,name,address,ST_Y(location::geometry) AS latitude,ST_X(location::geometry) AS longitude,website,phone,gluten_tag,chain_key,chain_name,imported_at';
 
 export function restaurantCatalog(db: Database) {
   async function ready() {
@@ -82,9 +85,9 @@ export function restaurantCatalog(db: Database) {
     if (broad && !nearby) return [];
     const filter =
       params.glutenMode === 'dedicated'
-        ? "AND (gluten_tag='only' OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE r.restaurant_id=restaurant_catalog.id AND r.support='DEDICATED_GLUTEN_FREE'))"
+        ? "AND (gluten_tag='only' OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key) AND r.support='DEDICATED_GLUTEN_FREE'))"
         : params.glutenFree || params.glutenMode === 'options'
-          ? "AND (gluten_tag IN ('only','yes') OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE r.restaurant_id=restaurant_catalog.id AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')))"
+          ? "AND (gluten_tag IN ('only','yes') OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key) AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')))"
           : '';
     const point = 'ST_SetSRID(ST_MakePoint($2,$3),4326)::geography';
     const location = nearby ? `AND ST_DWithin(location,${point},$4)` : '';

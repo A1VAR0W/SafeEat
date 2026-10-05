@@ -85,6 +85,9 @@ function restaurant(input: {
     phone: input.tags?.phone || input.tags?.['contact:phone'],
     mapsUrl,
     glutenSupport,
+    chain: /^Q\d+$/.test(input.tags?.['brand:wikidata'] ?? '')
+      ? { key: input.tags!['brand:wikidata']!, name: input.tags?.brand || input.name }
+      : undefined,
     evidence: [
       {
         source: 'OpenStreetMap',
