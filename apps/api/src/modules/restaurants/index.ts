@@ -193,7 +193,9 @@ export function restaurantService(
                 .suggest(
                   q,
                   location,
-                  AbortSignal.any([disconnected.signal, AbortSignal.timeout(1800)]),
+                  // Local suggestions arrive in a separate fast request. Allow the
+                  // enrichment request enough time to return real cities/streets.
+                  AbortSignal.any([disconnected.signal, AbortSignal.timeout(6500)]),
                 )
                 .catch(() => [])
             : Promise.resolve([]),
