@@ -83,6 +83,15 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-splash-screen',
+      {
+        image: './assets/safeeat-splash.png',
+        imageWidth: 200,
+        backgroundColor: '#F5F9F4',
+        dark: { backgroundColor: '#071C16' },
+      },
+    ],
     'expo-maps',
     '@maplibre/maplibre-react-native',
     '@react-native-community/datetimepicker',
