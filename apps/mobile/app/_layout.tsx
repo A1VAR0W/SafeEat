@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { AppState, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, SplashScreen, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { focusManager, onlineManager } from '@tanstack/react-query';
@@ -12,7 +12,16 @@ import { Copy, useReducedMotion, useTheme } from '../src/ui';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { UpdateModal } from '../src/updates/update-modal';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+void SplashScreen.preventAutoHideAsync();
 export default function Layout() {
+  const navigation = useRootNavigationState();
+  useEffect(() => {
+    if (!navigation?.key) return;
+    const frame = requestAnimationFrame(() => {
+      void SplashScreen.hideAsync();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [navigation?.key]);
   const t = useTheme();
   const reduced = useReducedMotion();
   const network = useNetInfo();

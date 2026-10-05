@@ -50,7 +50,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
                 pathname: '/scan/ingredients',
                 params: { barcode: returnTo.slice('ingredients:'.length) },
               }
-            : '/(tabs)/home',
+            : '/(tabs)',
       );
     } catch (e) {
       setError(e);

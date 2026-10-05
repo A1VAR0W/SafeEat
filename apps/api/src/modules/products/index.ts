@@ -58,8 +58,20 @@ export function productService(
   }
   async function withReports(item: Product): Promise<Product> {
     if (item.userCreated) return item;
-    const reports = await db.query<{ gluten_free: number; contains_gluten: number }>(
-      "SELECT count(*) FILTER (WHERE status='GLUTEN_FREE')::int AS gluten_free, count(*) FILTER (WHERE status='CONTAINS_GLUTEN')::int AS contains_gluten FROM product_gluten_reports WHERE product_id=$1",
+    const reports = await db.query<{
+      gluten_free: number;
+      contains_gluten: number;
+      verified_free: number;
+      verified_contains: number;
+    }>(
+      `WITH reports AS (SELECT r.status,
+        EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=r.user_id AND ur.role_code='authorized_celiac')
+        OR EXISTS(SELECT 1 FROM review_confirmations c WHERE c.kind='products' AND c.report_id=r.id AND c.revision=r.revision) AS verified
+        FROM product_gluten_reports r WHERE r.product_id=$1)
+       SELECT count(*) FILTER (WHERE status='GLUTEN_FREE')::int AS gluten_free,
+       count(*) FILTER (WHERE status='CONTAINS_GLUTEN')::int AS contains_gluten,
+       count(*) FILTER (WHERE status='GLUTEN_FREE' AND verified)::int AS verified_free,
+       count(*) FILTER (WHERE status='CONTAINS_GLUTEN' AND verified)::int AS verified_contains FROM reports`,
       [item.id],
     );
     return ProductSchema.parse({
@@ -67,6 +79,10 @@ export function productService(
       glutenReports: {
         glutenFree: reports.rows[0]?.gluten_free ?? 0,
         containsGluten: reports.rows[0]?.contains_gluten ?? 0,
+      },
+      verifiedGlutenReports: {
+        glutenFree: reports.rows[0]?.verified_free ?? 0,
+        containsGluten: reports.rows[0]?.verified_contains ?? 0,
       },
     });
   }

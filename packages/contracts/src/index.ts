@@ -50,6 +50,9 @@ export const ProductSchema = z.object({
   glutenReports: z
     .object({ glutenFree: z.number().int().min(0), containsGluten: z.number().int().min(0) })
     .optional(),
+  verifiedGlutenReports: z
+    .object({ glutenFree: z.number().int().min(0), containsGluten: z.number().int().min(0) })
+    .optional(),
   ingredients: z.string().optional(),
   assessment: AssessmentSchema,
   nutrition: NutritionInputSchema,
@@ -71,6 +74,7 @@ export const CommunityReviewSchema = z.object({
   status: z.string(),
   updatedAt: z.string(),
   verifiedAt: z.string().nullable(),
+  verificationMethod: z.enum(['manual', 'authorized']).nullable().default(null),
   confirmations: z.number().int(),
   inherited: z.boolean(),
 });
@@ -92,6 +96,9 @@ export const RestaurantSchema = z.object({
   ]),
   communityCreated: z.boolean().optional(),
   chain: z.object({ key: z.string(), name: z.string() }).optional(),
+  reviewGroup: z
+    .object({ key: z.string(), name: z.string(), count: z.number().int().min(2) })
+    .optional(),
   rating: z
     .object({
       average: z.number().min(1).max(5),

@@ -126,7 +126,7 @@ try {
   await db.query('SELECT refresh_restaurant_chains()');
   // Preserve the original reason while extending existing positive reports to known siblings.
   await db.query(
-    "UPDATE restaurant_gluten_reports r SET chain_key=c.chain_key FROM restaurant_catalog c WHERE r.restaurant_id=c.id AND c.region=$1 AND c.chain_key IS NOT NULL AND r.chain_key IS DISTINCT FROM c.chain_key AND r.support IN ('DEDICATED_GLUTEN_FREE','GLUTEN_FREE_OPTIONS')",
+    "UPDATE restaurant_gluten_reports r SET chain_key=c.chain_key FROM restaurant_catalog c WHERE r.restaurant_id=c.id AND c.region=$1 AND c.chain_key IS NOT NULL AND r.chain_key IS DISTINCT FROM c.chain_key AND r.scope='chain'",
     [region],
   );
   await db.query('COMMIT');

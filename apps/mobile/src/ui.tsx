@@ -313,21 +313,27 @@ export function ProductGlutenLabel({
   product: Product;
   compact?: boolean;
 }) {
+  const t = useTheme();
   const free = product.glutenReports?.glutenFree ?? 0;
   const contains = product.glutenReports?.containsGluten ?? 0;
   const unknown = product.assessment.status === 'UNKNOWN';
+  const verified =
+    (contains > 0 && free === 0 && !!product.verifiedGlutenReports?.containsGluten) ||
+    (free > 0 && contains === 0 && !!product.verifiedGlutenReports?.glutenFree);
   const conflict =
     (free > 0 && contains > 0) ||
     (contains > 0 && product.assessment.status === 'GLUTEN_FREE') ||
     (free > 0 && product.assessment.status === 'CONTAINS_GLUTEN');
   const report = conflict
     ? 'Información sobre gluten contradictoria'
-    : unknown && contains
-      ? `${contains} usuario${contains === 1 ? '' : 's'} indica${contains === 1 ? '' : 'n'} gluten`
-      : unknown && free
-        ? `${free} usuario${free === 1 ? '' : 's'} indica${free === 1 ? '' : 'n'} sin gluten`
-        : null;
-  const warning = unknown || conflict;
+    : unknown && verified
+      ? `Revisión verificada: ${contains ? 'contiene gluten' : 'sin gluten'}`
+      : unknown && contains
+        ? `${contains} usuario${contains === 1 ? '' : 's'} indica${contains === 1 ? '' : 'n'} gluten`
+        : unknown && free
+          ? `${free} usuario${free === 1 ? '' : 's'} indica${free === 1 ? '' : 'n'} sin gluten`
+          : null;
+  const warning = (unknown && !verified) || conflict;
   return (
     <View
       style={{
@@ -341,6 +347,8 @@ export function ProductGlutenLabel({
     >
       {warning ? (
         <Ionicons name="alert-circle-outline" size={compact ? 16 : 22} color="#D4A017" />
+      ) : unknown && verified ? (
+        <Ionicons name="checkmark-circle" size={compact ? 16 : 22} color={t.accent} />
       ) : (
         <Copy size={compact ? 12 : 18}>{statusLabels[product.assessment.status].icon}</Copy>
       )}
@@ -349,7 +357,7 @@ export function ProductGlutenLabel({
           {report ?? (unknown ? 'No verificado' : statusLabels[product.assessment.status].label)}
         </Copy>
       </View>
-      {report && unknown && free > 0 && !contains && (
+      {report && unknown && free > 0 && !contains && !verified && (
         <Copy muted size={11}>
           · sin confirmar
         </Copy>

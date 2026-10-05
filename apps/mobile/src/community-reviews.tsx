@@ -85,11 +85,15 @@ export function CommunityReviews({ kind, id }: { kind: 'products' | 'restaurants
               <Ionicons name="checkmark-circle" color={t.accent} size={22} />
               <View style={{ flex: 1 }}>
                 <Copy bold color={t.accent} size={14}>
-                  Verificado manual · {new Date(review.verifiedAt).toLocaleDateString('es-ES')}
+                  {review.verificationMethod === 'authorized'
+                    ? 'Verificado · Celíaco autorizado'
+                    : 'Verificado manual'}{' '}
+                  · {new Date(review.verifiedAt).toLocaleDateString('es-ES')}
                 </Copy>
                 <Copy muted size={12}>
-                  Motivo confirmado por {review.confirmations}{' '}
-                  {review.confirmations === 1 ? 'persona' : 'personas'}
+                  {review.verificationMethod === 'authorized'
+                    ? 'Revisión de una persona autorizada'
+                    : `Motivo confirmado por ${review.confirmations} ${review.confirmations === 1 ? 'persona' : 'personas'}`}
                 </Copy>
               </View>
             </View>
@@ -103,7 +107,8 @@ export function CommunityReviews({ kind, id }: { kind: 'products' | 'restaurants
               Has confirmado este motivo
             </Copy>
           ) : (
-            !review.own && (
+            !review.own &&
+            review.verificationMethod !== 'authorized' && (
               <Button
                 secondary
                 title={

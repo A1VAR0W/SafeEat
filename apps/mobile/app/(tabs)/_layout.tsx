@@ -25,7 +25,7 @@ export default function TabLayout() {
     >
       {(
         [
-          { name: 'home', title: 'Explorar', icon: 'compass-outline' },
+          { name: 'index', title: 'Explorar', icon: 'compass-outline' },
           { name: 'restaurants', title: 'Restaurantes', icon: 'restaurant-outline' },
           { name: 'favorites', title: 'Guardados', icon: 'bookmark-outline' },
         ] as const

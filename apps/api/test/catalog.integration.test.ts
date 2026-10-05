@@ -70,7 +70,7 @@ describe('local restaurant catalog', () => {
     ).rows[0].id;
     try {
       await db.query(
-        "INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key) VALUES('osm_n_987654324',$1,'GLUTEN_FREE_OPTIONS','Carta con opciones sin gluten','Q999999998')",
+        "INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key,scope) VALUES('osm_n_987654324',$1,'GLUTEN_FREE_OPTIONS','Carta con opciones sin gluten','Q999999998','chain')",
         [user],
       );
       const params = { query: 'restaurantes', latitude: 40.4168, longitude: -3.7038 };

@@ -5,12 +5,12 @@ import { RestaurantSchema, type Restaurant } from '@safeeat/contracts';
 import type { Database } from '../../db/pool';
 import type { Auth } from '../auth';
 import type { RestaurantProvider, RestaurantSearch } from '../../providers/types';
-import { notFound } from '../../plugins/errors';
+import { ApiError, notFound } from '../../plugins/errors';
 import { restaurantCatalog } from './catalog';
 import { reviewRoutes } from '../reviews';
 import { combineSuggestions } from './suggestions';
 import { restaurantRatings } from './ratings';
-import { matchesRestaurantSearch } from './search';
+import { matchesRestaurantSearch, restaurantSearchName } from './search';
 
 export const restaurantId = z.string().regex(/^[A-Za-z0-9_-]{1,200}$/);
 const support = z.enum(['DEDICATED_GLUTEN_FREE', 'GLUTEN_FREE_OPTIONS', 'NO_GLUTEN_FREE_OPTIONS']);
@@ -47,7 +47,7 @@ export function restaurantService(
   const catalog = restaurantCatalog(db);
   async function withReports(items: Restaurant[]): Promise<Restaurant[]> {
     if (!items.length) return items;
-    const [aliases, ratings] = await Promise.all([
+    const [aliases, ratings, groups] = await Promise.all([
       db.query<{ id: string; chain_key: string; chain_name: string }>(
         `SELECT target.id,a.chain_key,a.chain_name FROM unnest($1::text[],$2::text[]) AS target(id,name)
          JOIN restaurant_chain_aliases a ON a.alias=restaurant_brand_name(regexp_replace(target.name,'\\s+[-–·]\\s+.*$',''))`,
@@ -60,6 +60,13 @@ export function restaurantService(
         'SELECT restaurant_id,avg(stars)::float8 AS average,count(*)::int AS count FROM restaurant_ratings WHERE restaurant_id=ANY($1::text[]) GROUP BY restaurant_id',
         [items.map((item) => item.id)],
       ),
+      db.query<{ name_key: string; name: string; count: number }>(
+        `SELECT name_key,min(name) AS name,count(DISTINCT id)::int AS count FROM (
+           SELECT id,name,restaurant_brand_name(name) AS name_key FROM restaurant_catalog WHERE restaurant_brand_name(name)=ANY($1::text[]) AND restaurant_brand_name(name)<>''
+           UNION ALL SELECT id,name,restaurant_brand_name(name) AS name_key FROM community_restaurants WHERE restaurant_brand_name(name)=ANY($1::text[]) AND restaurant_brand_name(name)<>''
+         ) matches GROUP BY name_key HAVING count(DISTINCT id)>1`,
+        [items.map((item) => restaurantSearchName(item.name))],
+      ),
     ]);
     const chains = new Map(
       aliases.rows.map((row) => [row.id, { key: row.chain_key, name: row.chain_name }]),
@@ -67,10 +74,17 @@ export function restaurantService(
     const scores = new Map(
       ratings.rows.map((row) => [row.restaurant_id, { average: row.average, count: row.count }]),
     );
+    const sameNames = new Map(
+      groups.rows.map((row) => [
+        row.name_key,
+        { key: `name:${row.name_key}`, name: row.name, count: row.count },
+      ]),
+    );
     items = items.map((item) => ({
       ...item,
       chain: item.chain ?? chains.get(item.id),
       rating: scores.get(item.id),
+      reviewGroup: sameNames.get(restaurantSearchName(item.name)),
     }));
     const reports = await db.query<{
       restaurant_id: string;
@@ -88,7 +102,10 @@ export function restaurantService(
        count(*) FILTER (WHERE support='GLUTEN_FREE_OPTIONS')::int AS options,
        count(*) FILTER (WHERE support='NO_GLUTEN_FREE_OPTIONS')::int AS no_options
        FROM relevant GROUP BY restaurant_id`,
-      [items.map((item) => item.id), items.map((item) => item.chain?.key ?? null)],
+      [
+        items.map((item) => item.id),
+        items.map((item) => item.chain?.key ?? item.reviewGroup?.key ?? null),
+      ],
     );
     const byId = new Map(reports.rows.map((report) => [report.restaurant_id, report]));
     return items.map((item) => {
@@ -344,19 +361,26 @@ export function restaurantService(
     async (request) => {
       const id = z.object({ id: restaurantId }).parse(request.params).id;
       const body = z
-        .object({ support, note: z.string().trim().min(10).max(500) })
+        .object({
+          support,
+          note: z.string().trim().min(10).max(500),
+          scope: z.enum(['local', 'chain']).optional(),
+        })
         .strict()
         .parse(request.body);
       const item = await get(id);
+      const scope =
+        body.scope ?? (body.support !== 'NO_GLUTEN_FREE_OPTIONS' && item.chain ? 'chain' : 'local');
+      const chainKey = item.chain?.key ?? item.reviewGroup?.key;
+      if (scope === 'chain' && !chainKey)
+        throw new ApiError(
+          400,
+          'CHAIN_NOT_AVAILABLE',
+          'Todavía no encontramos otros locales de este restaurante.',
+        );
       await db.query(
-        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,chain_key=$5,updated_at=now()',
-        [
-          id,
-          request.user.sub,
-          body.support,
-          body.note,
-          body.support === 'NO_GLUTEN_FREE_OPTIONS' ? null : (item.chain?.key ?? null),
-        ],
+        'INSERT INTO restaurant_gluten_reports(restaurant_id,user_id,support,note,chain_key,scope) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(restaurant_id,user_id) DO UPDATE SET support=$3,note=$4,chain_key=$5,scope=$6,updated_at=now()',
+        [id, request.user.sub, body.support, body.note, scope === 'chain' ? chainKey : null, scope],
       );
       return get(id);
     },
