@@ -29,6 +29,7 @@ jobs:
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm test
+      - run: python3 -m unittest discover -s infrastructure/production -p test_release_publisher.py
       - run: npm run test:integration
       - run: npm run build
       - run: npm run mobile:check

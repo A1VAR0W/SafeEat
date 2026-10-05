@@ -1,5 +1,6 @@
 import type { ExpoConfig } from 'expo/config';
 import { version } from '../../package.json';
+import { androidVersionCode } from '../../release.json';
 const environment = process.env.APP_ENV ?? 'development';
 if (!['development', 'preproduction', 'production'].includes(environment))
   throw new Error('Invalid APP_ENV');
@@ -60,7 +61,7 @@ const config: ExpoConfig = {
       foregroundImage: './assets/safeeat-adaptive-foreground.png',
       backgroundColor: '#006B4E',
     },
-    versionCode: Number(process.env.BUILD_NUMBER ?? 1),
+    versionCode: androidVersionCode,
     allowBackup: false,
     blockedPermissions: [
       'android.permission.RECORD_AUDIO',

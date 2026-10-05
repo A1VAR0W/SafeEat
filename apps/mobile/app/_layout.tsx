@@ -10,6 +10,7 @@ import { restoreSession } from '../src/session';
 import { loadPreferences } from '../src/preferences';
 import { Copy, useReducedMotion, useTheme } from '../src/ui';
 import { useNetInfo } from '@react-native-community/netinfo';
+import { UpdateModal } from '../src/updates/update-modal';
 export default function Layout() {
   const t = useTheme();
   const reduced = useReducedMotion();
@@ -111,6 +112,7 @@ export default function Layout() {
         <Stack.Screen name="scan/result" options={{ title: 'Tu etiqueta' }} />
         <Stack.Screen name="settings" options={{ title: 'Ajustes y privacidad' }} />
       </Stack>
+      <UpdateModal />
     </PersistQueryClientProvider>
   );
 }

@@ -1,0 +1,19 @@
+[Unit]
+Description=SafeEat authenticated Android release publisher
+After=network.target
+
+[Service]
+User=server
+Group=server
+EnvironmentFile=/etc/safeeat-release-publisher.env
+ExecStart=/usr/bin/python3 /opt/safeeat/infrastructure/production/release-publisher.py
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/www/safeeat-downloads/releases
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Alert, Linking, Platform } from 'react-native';
+import { checkForUpdate } from '../src/updates/service';
 import Constants from 'expo-constants';
 import { Button, Card, Copy, ErrorNotice, Screen } from '../src/ui';
 import { SegmentedControl, SettingRow } from '../src/compact';
@@ -135,6 +136,27 @@ export default function Settings() {
         }}
       />
       {!!connection && <Copy size={13}>{connection}</Copy>}
+      <Copy muted size={13}>
+        SafeEat {Constants.expoConfig?.version}
+      </Copy>
+      {Platform.OS === 'android' && (
+        <Button
+          secondary
+          title="Buscar actualizaciones"
+          onPress={() => {
+            setMessage('Buscando actualizaciones…');
+            void checkForUpdate(true).then((result) =>
+              setMessage(
+                result === 'current'
+                  ? 'Ya tienes la última versión.'
+                  : result === 'available'
+                    ? ''
+                    : 'No hemos podido comprobarlo. Puedes volver a intentarlo más tarde.',
+              ),
+            );
+          }}
+        />
+      )}
     </Screen>
   );
 }

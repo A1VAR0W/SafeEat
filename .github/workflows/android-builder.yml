@@ -1,5 +1,7 @@
 name: Android Builder
 on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
     inputs:
       target_environment:
@@ -21,17 +23,17 @@ on:
       ANDROID_KEY_ALIAS: { required: false }
       ANDROID_KEY_PASSWORD: { required: false }
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
+    if: github.event_name != 'push' || vars.ANDROID_TAG_BUILDS != 'paused'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: ${{ inputs.target_environment || 'preproduction' }}
+    environment: ${{ github.event_name == 'push' && 'production' || inputs.target_environment || 'preproduction' }}
     env:
-      APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
+      APP_ENV: ${{ github.event_name == 'push' && 'production' || inputs.target_environment || 'preproduction' }}
       API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
       PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
-      BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,20 +45,42 @@ jobs:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
+      - name: Validate release tag
+        if: github.event_name == 'push'
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./package.json').version")"
       - name: Verify public release environment
         run: mkdir -p artifacts && node scripts/check-native-environment.mjs
       - run: npm run typecheck
+      - run: npm test
       - run: npx expo prebuild --platform android --no-install
         working-directory: apps/mobile
       - name: Build, sign and validate APK
         run: bash scripts/build-android.sh
         env:
-          PRODUCTION_SIGNING: ${{ inputs.production_signing }}
+          PRODUCTION_SIGNING: ${{ github.event_name == 'push' || inputs.production_signing }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace published APK.'
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "artifacts/SafeEat-$version.apk" --verify-tag --title "SafeEat $version" --generate-notes --latest
+      - name: Publish private release to download server
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SAFEEAT_RELEASE_PUBLISH_TOKEN: ${{ secrets.SAFEEAT_RELEASE_PUBLISH_TOKEN }}
+        run: node scripts/publish-android-release.mjs "$GITHUB_REF_NAME" "artifacts/SafeEat-$(node -p "require('./package.json').version").apk"
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
         with:
           name: SafeEat-Android-${{ inputs.target_environment || 'preproduction' }}
           path: artifacts/SafeEat-*.apk
