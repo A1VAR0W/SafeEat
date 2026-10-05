@@ -36,7 +36,7 @@ export default function Home() {
     queryFn: async () => [],
     staleTime: Infinity,
   });
-  const search = useQuery({
+  const search = useQuery<{ items: Product[] }>({
     queryKey: ['search', settled],
     enabled: active && query.length >= 2 && query === settled,
     placeholderData: (previous) => previous,
