@@ -27,9 +27,13 @@ const review = z.object({
   status: z.string(),
   note: z.string(),
   scope: z.string(),
+  authorId: z.string().uuid(),
   authorName: z.string(),
   authorEmail: z.string(),
   updatedAt: z.string(),
+  verifiedAt: z.string().nullable(),
+  verificationMethod: z.enum(['authorized', 'manual']).nullable(),
+  confirmations: z.number().int(),
   revokedAt: z.string().nullable(),
   revocationReason: z.string().nullable(),
 });
@@ -146,6 +150,28 @@ export default function Admin() {
       ]);
     },
   });
+  const verifyProduct = useMutation({
+    mutationFn: (item: Review) =>
+      api(
+        `/admin/reviews/products/${item.id}/verify`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ revision: item.revision }),
+        },
+        true,
+      ),
+    onSuccess: async () => {
+      setNotice('Producto verificado desde el panel de administración.');
+      await Promise.all(
+        ['admin-reviews', 'reviews', 'product', 'barcode', 'favorites-products', 'recent'].map(
+          (key) => client.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+    },
+    onError: () => {
+      void client.invalidateQueries({ queryKey: ['admin-reviews'] });
+    },
+  });
   const moderation = useMutation({
     mutationFn: (input: {
       id: string;
@@ -204,7 +230,8 @@ export default function Admin() {
       void client.invalidateQueries({ queryKey: ['admin-reviews'] });
     },
   });
-  const failure = users.error ?? reviews.error ?? grant.error ?? moderation.error;
+  const failure =
+    users.error ?? reviews.error ?? grant.error ?? verifyProduct.error ?? moderation.error;
   const denied = failure instanceof RequestError && failure.status === 403;
   useEffect(() => {
     if (denied) {
@@ -316,6 +343,7 @@ export default function Admin() {
           <ErrorNotice error={current.error} retry={() => void current.refetch()} />
         )}
         {grant.error && <ErrorNotice error={grant.error} />}
+        {verifyProduct.error && <ErrorNotice error={verifyProduct.error} />}
         {tab === 'users'
           ? users.data?.pages
               .flatMap((page) => page.items)
@@ -383,6 +411,40 @@ export default function Admin() {
                       Revocada: {item.revocationReason}
                     </Copy>
                   )}
+                  {item.verifiedAt && (
+                    <Copy color={t.accent} size={13} bold>
+                      {item.verificationMethod === 'authorized'
+                        ? 'Verificado por celíaco autorizado'
+                        : `Verificado manualmente · ${item.confirmations} confirmación${item.confirmations === 1 ? '' : 'es'}`}{' '}
+                      · {new Date(item.verifiedAt).toLocaleDateString('es-ES')}
+                    </Copy>
+                  )}
+                  {kind === 'products' &&
+                    !item.revokedAt &&
+                    !item.verifiedAt &&
+                    item.authorId !== user?.id && (
+                      <Button
+                        title={
+                          verifyProduct.isPending && verifyProduct.variables?.id === item.id
+                            ? 'Verificando…'
+                            : 'Verificar producto'
+                        }
+                        disabled={verifyProduct.isPending}
+                        onPress={() =>
+                          Alert.alert(
+                            'Verificar producto',
+                            `Comprueba personalmente esta aportación antes de verificarla.\n\n${item.resourceName}\n${item.note || 'Sin motivo añadido'}`,
+                            [
+                              { text: 'Cancelar', style: 'cancel' },
+                              {
+                                text: 'Verificar',
+                                onPress: () => verifyProduct.mutate(item),
+                              },
+                            ],
+                          )
+                        }
+                      />
+                    )}
                   <Button
                     secondary
                     title="Ver ficha"

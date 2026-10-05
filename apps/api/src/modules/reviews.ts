@@ -54,6 +54,19 @@ export function reviewRoutes(
         .object({ id: z.string().max(200), reviewId: z.string().uuid() })
         .parse(request.params);
       const { revision } = z.object({ revision: z.string().uuid() }).strict().parse(request.body);
+      if (
+        kind === 'products' &&
+        (
+          await db.query("SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='ADMIN'", [
+            request.user.sub,
+          ])
+        ).rowCount
+      )
+        throw new ApiError(
+          403,
+          'ADMIN_PANEL_REQUIRED',
+          'Los administradores deben verificar productos desde el panel de administración.',
+        );
       const item = await resolve(id, request.user.sub);
       const client = await db.connect();
       try {

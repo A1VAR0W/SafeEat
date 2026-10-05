@@ -130,11 +130,16 @@ export function adminRoutes(app: FastifyInstance, db: Database, auth: Auth) {
     const result = await db.query(
       `SELECT r.id,r.revision,r.${resource} AS "resourceId",r.${status} AS status,r.note,
         r.updated_at AS "updatedAt",r.revoked_at AS "revokedAt",r.revocation_reason AS "revocationReason",
-        u.email AS "authorEmail",concat_ws(' ',u.first_name,u.last_name) AS "authorName",
+        u.id AS "authorId",u.email AS "authorEmail",concat_ws(' ',u.first_name,u.last_name) AS "authorName",
+        COALESCE(manual.confirmed_at,CASE WHEN authorized.authorized_at IS NOT NULL THEN GREATEST(r.updated_at,authorized.authorized_at) END) AS "verifiedAt",
+        CASE WHEN authorized.authorized_at IS NOT NULL THEN 'authorized' WHEN manual.confirmed_at IS NOT NULL THEN 'manual' END AS "verificationMethod",
+        COALESCE(manual.confirmations,0)::int AS confirmations,
         ${restaurant ? 'COALESCE(c.name,community.name,r.restaurant_id)' : "COALESCE(p.data->>'name',r.product_id)"} AS "resourceName",
         ${restaurant ? 'r.scope' : "'local'"} AS scope
        FROM ${table} r JOIN users u ON u.id=r.user_id
        ${restaurant ? 'LEFT JOIN restaurant_catalog c ON c.id=r.restaurant_id LEFT JOIN community_restaurants community ON community.id=r.restaurant_id' : 'LEFT JOIN products p ON p.id=r.product_id'}
+       LEFT JOIN (SELECT user_id,max(assigned_at) AS authorized_at FROM user_roles WHERE role_code='authorized_celiac' GROUP BY user_id) authorized ON authorized.user_id=r.user_id
+       LEFT JOIN LATERAL (SELECT min(confirmed_at) AS confirmed_at,count(*)::int AS confirmations FROM review_confirmations WHERE kind='${k}' AND report_id=r.id AND revision=r.revision) manual ON true
        WHERE ${state === 'revoked' ? 'r.revoked_at IS NOT NULL' : 'r.revoked_at IS NULL'}
        AND ($1='' OR position(lower($1) in lower(concat_ws(' ',u.email,u.first_name,r.note,${restaurant ? 'c.name,community.name,r.restaurant_id' : "p.data->>'name',r.product_id"})))>0
        OR (restaurant_brand_name($1)<>'' AND position(restaurant_brand_name($1) in restaurant_brand_name(concat_ws(' ',u.email,u.first_name,r.note,${restaurant ? 'c.name,community.name,r.restaurant_id' : "p.data->>'name',r.product_id"})))>0))
@@ -145,6 +150,41 @@ export function adminRoutes(app: FastifyInstance, db: Database, auth: Auth) {
       items: result.rows.slice(0, 20),
       nextCursor: result.rows.length > 20 ? result.rows[19].id : null,
     };
+  });
+  app.post('/api/v1/admin/reviews/products/:id/verify', config, async (request) => {
+    const { id } = params.parse(request.params);
+    const { revision } = z.object({ revision: z.string().uuid() }).strict().parse(request.body);
+    return mutate(request, async (client) => {
+      const found = await client.query<{
+        revision: string;
+        user_id: string;
+        revoked_at: Date | null;
+      }>('SELECT revision,user_id,revoked_at FROM product_gluten_reports WHERE id=$1 FOR UPDATE', [
+        id,
+      ]);
+      const row = found.rows[0];
+      if (!row) throw notFound();
+      if (row.revision !== revision)
+        throw new ApiError(
+          409,
+          'REVIEW_CHANGED',
+          'La revisión ha cambiado. Vuelve a leerla antes de continuar.',
+        );
+      if (row.revoked_at)
+        throw new ApiError(409, 'REVIEW_REVOKED', 'No se puede verificar una revisión revocada.');
+      if (row.user_id === request.user.sub)
+        throw new ApiError(403, 'SELF_CONFIRMATION', 'No puedes verificar tu propia revisión.');
+      const inserted = await client.query(
+        "INSERT INTO review_confirmations(kind,report_id,revision,user_id) VALUES('products',$1,$2,$3) ON CONFLICT DO NOTHING",
+        [id, revision, request.user.sub],
+      );
+      if (inserted.rowCount)
+        await client.query(
+          "INSERT INTO admin_audit_log(actor_id,action,target_id,details) VALUES($1,'product_review_verified',$2,$3)",
+          [request.user.sub, id, JSON.stringify({ revision })],
+        );
+      return { verified: true, alreadyVerifiedByAdmin: !inserted.rowCount };
+    });
   });
   app.post('/api/v1/admin/reviews/:kind/:id/moderate', config, async (request) => {
     const { kind: k, id } = params.extend({ kind }).parse(request.params);

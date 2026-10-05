@@ -12,10 +12,10 @@
       "iconURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/safeeat-mark.png",
       "tintColor": "#006B4E",
       "downloadURL": "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.ipa",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "versionDate": "2026-10-05",
-      "versionDescription": "Elige si una revisión se aplica a un local o a toda la cadena o grupo con el mismo nombre. Las revisiones de Celiacos autorizados se verifican automáticamente. Entrada directa en Explorar.",
-      "size": 19216572
+      "versionDescription": "Incluye un panel para gestionar celíacos autorizados y moderar revisiones de productos y restaurantes.",
+      "size": 19226975
     }
   ]
 }

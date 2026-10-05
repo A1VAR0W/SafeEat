@@ -183,6 +183,40 @@ it('accepts missing and short reasons only for authorized reviewers, in both kin
   ).toBe(400);
 });
 it('revokes and restores reviews safely, hides chain inheritance, blocks republication, and records decisions', async () => {
+  const productReviews = await app.inject('/api/v1/products/off-3099999999999/reviews');
+  const productReview = productReviews.json().items[0];
+  expect(productReview).toBeTruthy();
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `/api/v1/products/off-3099999999999/reviews/${productReview.id}/confirm`,
+        headers: headers(admin),
+        payload: { revision: productReview.revision },
+      })
+    ).statusCode,
+  ).toBe(403);
+  const verified = await app.inject({
+    method: 'POST',
+    url: `/api/v1/admin/reviews/products/${productReview.id}/verify`,
+    headers: headers(admin),
+    payload: { revision: productReview.revision },
+  });
+  expect(verified.statusCode).toBe(200);
+  expect(
+    (await app.inject('/api/v1/products/off-3099999999999/reviews')).json().items[0],
+  ).toMatchObject({
+    verificationMethod: 'manual',
+    confirmations: 1,
+  });
+  expect(
+    (
+      await db.query(
+        "SELECT action FROM admin_audit_log WHERE target_id=$1 AND action='product_review_verified'",
+        [productReview.id],
+      )
+    ).rowCount,
+  ).toBe(1);
   for (const [kind, id] of [
     ['restaurants', 'chain-admin-a'],
     ['products', 'off-3099999999999'],
@@ -225,7 +259,7 @@ it('revokes and restores reviews safely, hides chain inheritance, blocks republi
           payload: { revision: revoked.json().revision },
         })
       ).statusCode,
-    ).toBe(404);
+    ).toBe(kind === 'products' ? 403 : 404);
     const body =
       kind === 'restaurants' ? { support: 'GLUTEN_FREE_OPTIONS' } : { status: 'GLUTEN_FREE' };
     expect(

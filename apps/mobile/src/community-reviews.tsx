@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { CommunityReviewSchema, type CommunityReview } from '@safeeat/contracts';
 import { api, useSession } from './session';
+import { usePermissions } from './permissions';
 import { Button, Card, Copy, ErrorNotice, useTheme } from './ui';
 
 const labels: Record<string, string> = {
@@ -17,6 +18,7 @@ const labels: Record<string, string> = {
 export function CommunityReviews({ kind, id }: { kind: 'products' | 'restaurants'; id: string }) {
   const t = useTheme();
   const { user } = useSession();
+  const { admin } = usePermissions();
   const client = useQueryClient();
   const path = `/${kind}/${encodeURIComponent(id)}/reviews`;
   const query = useQuery({
@@ -110,7 +112,8 @@ export function CommunityReviews({ kind, id }: { kind: 'products' | 'restaurants
             </Copy>
           ) : (
             !review.own &&
-            review.verificationMethod !== 'authorized' && (
+            review.verificationMethod !== 'authorized' &&
+            !admin && (
               <Button
                 secondary
                 title={
