@@ -460,7 +460,11 @@ export default function Restaurants() {
         />
         {editing && settled.length >= 3 && (
           <View style={[styles.suggestions, styles.shadow, { backgroundColor: t.card }]}>
-            <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 280 }}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+              style={{ maxHeight: 280 }}
+            >
               {suggestions.isFetching && (
                 <View style={{ padding: 14 }}>
                   <Copy muted size={13}>

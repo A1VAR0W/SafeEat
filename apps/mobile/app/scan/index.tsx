@@ -1,12 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import {
-  AppState,
-  View,
-  StyleSheet,
-  ScrollView,
-  Platform,
-  StatusBar as NativeStatusBar,
-} from 'react-native';
+import { AppState, View, StyleSheet, Platform, StatusBar as NativeStatusBar } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -17,6 +10,7 @@ import { api, RequestError } from '../../src/session';
 import { queryClient } from '../../src/query';
 import { Button, Copy, ErrorNotice, Field, useTheme } from '../../src/ui';
 import { IconButton } from '../../src/compact';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 export default function Scan() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
@@ -130,7 +124,9 @@ export default function Scan() {
             }}
           />
         </View>
-        <ScrollView
+        <KeyboardAwareScrollView
+          bottomOffset={20}
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           style={{ maxHeight: '56%', flexGrow: 0, borderRadius: 20, backgroundColor: t.card }}
           contentContainerStyle={{ padding: 16, gap: 10 }}
           keyboardShouldPersistTaps="handled"
@@ -180,7 +176,7 @@ export default function Scan() {
             title="Escanear ingredientes"
             onPress={() => router.replace('/scan/ingredients')}
           />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
     </View>
   );

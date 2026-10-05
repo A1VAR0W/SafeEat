@@ -1,13 +1,5 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  View,
-  ScrollView,
-  Pressable,
-  Keyboard,
-  Platform,
-} from 'react-native';
+import { ActivityIndicator, FlatList, View, ScrollView, Pressable, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { ProductSchema } from '@safeeat/contracts';
@@ -58,7 +50,6 @@ export default function Home() {
         keyExtractor={(p) => p.id}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-        onScrollBeginDrag={Keyboard.dismiss}
         renderItem={({ item }) => (
           <ProductTile item={item} columns={columns} onOpen={() => rememberSearch(query)} />
         )}

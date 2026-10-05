@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, type RefObject } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { AppleMaps } from 'expo-maps';
 import {
   Camera,
@@ -78,27 +78,29 @@ export const RestaurantMap = memo(function RestaurantMap({
 
   if (Platform.OS === 'ios')
     return (
-      <AppleMaps.View
-        ref={appleMap}
-        style={StyleSheet.absoluteFill}
-        cameraPosition={appleCamera}
-        colorScheme={dark ? AppleMaps.MapColorScheme.DARK : AppleMaps.MapColorScheme.LIGHT}
-        properties={{ isMyLocationEnabled: !!position, selectionEnabled: false }}
-        uiSettings={{ myLocationButtonEnabled: false, togglePitchEnabled: false }}
-        markers={markers}
-        onMapClick={onMapPress}
-        onMarkerClick={(marker) => {
-          const item = items.find((r) => r.id === marker.id);
-          if (item) onSelect(item);
-        }}
-        onCameraMove={(event) => {
-          if (
-            event.coordinates?.latitude !== undefined &&
-            event.coordinates.longitude !== undefined
-          )
-            onMove(event.coordinates as Coordinates);
-        }}
-      />
+      <View style={StyleSheet.absoluteFill} onTouchMove={onMapPress}>
+        <AppleMaps.View
+          ref={appleMap}
+          style={StyleSheet.absoluteFill}
+          cameraPosition={appleCamera}
+          colorScheme={dark ? AppleMaps.MapColorScheme.DARK : AppleMaps.MapColorScheme.LIGHT}
+          properties={{ isMyLocationEnabled: !!position, selectionEnabled: false }}
+          uiSettings={{ myLocationButtonEnabled: false, togglePitchEnabled: false }}
+          markers={markers}
+          onMapClick={onMapPress}
+          onMarkerClick={(marker) => {
+            const item = items.find((r) => r.id === marker.id);
+            if (item) onSelect(item);
+          }}
+          onCameraMove={(event) => {
+            if (
+              event.coordinates?.latitude !== undefined &&
+              event.coordinates.longitude !== undefined
+            )
+              onMove(event.coordinates as Coordinates);
+          }}
+        />
+      </View>
     );
 
   return (
@@ -113,6 +115,7 @@ export const RestaurantMap = memo(function RestaurantMap({
       onDidFinishLoadingMap={() => onError(false)}
       onDidFailLoadingMap={() => onError(true)}
       onPress={onMapPress}
+      onTouchMove={onMapPress}
       onRegionDidChange={(event) => {
         if (!event.nativeEvent.userInteraction) return;
         const [longitude, latitude] = event.nativeEvent.center;

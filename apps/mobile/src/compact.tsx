@@ -1,4 +1,4 @@
-import { useState, type PropsWithChildren, type ComponentProps } from 'react';
+import { type PropsWithChildren, type ComponentProps } from 'react';
 import { Keyboard, Pressable, View, TextInput, type TextInputProps } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -50,7 +50,6 @@ export function ProfileButton() {
 }
 export function SearchField({ label, ...props }: TextInputProps & { label: string }) {
   const t = useTheme();
-  const [focused, setFocused] = useState(false);
   return (
     <View
       style={{
@@ -67,14 +66,6 @@ export function SearchField({ label, ...props }: TextInputProps & { label: strin
       <Ionicons name="search-outline" size={21} color={t.muted} />
       <TextInput
         {...props}
-        onFocus={(event) => {
-          setFocused(true);
-          props.onFocus?.(event);
-        }}
-        onBlur={(event) => {
-          setFocused(false);
-          props.onBlur?.(event);
-        }}
         onSubmitEditing={(event) => {
           props.onSubmitEditing?.(event);
           Keyboard.dismiss();
@@ -92,9 +83,6 @@ export function SearchField({ label, ...props }: TextInputProps & { label: strin
           fontSize: 16 * t.textScale,
         }}
       />
-      {focused && (
-        <IconButton icon="chevron-down" label="Ocultar teclado" onPress={Keyboard.dismiss} />
-      )}
     </View>
   );
 }

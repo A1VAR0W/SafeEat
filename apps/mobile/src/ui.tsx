@@ -1,11 +1,9 @@
 import { useEffect, useState, type PropsWithChildren } from 'react';
 import {
   AccessibilityInfo,
-  KeyboardAvoidingView,
   Keyboard,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -15,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useHeaderHeight } from '@react-navigation/elements';
+import { KeyboardAwareScrollView, KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -107,62 +106,25 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
   const headerHeight = useHeaderHeight();
   return (
     <SafeAreaView edges={['left', 'right']} style={{ flex: 1, backgroundColor: t.bg }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={headerHeight}
-      >
-        {scroll ? (
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            onScrollBeginDrag={Keyboard.dismiss}
-            contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
-          >
-            {children}
-          </ScrollView>
-        ) : (
+      {scroll ? (
+        <KeyboardAwareScrollView
+          bottomOffset={20}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 32 }}
+        >
+          {children}
+        </KeyboardAwareScrollView>
+      ) : (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior="padding"
+          keyboardVerticalOffset={headerHeight}
+        >
           <View style={{ flex: 1, padding: 16, gap: 12 }}>{children}</View>
-        )}
-        <KeyboardDismissControl />
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      )}
     </SafeAreaView>
-  );
-}
-export function KeyboardDismissControl() {
-  const t = useTheme();
-  const [visible, setVisible] = useState(() => Keyboard.isVisible());
-  useEffect(() => {
-    const show = Keyboard.addListener('keyboardDidShow', () => setVisible(true));
-    const hide = Keyboard.addListener('keyboardDidHide', () => setVisible(false));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-  if (!visible) return null;
-  return (
-    <View
-      style={{
-        alignItems: 'flex-end',
-        paddingHorizontal: 16,
-        backgroundColor: t.card,
-        borderTopWidth: 1,
-        borderColor: t.line,
-      }}
-    >
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Ocultar teclado"
-        onPress={Keyboard.dismiss}
-        style={{ minHeight: 44, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-      >
-        <Ionicons name="chevron-down" size={20} color={t.accent} />
-        <Copy bold color={t.accent} size={14}>
-          Ocultar teclado
-        </Copy>
-      </Pressable>
-    </View>
   );
 }
 export function Card({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
