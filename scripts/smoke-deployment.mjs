@@ -147,10 +147,16 @@ try {
     );
     const search = await request('/api/v1/products/search?q=arroz');
     assert.ok(search.items.length > 0);
-    assert.ok(search.items.every((item) => item.assessment.status === 'UNKNOWN'));
+    // 2.0 evaluates every result from the ingredients/allergens/labels the search returns;
+    // results without that data stay UNKNOWN with a SEARCH_PREVIEW reason.
+    assert.ok(
+      search.items.every(
+        (item) => item.assessment.status && Array.isArray(item.assessment.reasons),
+      ),
+    );
     const full = await request(`/api/v1/products/${search.items[0].id}`);
     assert.ok(full.assessment.evidence && full.assessment.reasons && full.quality);
-    record('Live Open Food Facts search summaries remain UNKNOWN; selected full product retrieved');
+    record('Live Open Food Facts search results evaluated; selected full product retrieved');
   } catch (error) {
     record('Live Open Food Facts', 'BLOCKED EXTERNALLY', error.message);
   }

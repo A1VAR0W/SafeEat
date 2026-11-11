@@ -7,11 +7,13 @@ test -f "$SAFEEAT_ENV_FILE" || { echo 'Create the environment file first' >&2; e
 chmod 600 "$SAFEEAT_ENV_FILE"
 compose=(docker compose --env-file "$SAFEEAT_ENV_FILE")
 "${compose[@]}" config --quiet
-# Build replacement images before modifying running containers.
-"${compose[@]}" build api web
+# Build the replacement image before modifying running containers, unless deploy-remote.sh
+# already loaded a prebuilt one (SAFEEAT_SKIP_BUILD=1). api and web share the same image.
+if [[ "${SAFEEAT_SKIP_BUILD:-0}" != 1 ]]; then "${compose[@]}" build api; fi
 "${compose[@]}" up -d --wait postgres
-"${compose[@]}" run --rm --no-deps api node dist/db/migrate.js
+# Migrations are additive, so the previous image keeps working if a rollback is needed.
+"${compose[@]}" run --rm --no-deps api migrate
 "${compose[@]}" up -d --wait --wait-timeout 120 api web
-"${compose[@]}" exec -T api node -e "fetch('http://127.0.0.1:4000/ready').then(r=>{if(!r.ok)process.exit(1)})"
-"${compose[@]}" exec -T web node -e "fetch('http://127.0.0.1:3000'+(process.env.WEB_BASE_PATH||'')+'/health').then(r=>{if(!r.ok)process.exit(1)})"
+"${compose[@]}" exec -T api safeeat-server healthcheck http://127.0.0.1:4000/ready
+"${compose[@]}" exec -T web sh -c 'exec safeeat-server healthcheck "http://127.0.0.1:3000${WEB_BASE_PATH:-}/health"'
 echo 'SafeEat services healthy'

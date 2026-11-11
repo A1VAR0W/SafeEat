@@ -22,3 +22,8 @@ artifacts/
 *.mobileprovision
 backups/
 __pycache__/
+
+# Rust
+/target/
+apps/app/src-tauri/gen/
+apps/app/ui/dist/

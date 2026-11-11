@@ -1,0 +1,18 @@
+[package]
+name = "safeeat-gluten-engine"
+description = "Deterministic gluten evidence engine (port of packages/gluten-engine)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+safeeat-contracts.workspace = true
+fancy-regex.workspace = true
+regex.workspace = true
+unicode-normalization.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

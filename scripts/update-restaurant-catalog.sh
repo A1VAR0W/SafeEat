@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Requires osmium-tool and curl. Pass a compose env file on the server, or set DATABASE_URL locally.
+# Requires osmium-tool and curl (and cargo when run locally). Pass a compose env file on the server, or set DATABASE_URL locally.
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 region="${1:-madrid}"
@@ -25,8 +25,7 @@ if [[ -n "$compose_env" ]]; then
   export SAFEEAT_ENV_FILE="$(realpath "$compose_env")"
   docker compose -f infrastructure/production/docker-compose.yml \
     --env-file "$SAFEEAT_ENV_FILE" run --rm --no-deps \
-    -v "$work:/import:ro" api node scripts/import-restaurant-catalog.mjs \
-    "$region" /import/food.geojsonseq
+    -v "$work:/import:ro" api import-restaurants "$region" /import/food.geojsonseq
 else
-  node scripts/import-restaurant-catalog.mjs "$region" "$work/food.geojsonseq"
+  cargo run --release -q -p safeeat-server -- import-restaurants "$region" "$work/food.geojsonseq"
 fi

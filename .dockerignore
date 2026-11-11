@@ -13,3 +13,5 @@ apps/mobile/ios
 artifacts
 backups
 *.log
+target
+**/target

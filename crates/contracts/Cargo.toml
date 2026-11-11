@@ -1,0 +1,11 @@
+[package]
+name = "safeeat-contracts"
+description = "Shared API types between the SafeEat server and app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

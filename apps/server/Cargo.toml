@@ -1,0 +1,45 @@
+[package]
+name = "safeeat-server"
+description = "SafeEat API and public viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "safeeat-server"
+path = "src/main.rs"
+
+[dependencies]
+safeeat-contracts.workspace = true
+safeeat-gluten-engine.workspace = true
+safeeat-text-norm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+regex.workspace = true
+once_cell.workspace = true
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "fs", "io-util"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "limit", "set-header", "compression-gzip", "timeout"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "macros", "migrate"] }
+jsonwebtoken = "9"
+argon2 = "0.5"
+rand = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
+url = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+anyhow = "1"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

@@ -16,10 +16,10 @@ services:
       retries: 20
     security_opt: ['no-new-privileges:true']
   api:
-    image: safeeat-api:${IMAGE_TAG:-local}
+    image: safeeat-server:${IMAGE_TAG:-local}
     build:
       context: ../..
-      dockerfile: infrastructure/production/api.Dockerfile
+      dockerfile: infrastructure/production/server.Dockerfile
     env_file: ${SAFEEAT_ENV_FILE:-.env}
     environment:
       NODE_ENV: production
@@ -36,15 +36,17 @@ services:
     tmpfs: ['/tmp:rw,noexec,nosuid,size=32m,uid=1000,gid=1000']
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
+    # Shares the host with HallowFest: keep SafeEat bounded.
+    mem_limit: 384m
+    cpus: 1.5
+    pids_limit: 256
     logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
   web:
-    image: safeeat-web:${IMAGE_TAG:-local}
-    build:
-      context: ../..
-      dockerfile: infrastructure/production/web.Dockerfile
-      args:
-        WEB_BASE_PATH: ${WEB_BASE_PATH:-}
+    # Same binary as the API, serving the public viewer.
+    image: safeeat-server:${IMAGE_TAG:-local}
+    command: ['serve', '--mode', 'web']
     environment:
+      PORT: 3000
       API_INTERNAL_URL: http://api:4000
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:?required}
       WEB_BASE_PATH: ${WEB_BASE_PATH:-}
@@ -55,8 +57,17 @@ services:
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'safeeat-server', 'healthcheck', 'http://127.0.0.1:3000${WEB_BASE_PATH:-}/health']
+      interval: 20s
+      timeout: 5s
+      start_period: 10s
+    read_only: true
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
     logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
 networks:
   private: { internal: true }
