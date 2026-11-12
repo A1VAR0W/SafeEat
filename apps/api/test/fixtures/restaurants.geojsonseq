@@ -1,7 +1,7 @@
 {"type":"Feature","geometry":{"type":"Point","coordinates":[-3.7038,40.4168]},"properties":{"@type":"node","@id":987654321,"name":"Casa Sin Gluten","amenity":"restaurant","diet:gluten_free":"only","addr:city":"Madrid"}}
 {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[-3.704,40.417],[-3.703,40.417],[-3.703,40.418],[-3.704,40.417]]]},"properties":{"@type":"way","@id":987654322,"name":"Café Con Opciones","amenity":"cafe","diet:gluten_free":"yes","addr:city":"Madrid"}}
 {"type":"Feature","geometry":{"type":"Point","coordinates":[-3.7,40.42]},"properties":{"@type":"node","@id":987654323,"name":"Sin verificar","amenity":"bar"}}
-{"type":"Feature","geometry":{"type":"Point","coordinates":[-3.7,40.42]},"properties":{"@type":"node","@id":987654324,"name":"Cadena Centro","amenity":"restaurant","brand":"Cadena Prueba","brand:wikidata":"Q999999998"}}
-{"type":"Feature","geometry":{"type":"Point","coordinates":[-3.71,40.42]},"properties":{"@type":"node","@id":987654325,"name":"Cadena Norte","amenity":"restaurant","brand":"Cadena Prueba","brand:wikidata":"Q999999998"}}
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-3.7,40.42]},"properties":{"@type":"node","@id":987654324,"name":"Cadena Prueba Centro","amenity":"restaurant","brand":"Cadena Prueba","brand:wikidata":"Q999999998"}}
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-3.71,40.42]},"properties":{"@type":"node","@id":987654325,"name":"Cadena Prueba Norte","amenity":"restaurant","brand":"Cadena Prueba","brand:wikidata":"Q999999998"}}
 {"type":"Feature","geometry":{"type":"Point","coordinates":[-3.72,40.43]},"properties":{"@type":"node","@id":987654326,"name":"Cadena Prueba - Sur","amenity":"restaurant"}}
 {"type":"Feature","geometry":{"type":"Point","coordinates":[-3.72,40.43]},"properties":{"@type":"node","@id":987654327,"name":"Mi Cadena Prueba","amenity":"restaurant"}}

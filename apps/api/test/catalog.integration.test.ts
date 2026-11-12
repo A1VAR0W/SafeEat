@@ -37,11 +37,9 @@ describe('local restaurant catalog', () => {
       latitude: 40.42,
       longitude: -3.71,
     });
-    expect(items.map((item) => item.id).sort()).toEqual([
-      'osm_n_987654324',
-      'osm_n_987654325',
-      'osm_n_987654326',
-    ]);
+    // Schema 2.0: a chain is the venues tagged with the brand and named after it.
+    // An untagged "Cadena Prueba - Sur" joins only chains with 20 or more tagged branches.
+    expect(items.map((item) => item.id).sort()).toEqual(['osm_n_987654324', 'osm_n_987654325']);
     expect(
       (await catalog.search({ query: 'Casa Sin Gluten', latitude: 40.42, longitude: -3.71 })).map(
         (item) => item.id,
@@ -54,10 +52,7 @@ describe('local restaurant catalog', () => {
     expect(items[0]?.longitude).toBe(-3.71);
   });
   it('imports chain identity and includes sibling branches in dietary searches', async () => {
-    expect((await catalog.get('osm_n_987654326'))?.chain).toEqual({
-      key: 'Q999999998',
-      name: 'Cadena Prueba',
-    });
+    expect((await catalog.get('osm_n_987654326'))?.chain).toBeUndefined();
     expect((await catalog.get('osm_n_987654327'))?.chain).toBeUndefined();
     expect((await catalog.get('osm_n_987654324'))?.chain).toEqual({
       key: 'Q999999998',
@@ -77,9 +72,10 @@ describe('local restaurant catalog', () => {
       expect(
         (await catalog.search({ ...params, glutenMode: 'options' })).map((r) => r.id),
       ).toContain('osm_n_987654325');
+      // A chain review never reaches a venue that is not a confirmed branch.
       expect(
         (await catalog.search({ ...params, glutenMode: 'options' })).map((r) => r.id),
-      ).toContain('osm_n_987654326');
+      ).not.toContain('osm_n_987654326');
       expect(
         (await catalog.search({ ...params, glutenMode: 'dedicated' })).map((r) => r.id),
       ).not.toContain('osm_n_987654325');
