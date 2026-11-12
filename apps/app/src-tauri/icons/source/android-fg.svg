@@ -2,6 +2,9 @@
 <defs>
 <path id="se-grain" d="M0 -9.5 C5.4 -5.2 5.4 4.6 0 9.5 C-5.4 4.6 -5.4 -5.2 0 -9.5 Z"></path>
 </defs>
+<!-- Android masks the outer third of an adaptive icon (often to a circle):
+     the whole mark sits inside the 66/108 safe zone. -->
+<g transform="translate(50 50) scale(0.6) translate(-50 -50)">
 <g stroke="#FFFFFF" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round" fill="none">
 <path d="M20 31 V27 Q20 20 27 20 H31"></path>
 <path d="M69 20 H73 Q80 20 80 27 V31"></path>
@@ -17,5 +20,6 @@
 <use xlink:href="#se-grain" transform="translate(56.4 51) rotate(32)"></use>
 <use xlink:href="#se-grain" transform="translate(43.6 62.5) rotate(-32)"></use>
 <use xlink:href="#se-grain" transform="translate(56.4 62.5) rotate(32)"></use>
+</g>
 </g>
 </svg>
