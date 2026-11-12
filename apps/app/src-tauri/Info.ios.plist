@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by `tauri ios build` into the generated Info.plist. iOS stops the app if it
+     asks for the camera or the location without these texts. -->
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>SafeEat usa la cámara para leer el código de barras de los productos.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>SafeEat usa tu ubicación para mostrarte los restaurantes cercanos.</string>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>es</string>
+</dict>
+</plist>

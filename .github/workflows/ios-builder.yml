@@ -7,13 +7,20 @@ on:
         options: [preproduction, production]
         default: preproduction
         description: Public URLs for the unsigned build
+      app:
+        type: choice
+        options: [expo, rust]
+        default: expo
+        description: expo = app 1.0.x (apps/mobile); rust = app 2.0 (apps/app, Tauri)
   workflow_call:
     inputs:
       target_environment: { type: string, default: preproduction }
+      app: { type: string, default: expo }
 permissions:
   contents: read
 jobs:
   build:
+    if: inputs.app != 'rust'
     runs-on: macos-26
     timeout-minutes: 60
     environment: ${{ inputs.target_environment || 'preproduction' }}
@@ -47,6 +54,64 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SafeEat-iOS-unsigned-${{ inputs.target_environment || 'preproduction' }}
+          path: artifacts/SafeEat-*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  # App 2.0 (Tauri + Leptos). Unsigned IPA: SideStore signs it on the device.
+  build-rust:
+    if: inputs.app == 'rust'
+    runs-on: macos-26
+    timeout-minutes: 90
+    environment: ${{ inputs.target_environment || 'preproduction' }}
+    defaults:
+      run:
+        working-directory: apps/app
+    env:
+      CARGO_TERM_COLOR: always
+      APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Server for this build (compiled into the app)
+        run: |
+          set -euo pipefail
+          url="${API_PUBLIC_URL%/}"
+          case "$url" in https://*) ;; *) echo "API_PUBLIC_URL must be https" >&2; exit 1 ;; esac
+          curl -sf --max-time 30 "$url/api/v1/meta" | grep -q "\"environment\":\"$APP_ENV\""
+          echo "SAFEEAT_API_URL=$url" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'wasm32-unknown-unknown,aarch64-apple-ios' }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: 'apps/app -> target', cache-bin: true }
+      - uses: jetli/trunk-action@v0.5.0
+        with: { version: 'v0.22.1' }
+      - name: Tauri CLI and XcodeGen
+        run: |
+          cargo install tauri-cli --version 2.12.4 --locked || cargo tauri --version
+          brew install xcodegen
+      - name: Generate the Xcode project
+        run: cargo tauri ios init --ci
+      - name: Build the unsigned IPA
+        run: cargo tauri ios build --ci --no-sign --target aarch64 --build-number ${{ github.run_number }}
+      - name: Check and name the IPA
+        run: |
+          set -euo pipefail
+          ipa="$(find src-tauri/gen/apple/build -name '*.ipa' | head -1)"
+          test -s "$ipa"
+          work="$(mktemp -d)"
+          unzip -q "$ipa" -d "$work"
+          plist="$(find "$work/Payload" -maxdepth 2 -name Info.plist | head -1)"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = com.a1var0w.safeeat
+          /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$plist"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocationWhenInUseUsageDescription' "$plist"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          cp "$ipa" "$GITHUB_WORKSPACE/artifacts/SafeEat-$version-$APP_ENV.ipa"
+          ls -l "$GITHUB_WORKSPACE/artifacts"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeEat-2-iOS-unsigned-${{ inputs.target_environment || 'preproduction' }}
           path: artifacts/SafeEat-*.ipa
           if-no-files-found: error
           retention-days: 14
