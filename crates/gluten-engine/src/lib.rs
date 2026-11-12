@@ -16,7 +16,7 @@ use safeeat_contracts::{Assessment, Evidence, EvidenceKind, GlutenStatus, Reason
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
-pub const ENGINE_VERSION: &str = "1.0.0";
+pub const ENGINE_VERSION: &str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -100,20 +100,46 @@ fn re(pattern: &str) -> Regex {
     Regex::new(pattern).expect("valid regex")
 }
 
-static HAZARDS: Lazy<Regex> = Lazy::new(|| {
+// Word lists shared by the patterns below; the same strings as the TypeScript engine.
+// Cereals with gluten in Spanish, English, French, Italian, German, Dutch, Portuguese and Catalan.
+const CEREALS: &str = "trigo|wheat|cebada|barley|centeno|rye|espelta|spelt|escanda|kamut|khorasan|triticale|einkorn|emmer|farro|freekeh|durum|seitan|bulgur|cuscus|couscous|ble|froment|orge|seigle|epeautre|frumento|grano duro|grano tenero|orzo|segale|weizen[a-z0-9]*|gerste[a-z0-9]*|roggen[a-z0-9]*|dinkel[a-z0-9]*|tarwe[a-z0-9]*|gerst|rogge|cevada|centeio|blat|ordi|segol";
+const OATS: &str =
+    "avena|oats?|avoine|hafer[a-z0-9]*|aveia|civada|havermout|havervlokken|havermeel";
+const OTHER_HAZARDS: &str = "gluten|glutine|malta|malt|malte|malz[a-z0-9]*";
+// A negation only cancels the hazard it governs: it must come right before it, separated
+// at most by filler words or other hazards ("no contiene harina de trigo ni cebada").
+// "Harina de trigo, no contiene leche" and "cerveza sin alcohol de cebada" stay positive.
+const NEGATIONS: &str = "no|not|sin|s[1l]n|ni|nor|never|nunca|without|free from|libre de|exent[oa]s? de|ausencia de|sans|ohne|senza|sem|sense|kein[a-z0-9]*";
+const FILLERS: &str = "de|del|la|el|los|las|lo|of|the|any|added|anadid[oa]s?|harinas?|flour|con|contienen?|contener|contain|contains|containing|es|is|un|una|a|an|trazas|traces|y|e|o|u|and|or|derivados|productos|ingredientes|ingredients|que|contengan|with|tiene|lleva";
+
+static HAZARDS: Lazy<Regex> = Lazy::new(|| re(&format!(r"\b({CEREALS}|{OTHER_HAZARDS}|{OATS})\b")));
+static FREE_CLAIM: Lazy<Regex> = Lazy::new(|| {
     re(
-        r"\b(trigo|wheat|cebada|barley|centeno|rye|espelta|spelt|kamut|khorasan|triticale|gluten|malta|malt|avena|oats?)\b",
+        r"\b(sin gluten|gluten free|libre de gluten|no contiene gluten|does not contain gluten|sans gluten|glutenfrei|senza glutine|sem gluten|sense gluten|glutenvrij)\b",
     )
 });
-static FREE_CLAIM: Lazy<Regex> = Lazy::new(|| {
-    re(r"\b(sin gluten|gluten free|libre de gluten|no contiene gluten|does not contain gluten)\b")
+static NEGATION_BEFORE: Lazy<Regex> = Lazy::new(|| {
+    re(&format!(
+        r"\b(?:{NEGATIONS})(?:\s+(?:{FILLERS}|{CEREALS}|{OTHER_HAZARDS}|{OATS}))*\s*:?\s*$"
+    ))
 });
+/// Hedging about a hazard anywhere in the same list item.
+static HEDGE: Lazy<Regex> = Lazy::new(|| {
+    re(
+        r"\b(no garantiza|no garantizado|not guaranteed|no certificad[ao]|no apto|no es apto|no se puede|no podemos|cannot|uncertain|desconocid[ao]|desconoce|desconocemos|posible|posiblemente|podria|could|might|consult[ae]|consultar|pregunt[ae]|ask|opcion|option|excepto|except|sin confirmar|no confirmado|unconfirmed|no se ha comprobado|no se ha verificado|not tested|not verified)\b",
+    )
+});
+static ITEM_SPLIT: Lazy<Regex> = Lazy::new(|| re(r"[,()]"));
 static UNCERTAINTY: Lazy<Regex> = Lazy::new(|| {
     re(
         r"\b(no es|not|no garantiza|no garantizado|not guaranteed|no certificado|no certificad[ao]|no apto|no es apto|no se puede|no podemos|cannot|uncertain|desconocid[ao]|desconoce|desconocemos|posible|posiblemente|podria|could|might|consult[ae]|consultar|pregunt[ae]|ask|opcion|option|excepto|except|sin confirmar|no confirmado|unconfirmed)\b|[?]",
     )
 });
-static BUCKWHEAT: Lazy<Regex> = Lazy::new(|| re(r"\b(trigo sarraceno|buckwheat)\b"));
+static BUCKWHEAT: Lazy<Regex> = Lazy::new(|| {
+    re(
+        r"\b(trigo sarraceno|buckwheat|ble noir|sarrasin|grano saraceno|trigo mourisco|blat negre|alforfon)\b",
+    )
+});
 static NEGATED_FREE: Lazy<Regex> =
     Lazy::new(|| re(r"\b(no contiene gluten|does not contain gluten)\b"));
 static RECIPE: Lazy<Regex> = Lazy::new(|| {
@@ -130,19 +156,13 @@ static NEGATED_CLAIM: Lazy<Regex> = Lazy::new(|| {
         r"\b(no|not|without)\s+(?:es\s+|is\s+|a\s+|un\s+)?(?:sin gluten|gluten free|libre de gluten)\b",
     )
 });
-static NEGATED_CEREAL: Lazy<Regex> = Lazy::new(|| {
-    re(
-        r"\b(sin|libre de|no contiene|without|free from|does not contain)\s+(trigo|wheat|cebada|barley|centeno|rye|avena|oats?)\b",
-    )
-});
 static PRECAUTION: Lazy<FancyRegex> = Lazy::new(|| {
-    FancyRegex::new(r"\b(?:puede[n]? contener|puede tener|trazas de|may contain|may contain traces of|traces of|processed in|made in|elaborado en|fabricado en|contaminacion cruzada|cross contamination)\b.*?(?=\b(?:ingredientes|ingredients|alergenos|allergens|contiene:|contains:)\b|$)").expect("valid regex")
+    FancyRegex::new(r"\b(?:puede[n]? contener|puede tener|trazas de|may contain|may contain traces of|traces of|processed in|made in|elaborado en|fabricado en|contaminacion cruzada|cross contamination|peut contenir|traces de|traces eventuelles de|spuren von|puo contenere|tracce di|pode conter|vestigios de|pot contenir)\b.*?(?=\b(?:ingredientes|ingredients|alergenos|allergens|contiene:|contains:)\b|$)").expect("valid regex")
 });
 static SCOPE_UNCLEAR: Lazy<Regex> = Lazy::new(|| re(r"\b(cereales|cereals|alergenos|allergens)\b"));
 static SCOPE_DANGLING: Lazy<Regex> =
     Lazy::new(|| re(r"\b(contener|contain|trazas de|traces of)\s*$"));
-static REST_NEGATION: Lazy<Regex> = Lazy::new(|| re(r"\b(no|not|sin)\b"));
-static ONLY_OATS: Lazy<Regex> = Lazy::new(|| re(r"^(avena|oats?)$"));
+static ONLY_OATS: Lazy<Regex> = Lazy::new(|| re(&format!("^({OATS})$")));
 static CLAUSE_SPLIT: Lazy<Regex> = Lazy::new(|| re(r"[.;\n]+"));
 
 /// JavaScript `String.prototype.trim` for the ASCII-normalized clauses.
@@ -207,10 +227,6 @@ pub fn assess_gluten(input: &GlutenInput) -> Assessment {
                 }
                 rest = FREE_CLAIM.replace_all(&rest, " ").into_owned();
             }
-            if NEGATED_CEREAL.is_match(&rest) {
-                ambiguous = true;
-                rest = NEGATED_CEREAL.replace_all(&rest, " ").into_owned();
-            }
             // A precaution applies only after its marker, and ends at an explicit
             // ingredients/allergens section.
             let mut replaced = String::with_capacity(rest.len());
@@ -231,20 +247,31 @@ pub fn assess_gluten(input: &GlutenInput) -> Assessment {
             }
             replaced.push_str(&rest[last..]);
             let rest = replaced;
-            let hits: Vec<&str> = HAZARDS.find_iter(&rest).map(|m| m.as_str()).collect();
-            if field == Field::Traces && !hits.is_empty() {
+            let any_hit = HAZARDS.is_match(&rest);
+            if field == Field::Traces && any_hit {
                 traces = true;
                 add(js_trim(clause), EvidenceKind::Trace);
                 continue;
             }
-            if !hits.is_empty() {
-                if UNCERTAINTY.is_match(&rest) || REST_NEGATION.is_match(&rest) {
-                    ambiguous = true;
-                    add(js_trim(clause), EvidenceKind::Uncertainty);
-                } else if hits.iter().all(|h| ONLY_OATS.is_match(h)) {
-                    oats = true;
-                    add(js_trim(clause), EvidenceKind::Uncertainty);
-                } else {
+            if any_hit {
+                // Judge each list item on its own, so a negation or a doubt about one
+                // ingredient never hides a cereal named in another.
+                let mut positive = false;
+                for item in ITEM_SPLIT.split(&rest) {
+                    let doubtful = HEDGE.is_match(item);
+                    for hit in HAZARDS.find_iter(item) {
+                        // A negated cereal is not positive evidence, and never
+                        // establishes gluten-free.
+                        if doubtful || NEGATION_BEFORE.is_match(&item[..hit.start()]) {
+                            ambiguous = true;
+                        } else if ONLY_OATS.is_match(hit.as_str()) {
+                            oats = true;
+                        } else {
+                            positive = true;
+                        }
+                    }
+                }
+                if positive {
                     contains = true;
                     add(
                         js_trim(clause),
@@ -254,6 +281,8 @@ pub fn assess_gluten(input: &GlutenInput) -> Assessment {
                             EvidenceKind::Ingredient
                         },
                     );
+                } else {
+                    add(js_trim(clause), EvidenceKind::Uncertainty);
                 }
             }
         }

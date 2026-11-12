@@ -20,10 +20,33 @@ export function normalize(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
-const hazards =
-  /\b(trigo|wheat|cebada|barley|centeno|rye|espelta|spelt|kamut|khorasan|triticale|gluten|malta|malt|avena|oats?)\b/g;
+// Word lists shared by the patterns below. The Rust port (crates/gluten-engine) uses the
+// same strings; keep both in step and regenerate the golden cases after any change.
+// Cereals with gluten in Spanish, English, French, Italian, German, Dutch, Portuguese and Catalan.
+const CEREALS =
+  'trigo|wheat|cebada|barley|centeno|rye|espelta|spelt|escanda|kamut|khorasan|triticale|einkorn|emmer|farro|freekeh|durum|seitan|bulgur|cuscus|couscous|ble|froment|orge|seigle|epeautre|frumento|grano duro|grano tenero|orzo|segale|weizen[a-z0-9]*|gerste[a-z0-9]*|roggen[a-z0-9]*|dinkel[a-z0-9]*|tarwe[a-z0-9]*|gerst|rogge|cevada|centeio|blat|ordi|segol';
+const OATS = 'avena|oats?|avoine|hafer[a-z0-9]*|aveia|civada|havermout|havervlokken|havermeel';
+const OTHER_HAZARDS = 'gluten|glutine|malta|malt|malte|malz[a-z0-9]*';
+const HAZARD_WORDS = `${CEREALS}|${OTHER_HAZARDS}|${OATS}`;
+const hazards = new RegExp(String.raw`\b(${HAZARD_WORDS})\b`, 'g');
+const onlyOatsWord = new RegExp(`^(${OATS})$`);
+const buckwheat =
+  /\b(trigo sarraceno|buckwheat|ble noir|sarrasin|grano saraceno|trigo mourisco|blat negre|alforfon)\b/g;
 const freeClaim =
-  /\b(sin gluten|gluten free|libre de gluten|no contiene gluten|does not contain gluten)\b/g;
+  /\b(sin gluten|gluten free|libre de gluten|no contiene gluten|does not contain gluten|sans gluten|glutenfrei|senza glutine|sem gluten|sense gluten|glutenvrij)\b/g;
+// A negation only cancels the hazard it governs: it must come right before it, separated
+// at most by filler words or other hazards ("no contiene harina de trigo ni cebada").
+// "Harina de trigo, no contiene leche" and "cerveza sin alcohol de cebada" stay positive.
+const NEGATIONS =
+  'no|not|sin|s[1l]n|ni|nor|never|nunca|without|free from|libre de|exent[oa]s? de|ausencia de|sans|ohne|senza|sem|sense|kein[a-z0-9]*';
+const FILLERS =
+  'de|del|la|el|los|las|lo|of|the|any|added|anadid[oa]s?|harinas?|flour|con|contienen?|contener|contain|contains|containing|es|is|un|una|a|an|trazas|traces|y|e|o|u|and|or|derivados|productos|ingredientes|ingredients|que|contengan|with|tiene|lleva';
+const negationBefore = new RegExp(
+  String.raw`\b(?:${NEGATIONS})(?:\s+(?:${FILLERS}|${HAZARD_WORDS}))*\s*:?\s*$`,
+);
+// Hedging about a hazard anywhere in the same list item.
+const hedge =
+  /\b(no garantiza|no garantizado|not guaranteed|no certificad[ao]|no apto|no es apto|no se puede|no podemos|cannot|uncertain|desconocid[ao]|desconoce|desconocemos|posible|posiblemente|podria|could|might|consult[ae]|consultar|pregunt[ae]|ask|opcion|option|excepto|except|sin confirmar|no confirmado|unconfirmed|no se ha comprobado|no se ha verificado|not tested|not verified)\b/;
 const uncertainty =
   /\b(no es|not|no garantiza|no garantizado|not guaranteed|no certificado|no certificad[ao]|no apto|no es apto|no se puede|no podemos|cannot|uncertain|desconocid[ao]|desconoce|desconocemos|posible|posiblemente|podria|could|might|consult[ae]|consultar|pregunt[ae]|ask|opcion|option|excepto|except|sin confirmar|no confirmado|unconfirmed)\b|[?]/;
 
@@ -52,7 +75,7 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
     if (!raw?.trim()) continue;
     const normalized = normalize(raw);
     for (const clause of normalized.split(/[.;\n]+/).filter(Boolean)) {
-      let rest = clause.replace(/\b(trigo sarraceno|buckwheat)\b/g, ' ');
+      let rest = clause.replace(buckwheat, ' ');
       const claimContext = clause.replace(
         /\b(no contiene gluten|does not contain gluten)\b/g,
         'sin gluten',
@@ -90,17 +113,9 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
         }
         rest = rest.replace(freeClaim, ' ');
       }
-      // Negated cereals are not positive gluten evidence, and never establish gluten-free.
-      rest = rest.replace(
-        /\b(sin|libre de|no contiene|without|free from|does not contain)\s+(trigo|wheat|cebada|barley|centeno|rye|avena|oats?)\b/g,
-        () => {
-          ambiguous = true;
-          return ' ';
-        },
-      );
       // A precaution applies only after its marker, and ends at an explicit ingredients/allergens section.
       rest = rest.replace(
-        /\b(?:puede[n]? contener|puede tener|trazas de|may contain|may contain traces of|traces of|processed in|made in|elaborado en|fabricado en|contaminacion cruzada|cross contamination)\b.*?(?=\b(?:ingredientes|ingredients|alergenos|allergens|contiene:|contains:)\b|$)/g,
+        /\b(?:puede[n]? contener|puede tener|trazas de|may contain|may contain traces of|traces of|processed in|made in|elaborado en|fabricado en|contaminacion cruzada|cross contamination|peut contenir|traces de|traces eventuelles de|spuren von|puo contenere|tracce di|pode conter|vestigios de|pot contenir)\b.*?(?=\b(?:ingredientes|ingredients|alergenos|allergens|contiene:|contains:)\b|$)/g,
         (scope) => {
           if (scope.match(hazards)) {
             traces = true;
@@ -122,18 +137,23 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
         continue;
       }
       if (hits.length) {
-        if (uncertainty.test(rest) || /\b(no|not|sin)\b/.test(rest)) {
-          ambiguous = true;
-          add(clause.trim(), 'uncertainty');
-        } else {
-          const onlyOats = hits.every((h) => /^(avena|oats?)$/.test(h));
-          if (onlyOats) {
-            oats = true;
-            add(clause.trim(), 'uncertainty');
-          } else {
-            contains = true;
-            add(clause.trim(), field === 'allergens' ? 'allergen' : 'ingredient');
+        // Judge each list item on its own, so a negation or a doubt about one
+        // ingredient never hides a cereal named in another.
+        let positive = false;
+        for (const item of rest.split(/[,()]/)) {
+          const doubtful = hedge.test(item);
+          for (const hit of item.matchAll(hazards)) {
+            // A negated cereal is not positive evidence, and never establishes gluten-free.
+            if (doubtful || negationBefore.test(item.slice(0, hit.index))) ambiguous = true;
+            else if (onlyOatsWord.test(hit[0])) oats = true;
+            else positive = true;
           }
+        }
+        if (positive) {
+          contains = true;
+          add(clause.trim(), field === 'allergens' ? 'allergen' : 'ingredient');
+        } else {
+          add(clause.trim(), 'uncertainty');
         }
       }
     }
@@ -187,5 +207,5 @@ export function assessGluten(input: GlutenInput): GlutenAssessment {
         'El reconocimiento de texto puede omitir palabras. Revisa toda la etiqueta original; no se analiza el aspecto del envase.',
     });
   }
-  return { status, confidence, reasons, evidence, engineVersion: '1.0.0' };
+  return { status, confidence, reasons, evidence, engineVersion: '1.1.0' };
 }

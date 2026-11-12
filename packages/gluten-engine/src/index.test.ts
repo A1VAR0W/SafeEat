@@ -66,6 +66,84 @@ describe('conservative gluten assessment', () => {
     expect(result.status).toBe(expected);
     expect(result.reasons.length).toBeGreaterThan(0);
   });
+  // Negation scope, other languages, contradictions and broken OCR (engine 1.1.0).
+  it.each([
+    ['Harina de trigo, no contiene leche', 'CONTAINS_GLUTEN'],
+    ['Contiene cebada, sin lactosa', 'CONTAINS_GLUTEN'],
+    ['Sin trigo, contiene centeno', 'CONTAINS_GLUTEN'],
+    ['Harina de trigo (no contiene huevo)', 'CONTAINS_GLUTEN'],
+    ['Sin conservantes: harina de trigo, agua', 'CONTAINS_GLUTEN'],
+    ['Cerveza sin alcohol de cebada', 'CONTAINS_GLUTEN'],
+    ['Wheat flour not bleached, water', 'CONTAINS_GLUTEN'],
+    ['Sugar free wheat biscuits', 'CONTAINS_GLUTEN'],
+    ['Sin azúcares añadidos, trigo', 'CONTAINS_GLUTEN'],
+    ['Sin lactosa. Harina de trigo', 'CONTAINS_GLUTEN'],
+    ['Agua, sal, no contiene leche ni huevo, centeno', 'CONTAINS_GLUTEN'],
+    ['Malta de cebada', 'CONTAINS_GLUTEN'],
+    ['Sin gluten. Contiene trigo', 'CONTAINS_GLUTEN'],
+    ['Sin gluten. Ingredientes: harina de trigo', 'CONTAINS_GLUTEN'],
+    ['Gluten free. Contains barley malt', 'CONTAINS_GLUTEN'],
+    ['Weizenmehl, Zucker, Salz', 'CONTAINS_GLUTEN'],
+    ['Farine de blé, sucre', 'CONTAINS_GLUTEN'],
+    ['Farina di frumento, zucchero', 'CONTAINS_GLUTEN'],
+    ['Farinha de trigo, açúcar', 'CONTAINS_GLUTEN'],
+    ['Farina de blat, sucre', 'CONTAINS_GLUTEN'],
+    ['Tarwebloem, suiker', 'CONTAINS_GLUTEN'],
+    ['Gerstenmalzextrakt', 'CONTAINS_GLUTEN'],
+    ['Orge perlé, eau', 'CONTAINS_GLUTEN'],
+    ['Seigle, eau, sel', 'CONTAINS_GLUTEN'],
+    ["Farine d'épeautre", 'CONTAINS_GLUTEN'],
+    ['Seitán, salsa de soja', 'CONTAINS_GLUTEN'],
+    ['Cuscús, verduras', 'CONTAINS_GLUTEN'],
+    ['Bulgur, tomate', 'CONTAINS_GLUTEN'],
+    ['Sémola de trigo duro', 'CONTAINS_GLUTEN'],
+    ['Roggenvollkornmehl, Wasser', 'CONTAINS_GLUTEN'],
+    ['Puede contener trazas de trigo', 'MAY_CONTAIN_TRACES'],
+    ['Sin gluten, puede contener trigo', 'MAY_CONTAIN_TRACES'],
+    ['Peut contenir des traces de blé', 'MAY_CONTAIN_TRACES'],
+    ['Kann Spuren von Weizen enthalten', 'MAY_CONTAIN_TRACES'],
+    ['Può contenere tracce di glutine', 'MAY_CONTAIN_TRACES'],
+    ['Pode conter vestígios de centeio', 'MAY_CONTAIN_TRACES'],
+    ['Trigo sarraceno', 'UNKNOWN'],
+    ['Farine de sarrasin', 'UNKNOWN'],
+    ['Blé noir', 'UNKNOWN'],
+    ['Buchweizenmehl', 'UNKNOWN'],
+    ['Grano saraceno', 'UNKNOWN'],
+    ['Avena sin certificación', 'UNKNOWN'],
+    ["Flocons d'avoine", 'UNKNOWN'],
+    ['Haferflocken', 'UNKNOWN'],
+    ['No contiene trigo ni cebada', 'UNKNOWN'],
+    ['No contiene: trigo, cebada', 'CONTAINS_GLUTEN'],
+    ['Sin trigo ni centeno', 'UNKNOWN'],
+    ['Libre de trigo y cebada', 'UNKNOWN'],
+    ['No contiene harina de trigo', 'UNKNOWN'],
+    ['Posible trigo', 'UNKNOWN'],
+    ['har1na de tr1go, agua', 'UNKNOWN'],
+    ['S1n gluten', 'UNKNOWN'],
+    ['sin glut', 'UNKNOWN'],
+    ['Harina de arroz, agua, sal', 'UNKNOWN'],
+    ['Leche, azúcar, cacao', 'UNKNOWN'],
+    ['Sans gluten', 'GLUTEN_FREE'],
+    ['Glutenfrei', 'GLUTEN_FREE'],
+    ['Senza glutine', 'GLUTEN_FREE'],
+    ['Sans gluten. Farine de blé', 'CONTAINS_GLUTEN'],
+    ['Sin gluten. No es sin gluten', 'UNKNOWN'],
+    ['Sin gluten? Trigo', 'CONTAINS_GLUTEN'],
+  ])('%s → %s', (ingredients, expected) => {
+    expect(assessGluten({ ingredients, source: 'test' }).status).toBe(expected);
+  });
+  it('a surviving hazard word never yields gluten free', () => {
+    for (const text of [
+      'Sin gluten, harina de trigo',
+      'Gluten free wheat starch',
+      'Sin gluten. Cebada',
+      'Sans gluten, orge',
+      'Glutenfrei. Weizenmehl',
+    ])
+      expect(
+        assessGluten({ ingredients: text, source: 'OFF', origin: 'provider' }).status,
+      ).not.toBe('GLUTEN_FREE');
+  });
   it('never trusts unreviewed OCR safety claims', () =>
     expect(assessGluten({ ingredients: 'sin gluten', source: 'OCR', origin: 'ocr' }).status).toBe(
       'UNKNOWN',
