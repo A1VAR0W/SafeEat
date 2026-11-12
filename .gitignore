@@ -27,3 +27,6 @@ __pycache__/
 /target/
 apps/app/src-tauri/gen/
 apps/app/ui/dist/
+
+# Build output of the app workspace
+apps/app/target/
