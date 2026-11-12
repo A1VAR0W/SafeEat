@@ -13,10 +13,16 @@ on:
         type: boolean
         default: false
         description: Use production keystore secrets
+      app:
+        type: choice
+        options: [expo, rust]
+        default: expo
+        description: Expo app 1.x or Rust app 2.0 (Tauri)
   workflow_call:
     inputs:
       target_environment: { type: string, default: preproduction }
       production_signing: { type: boolean, default: false }
+      app: { type: string, default: expo }
     secrets:
       ANDROID_KEYSTORE_BASE64: { required: false }
       ANDROID_KEYSTORE_PASSWORD: { required: false }
@@ -26,7 +32,7 @@ permissions:
   contents: write
 jobs:
   build:
-    if: github.event_name != 'push' || vars.ANDROID_TAG_BUILDS != 'paused'
+    if: (github.event_name != 'push' || vars.ANDROID_TAG_BUILDS != 'paused') && inputs.app != 'rust'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: ${{ github.event_name == 'push' && 'production' || inputs.target_environment || 'preproduction' }}
@@ -83,6 +89,101 @@ jobs:
         if: github.event_name != 'push'
         with:
           name: SafeEat-Android-${{ inputs.target_environment || 'preproduction' }}
+          path: artifacts/SafeEat-*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # SafeEat 2.0 (Tauri + Leptos). Only by hand: it never publishes to the update
+  # server, it uploads the APK as an artifact. Signed with the same key as 1.x so it
+  # installs over it without losing the slot.
+  build-rust:
+    if: github.event_name != 'push' && inputs.app == 'rust'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: ${{ inputs.target_environment || 'preproduction' }}
+    defaults:
+      run:
+        working-directory: apps/app
+    env:
+      CARGO_TERM_COLOR: always
+      APP_ENV: ${{ inputs.target_environment || 'preproduction' }}
+      API_PUBLIC_URL: ${{ vars.API_PUBLIC_URL }}
+      NDK_VERSION: 27.1.12297006
+    steps:
+      - uses: actions/checkout@v4
+      - name: Server for this build (compiled into the app)
+        run: |
+          set -euo pipefail
+          url="${API_PUBLIC_URL%/}"
+          case "$url" in https://*) ;; *) echo "API_PUBLIC_URL must be https" >&2; exit 1 ;; esac
+          curl -sf --max-time 30 "$url/api/v1/meta" | grep -q "\"environment\":\"$APP_ENV\""
+          echo "SAFEEAT_API_URL=$url" >> "$GITHUB_ENV"
+          # Gradle runs the Rust build itself: Cargo's [env] reaches the compiler from
+          # any folder below apps/app, whatever the tool in between forwards.
+          mkdir -p .cargo
+          { echo '[env]'; echo "SAFEEAT_API_URL = \"$url\""; } > .cargo/config.toml
+          cat .cargo/config.toml
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools ndk;27.1.12297006 build-tools;35.0.0
+      - name: NDK location
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: 'wasm32-unknown-unknown,aarch64-linux-android' }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: 'apps/app -> target', cache-bin: true }
+      - uses: jetli/trunk-action@v0.5.0
+        with: { version: 'v0.22.1' }
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version 2.12.4 --locked || cargo tauri --version
+      - name: Generate the Android project
+        run: cargo tauri android init --ci
+      - name: Build the release APK (arm64)
+        run: |
+          set -euo pipefail
+          # Every build must be newer than the last one installed (1.x ended at 88).
+          code=$((2000000 + ${{ github.run_number }}))
+          echo "VERSION_CODE=$code" >> "$GITHUB_ENV"
+          cargo tauri android build --ci --apk --target aarch64             --config "{\"bundle\":{\"android\":{\"versionCode\":$code}}}"
+      - name: Sign with the SafeEat key and check the APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?required}" "${ANDROID_KEYSTORE_PASSWORD:?required}" "${ANDROID_KEY_ALIAS:?required}" "${ANDROID_KEY_PASSWORD:?required}"
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          unsigned="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)"
+          test -s "$unsigned"
+          ks="$RUNNER_TEMP/safeeat-release.jks"
+          trap 'rm -f "$ks"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ks"
+          chmod 600 "$ks"
+          version="$(jq -r .version src-tauri/tauri.conf.json)"
+          out="$GITHUB_WORKSPACE/artifacts/SafeEat-$version-$APP_ENV.apk"
+          mkdir -p "$(dirname "$out")"
+          "$tools/zipalign" -p -f 4 "$unsigned" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign --ks "$ks" --ks-key-alias "$ANDROID_KEY_ALIAS"             --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD             --out "$out" "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" verify --print-certs "$out" | grep -m1 -E 'SHA-256' | tee "$RUNNER_TEMP/new-cert.txt"
+          # Same certificate as the 1.x APK already installed, or Android refuses the update.
+          curl -sfL --max-time 300 -o "$RUNNER_TEMP/current.apk"             https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.apk
+          "$tools/apksigner" verify --print-certs "$RUNNER_TEMP/current.apk" | grep -m1 -E 'SHA-256' > "$RUNNER_TEMP/old-cert.txt"
+          diff <(sed 's/^Signer #1 //' "$RUNNER_TEMP/old-cert.txt") <(sed 's/^Signer #1 //' "$RUNNER_TEMP/new-cert.txt")
+          badging="$RUNNER_TEMP/badging.txt"
+          "$tools/aapt" dump badging "$out" > "$badging"
+          grep -Fq "package: name='com.a1var0w.safeeat' versionCode='$VERSION_CODE' versionName='$version'" "$badging"
+          grep -Fq "native-code: 'arm64-v8a'" "$badging"
+          for perm in INTERNET CAMERA ACCESS_FINE_LOCATION; do grep -Fq "android.permission.$perm" "$badging"; done
+          if grep -Fq application-debuggable "$badging"; then echo 'debuggable APK' >&2; exit 1; fi
+          unzip -p "$out" 'lib/arm64-v8a/*.so' | grep -acF "$SAFEEAT_API_URL"
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SafeEat-2-Android-${{ inputs.target_environment || 'preproduction' }}
           path: artifacts/SafeEat-*.apk
           if-no-files-found: error
           retention-days: 14
