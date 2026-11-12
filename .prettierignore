@@ -8,3 +8,8 @@ apps/mobile/ios
 .local
 artifacts
 apps/web/next-env.d.ts
+target
+apps/app/src-tauri/gen
+apps/app/ui/public/vendor
+crates/gluten-engine/tests/golden.json
+apps/server/tests/fixtures

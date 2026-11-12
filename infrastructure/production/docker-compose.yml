@@ -58,7 +58,8 @@ services:
     depends_on:
       api: { condition: service_healthy }
     healthcheck:
-      test: ['CMD', 'safeeat-server', 'healthcheck', 'http://127.0.0.1:3000${WEB_BASE_PATH:-}/health']
+      test:
+        ['CMD', 'safeeat-server', 'healthcheck', 'http://127.0.0.1:3000${WEB_BASE_PATH:-}/health']
       interval: 20s
       timeout: 5s
       start_period: 10s
@@ -76,8 +77,20 @@ services:
     image: ghcr.io/ggml-org/llama.cpp@sha256:086942d6ac097c894d9d5bbaf8085c53af85e113fbb9d6d61b3748863c86aa5f
     profiles: [ai]
     command:
-      ['-m', '/models/${AI_MODEL_FILE:-qwen2.5-1.5b-instruct-q4_k_m.gguf}', '-t', '2', '-c', '2048',
-       '-np', '1', '--host', '0.0.0.0', '--port', '8080']
+      [
+        '-m',
+        '/models/${AI_MODEL_FILE:-qwen2.5-1.5b-instruct-q4_k_m.gguf}',
+        '-t',
+        '2',
+        '-c',
+        '2048',
+        '-np',
+        '1',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '8080',
+      ]
     volumes: ['${AI_MODELS_DIR:-/opt/safeeat/models}:/models:ro']
     networks: [private]
     restart: unless-stopped

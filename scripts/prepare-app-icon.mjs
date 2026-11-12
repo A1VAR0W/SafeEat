@@ -34,14 +34,18 @@ await sharp(data, { raw: info })
 
 // 2. Foreground: "colour to alpha" against the background keeps anti-aliased edges clean.
 const fg = Buffer.alloc(data.length);
-let left = SIZE, top = SIZE, right = 0, bottom = 0;
+let left = SIZE,
+  top = SIZE,
+  right = 0,
+  bottom = 0;
 for (let y = 0; y < SIZE; y += 1) {
   for (let x = 0; x < SIZE; x += 1) {
     const i = at(x, y);
     if (data[i + 3] < 250) continue; // outside the source's rounded square
     let alpha = 0;
     for (let c = 0; c < 3; c += 1) {
-      const v = data[i + c], base = bg[c];
+      const v = data[i + c],
+        base = bg[c];
       const a = v > base ? (v - base) / (255 - base) : v < base ? (base - v) / base : 0;
       alpha = Math.max(alpha, a);
     }
@@ -51,19 +55,37 @@ for (let y = 0; y < SIZE; y += 1) {
     }
     fg[i + 3] = Math.round(alpha * 255);
     if (alpha > 0.1) {
-      left = Math.min(left, x); top = Math.min(top, y);
-      right = Math.max(right, x); bottom = Math.max(bottom, y);
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
     }
   }
 }
 const side = Math.max(right - left, bottom - top) + 1;
-const cx = Math.round((left + right) / 2), cy = Math.round((top + bottom) / 2);
-const crop = { left: cx - Math.floor(side / 2), top: cy - Math.floor(side / 2), width: side, height: side };
+const cx = Math.round((left + right) / 2),
+  cy = Math.round((top + bottom) / 2);
+const crop = {
+  left: cx - Math.floor(side / 2),
+  top: cy - Math.floor(side / 2),
+  width: side,
+  height: side,
+};
 const target = Math.round(SIZE * FOREGROUND_SHARE);
 const pad = Math.floor((SIZE - target) / 2);
-const artwork = await sharp(fg, { raw: info }).extract(crop).resize(target, target).png().toBuffer();
+const artwork = await sharp(fg, { raw: info })
+  .extract(crop)
+  .resize(target, target)
+  .png()
+  .toBuffer();
 await sharp(artwork)
-  .extend({ top: pad, left: pad, bottom: SIZE - target - pad, right: SIZE - target - pad, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+  .extend({
+    top: pad,
+    left: pad,
+    bottom: SIZE - target - pad,
+    right: SIZE - target - pad,
+    background: { r: 0, g: 0, b: 0, alpha: 0 },
+  })
   .png()
   .toFile(`${out}/safeeat-adaptive-foreground.png`);
 

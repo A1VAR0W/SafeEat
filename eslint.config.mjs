@@ -14,6 +14,10 @@ export default tseslint.config(
       '**/next-env.d.ts',
       '.local/**',
       'artifacts/**',
+      // Rust build output and third-party code shipped as is.
+      '**/target/**',
+      'apps/app/src-tauri/gen/**',
+      'apps/app/ui/public/vendor/**',
     ],
   },
   js.configs.recommended,

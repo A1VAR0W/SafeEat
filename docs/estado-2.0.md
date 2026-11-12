@@ -8,11 +8,13 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
 ## Qué hay desplegado en preproducción
 
 ### Servidor en Rust (axum)
+
 - Sustituye a la API de Node y al visor web de Next.js con el mismo contrato, así que la app 1.0.12/1.0.13 funciona igual.
 - La batería `scripts/smoke-api.mjs` pasa las 41 comprobaciones en local.
 - Al desplegar se comprueba a través del Funnel; si algo falla, vuelve solo a la versión anterior.
 
 ### Ingredientes en español
+
 - Cuando Open Food Facts solo tiene la lista en otro idioma, el servidor la traduce con los nombres oficiales en español de su taxonomía. Por ejemplo, `en:wheat-flour` pasa a «harina de trigo».
 - No se usa ninguna IA para traducir.
 - Los nombres traducidos se guardan en la base de datos durante 90 días.
@@ -24,6 +26,7 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
   - Nunca puede convertir un producto en «sin gluten».
 
 ### «Verificado por IA» (verde con aviso)
+
 - **Modelo:** Qwen2.5 1.5B (Q4_K_M) con llama.cpp, en un contenedor `ai` del propio servidor.
 - **Límites del contenedor:**
   - Memoria: 1,4 GB como máximo (en reposo usa unos 170 MB).
@@ -34,14 +37,15 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
   - Un modelo mayor dejaría sin recursos a HallowFest.
 - **Lo que se midió con 50 listas reales** (30 con gluten y 20 sin gluten), contando cuántas veces dijo «sin gluten» a una lista que sí lo tenía:
 
-| Cómo se le preguntó | Errores en las 30 listas con gluten |
-|---|---|
-| Lista completa, modelo 0.5B | 22 |
-| Lista completa, modelo 1.5B | 28 |
-| Ingrediente a ingrediente | 2 (seitán, escanda) |
-| Ingrediente a ingrediente, con ejemplos | 1 (bulgur) |
+| Cómo se le preguntó                     | Errores en las 30 listas con gluten |
+| --------------------------------------- | ----------------------------------- |
+| Lista completa, modelo 0.5B             | 22                                  |
+| Lista completa, modelo 1.5B             | 28                                  |
+| Ingrediente a ingrediente               | 2 (seitán, escanda)                 |
+| Ingrediente a ingrediente, con ejemplos | 1 (bulgur)                          |
 
-  **Conclusión:** el modelo solo no es fiable para una persona celíaca.
+**Conclusión:** el modelo solo no es fiable para una persona celíaca.
+
 - **Cómo se ha montado:** la IA da una segunda opinión y nunca decide sola. Solo se le pregunta si se cumplen todas estas condiciones:
   1. El motor determinista no ha encontrado nada (estado DESCONOCIDO).
   2. Open Food Facts reconoce todos los ingredientes.
@@ -68,6 +72,7 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
   - La cobertura es baja a propósito. Muchas listas españolas de Open Food Facts tienen ingredientes sin reconocer, y entonces no se le pregunta a la IA.
 
 ### Cambio en el servidor
+
 - Se han añadido dos líneas a `/opt/safeeat/infrastructure/production/preproduction.env`: un comentario y `AI_LOCAL_URL=http://ai:8080`.
 - No se pudo hacer copia del fichero (permiso denegado). Para desactivar la IA basta con borrar esa línea y volver a desplegar.
 - Los modelos están en `/opt/safeeat/models/`. El 0.5B no se usa y se puede borrar (unos 400 MB).
@@ -76,36 +81,37 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
 ## Funciones: qué está hecho y qué no
 
 Leyenda:
+
 - ✅ hecho y probado
 - 🟡 hecho, sin probar del todo
 - ⏳ pendiente
 
 ### Servidor (contrato de la API)
 
-| Función | Estado | Notas |
-|---|---|---|
-| Registro, login, refresh, logout, completar perfil, cambiar email y contraseña, borrar cuenta | ✅ | smoke-api y la app 1.0.13 en el emulador |
-| Escanear código (`/products/barcode`), producto, búsqueda por nombre con productos ya evaluados y filtro `glutenFree` | ✅ | smoke-api |
-| Analizar texto de etiqueta (`analyze-text`) | ✅ | smoke-api |
-| Analizar foto con IA de Claude (`analyze-photo`) | 🟡 | Requiere `ANTHROPIC_API_KEY` en el servidor (la pones tú). No se ha probado con una clave real. |
-| Veredicto personal (`PUT/DELETE /products/:id/verdict`) y aviso «los ingredientes han cambiado» | ✅ | smoke-api |
-| Sello certificado / declaración «sin gluten» desde las etiquetas de Open Food Facts | ✅ | tests y preproducción |
-| Reseñas de productos y restaurantes, confirmar reseña e informe de gluten | ✅ | smoke-api |
-| Favoritos, colecciones y guardados | ✅ | smoke-api |
-| Compartir (`/p/:token`, `/r/:token`, visor web) | ✅ | smoke-api y navegador |
-| Restaurantes: búsqueda sin acentos, «burger k» encuentra la cadena, locales más cercanos y valoraciones | ✅ | smoke-api |
-| Cadenas: `/restaurants/chains` y `/chains/:key`. Solo las cuentas de confianza marcan una cadena; las demás reciben 403. | ✅ | smoke-api. Las sugerencias de cadena llegan solo con `includeChains=true`, para no romper la 1.0.12. |
-| Panel de administración (usuarios autorizados, moderación, verificación) | ✅ | smoke-api |
-| Ingredientes en español | ✅ | local y preproducción |
-| «Verificado por IA» | 🟡 | El caso normal está probado; los reintentos no (ver arriba) |
+| Función                                                                                                                  | Estado | Notas                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------ | ------ | ---------------------------------------------------------------------------------------------------- |
+| Registro, login, refresh, logout, completar perfil, cambiar email y contraseña, borrar cuenta                            | ✅     | smoke-api y la app 1.0.13 en el emulador                                                             |
+| Escanear código (`/products/barcode`), producto, búsqueda por nombre con productos ya evaluados y filtro `glutenFree`    | ✅     | smoke-api                                                                                            |
+| Analizar texto de etiqueta (`analyze-text`)                                                                              | ✅     | smoke-api                                                                                            |
+| Analizar foto con IA de Claude (`analyze-photo`)                                                                         | 🟡     | Requiere `ANTHROPIC_API_KEY` en el servidor (la pones tú). No se ha probado con una clave real.      |
+| Veredicto personal (`PUT/DELETE /products/:id/verdict`) y aviso «los ingredientes han cambiado»                          | ✅     | smoke-api                                                                                            |
+| Sello certificado / declaración «sin gluten» desde las etiquetas de Open Food Facts                                      | ✅     | tests y preproducción                                                                                |
+| Reseñas de productos y restaurantes, confirmar reseña e informe de gluten                                                | ✅     | smoke-api                                                                                            |
+| Favoritos, colecciones y guardados                                                                                       | ✅     | smoke-api                                                                                            |
+| Compartir (`/p/:token`, `/r/:token`, visor web)                                                                          | ✅     | smoke-api y navegador                                                                                |
+| Restaurantes: búsqueda sin acentos, «burger k» encuentra la cadena, locales más cercanos y valoraciones                  | ✅     | smoke-api                                                                                            |
+| Cadenas: `/restaurants/chains` y `/chains/:key`. Solo las cuentas de confianza marcan una cadena; las demás reciben 403. | ✅     | smoke-api. Las sugerencias de cadena llegan solo con `includeChains=true`, para no romper la 1.0.12. |
+| Panel de administración (usuarios autorizados, moderación, verificación)                                                 | ✅     | smoke-api                                                                                            |
+| Ingredientes en español                                                                                                  | ✅     | local y preproducción                                                                                |
+| «Verificado por IA»                                                                                                      | 🟡     | El caso normal está probado; los reintentos no (ver arriba)                                          |
 
 ### App
 
-| Función | App Expo 1.0.13 (la actual) | App 2.0 en Rust (Tauri + Leptos) |
-|---|---|---|
-| Todas las pantallas actuales (pestañas, escanear, producto, restaurantes, guardados, perfil, ajustes, admin, enlaces) | ✅ funciona contra el servidor Rust | ver sección siguiente |
-| Ver «Verificado por IA» e ingredientes en español con «ver original» | ❌ La 1.0.x ignora esos campos nuevos (no rompe nada) | ver sección siguiente |
-| Sugerencias de cadenas primero | ❌ La 1.0.x no manda `includeChains` | ver sección siguiente |
+| Función                                                                                                               | App Expo 1.0.13 (la actual)                           | App 2.0 en Rust (Tauri + Leptos) |
+| --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------- |
+| Todas las pantallas actuales (pestañas, escanear, producto, restaurantes, guardados, perfil, ajustes, admin, enlaces) | ✅ funciona contra el servidor Rust                   | ver sección siguiente            |
+| Ver «Verificado por IA» e ingredientes en español con «ver original»                                                  | ❌ La 1.0.x ignora esos campos nuevos (no rompe nada) | ver sección siguiente            |
+| Sugerencias de cadenas primero                                                                                        | ❌ La 1.0.x no manda `includeChains`                  | ver sección siguiente            |
 
 ## App 2.0 en Rust
 
@@ -124,6 +130,7 @@ Ver el apartado «Progreso de la app 2.0» más abajo, que se actualiza en cada 
 ## Progreso de la app 2.0
 
 Código en `apps/app`. Es un workspace propio: `src-tauri` es el núcleo y `ui` la interfaz en Leptos. Se ha diseñado con la skill ui-ux-pro-max:
+
 - colores de marca;
 - fuente del sistema, sin descargas;
 - botones de al menos 44–48 px;
@@ -132,41 +139,44 @@ Código en `apps/app`. Es un workspace propio: `src-tauri` es el núcleo y `ui` 
 - movimiento corto y respeto de «reducir movimiento».
 
 **Rendimiento:**
+
 - La interfaz pesa unos 600 KB de WebAssembly y 43 KB de JS.
 - MapLibre (940 KB) solo se carga al abrir Restaurantes, y el mapa no se destruye al cambiar de pestaña.
 - Todas las llamadas a la API pasan por Rust (reqwest). Los tokens nunca llegan al JavaScript.
 
 Leyenda de esta tabla:
+
 - ✅ probado en el emulador contra la preproducción
 - 🟡 hecho, probado solo en parte
 - ⏳ pendiente
 
-| Pantalla / función | Estado | Qué se probó |
-|---|---|---|
-| Escribir el código a mano | ✅ | Abre la ficha del producto |
-| Escanear con la cámara (plugin oficial, en ventana, con botón «Cancelar») | 🟡 | La cámara se abre y «Cancelar» y el botón Atrás la cierran bien. **No se ha probado que lea un código real** (la cámara del emulador muestra una escena virtual). Hay que probarlo en el móvil. |
-| Ficha de producto, en este orden: respuesta en una línea → tu veredicto → sello → análisis → «Verificado por IA» → ingredientes → comunidad | ✅ | |
-| «Verificado por IA» en verde con el aviso «La IA puede equivocarse: revisa la etiqueta» siempre visible | ✅ | |
-| «La IA ve posible gluten» y «Comprobando con IA…» (se refresca solo) | 🟡 | Están en el código y en los tests, pero no se ha encontrado ningún producto en ese estado para verlo |
-| Ingredientes en español con «Ver original» y alérgenos en negrita | ✅ | Producto francés `3017760000109` |
-| Veredicto personal (me sienta bien / no es seguro) | ✅ | Aparece «Marcado por ti como seguro» |
-| Aviso «los ingredientes han cambiado» | 🟡 | Probado en el servidor (smoke-api), no en la app |
-| Favoritos (corazón) y pestaña Guardados | ✅ | |
-| Búsqueda de productos por nombre, con cada resultado ya evaluado, y filtro «Solo sin gluten declarado» | ✅ | «galletas»: con el filtro quedan 2, igual que la API |
-| Mapa (MapLibre + OpenFreeMap): agrupación de marcadores, tu ubicación, lista de resultados | ✅ | |
-| Filtros del mapa («Con opciones sin gluten», «Todo sin gluten») y «Buscar en esta zona» al mover el mapa | ✅ | |
-| Sugerencias con las cadenas primero | ✅ | «burger k» → «Cadena Burger King · 184 locales» |
-| Pantalla de cadena con los locales más cercanos | ✅ | Ordenados por distancia (130 m, 140 m, 410 m…) |
-| Ficha de restaurante: cómo llegar, llamar, cadena, en qué se basa | ✅ | |
-| Reseña de restaurante con un comentario de al menos 10 caracteres | ✅ | Con una cuenta normal: solo se ofrece «este local», como debe ser |
-| Reseña de toda la cadena (cuentas de confianza) | 🟡 | El selector solo aparece a cuentas de confianza; no hay ninguna de prueba en preproducción. El 403 para las demás está probado en smoke-api. |
-| Login | ✅ | |
-| Registro | 🟡 | Hecho; la cuenta de prueba se creó por la API, no desde la pantalla |
-| **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano. | ⏳ | |
-| **No implementado todavía en la 2.0** (la app 1.0.13 sí lo tiene casi todo): OCR de etiquetas, IA sobre una foto, reseñar o confirmar la reseña de un producto, compartir, valoración con estrellas, añadir un restaurante, colecciones, «Mis productos seguros» y selector de columnas, historial de búsquedas, caché sin conexión, completar perfil y ajustes de cuenta (email, contraseña, borrar cuenta), panel de administración, enlaces `/p/` `/r/`, escaneo continuo, actualizador del APK | ⏳ | |
-| Compilación para móviles reales (aarch64), APK firmado de publicación, iOS | ⏳ | Solo se ha compilado el APK de depuración x86_64 para el emulador (~172 MB por ser de depuración) |
+| Pantalla / función                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Estado | Qué se probó                                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Escribir el código a mano                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ✅     | Abre la ficha del producto                                                                                                                                                                      |
+| Escanear con la cámara (plugin oficial, en ventana, con botón «Cancelar»)                                                                                                                                                                                                                                                                                                                                                                                                                          | 🟡     | La cámara se abre y «Cancelar» y el botón Atrás la cierran bien. **No se ha probado que lea un código real** (la cámara del emulador muestra una escena virtual). Hay que probarlo en el móvil. |
+| Ficha de producto, en este orden: respuesta en una línea → tu veredicto → sello → análisis → «Verificado por IA» → ingredientes → comunidad                                                                                                                                                                                                                                                                                                                                                        | ✅     |                                                                                                                                                                                                 |
+| «Verificado por IA» en verde con el aviso «La IA puede equivocarse: revisa la etiqueta» siempre visible                                                                                                                                                                                                                                                                                                                                                                                            | ✅     |                                                                                                                                                                                                 |
+| «La IA ve posible gluten» y «Comprobando con IA…» (se refresca solo)                                                                                                                                                                                                                                                                                                                                                                                                                               | 🟡     | Están en el código y en los tests, pero no se ha encontrado ningún producto en ese estado para verlo                                                                                            |
+| Ingredientes en español con «Ver original» y alérgenos en negrita                                                                                                                                                                                                                                                                                                                                                                                                                                  | ✅     | Producto francés `3017760000109`                                                                                                                                                                |
+| Veredicto personal (me sienta bien / no es seguro)                                                                                                                                                                                                                                                                                                                                                                                                                                                 | ✅     | Aparece «Marcado por ti como seguro»                                                                                                                                                            |
+| Aviso «los ingredientes han cambiado»                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 🟡     | Probado en el servidor (smoke-api), no en la app                                                                                                                                                |
+| Favoritos (corazón) y pestaña Guardados                                                                                                                                                                                                                                                                                                                                                                                                                                                            | ✅     |                                                                                                                                                                                                 |
+| Búsqueda de productos por nombre, con cada resultado ya evaluado, y filtro «Solo sin gluten declarado»                                                                                                                                                                                                                                                                                                                                                                                             | ✅     | «galletas»: con el filtro quedan 2, igual que la API                                                                                                                                            |
+| Mapa (MapLibre + OpenFreeMap): agrupación de marcadores, tu ubicación, lista de resultados                                                                                                                                                                                                                                                                                                                                                                                                         | ✅     |                                                                                                                                                                                                 |
+| Filtros del mapa («Con opciones sin gluten», «Todo sin gluten») y «Buscar en esta zona» al mover el mapa                                                                                                                                                                                                                                                                                                                                                                                           | ✅     |                                                                                                                                                                                                 |
+| Sugerencias con las cadenas primero                                                                                                                                                                                                                                                                                                                                                                                                                                                                | ✅     | «burger k» → «Cadena Burger King · 184 locales»                                                                                                                                                 |
+| Pantalla de cadena con los locales más cercanos                                                                                                                                                                                                                                                                                                                                                                                                                                                    | ✅     | Ordenados por distancia (130 m, 140 m, 410 m…)                                                                                                                                                  |
+| Ficha de restaurante: cómo llegar, llamar, cadena, en qué se basa                                                                                                                                                                                                                                                                                                                                                                                                                                  | ✅     |                                                                                                                                                                                                 |
+| Reseña de restaurante con un comentario de al menos 10 caracteres                                                                                                                                                                                                                                                                                                                                                                                                                                  | ✅     | Con una cuenta normal: solo se ofrece «este local», como debe ser                                                                                                                               |
+| Reseña de toda la cadena (cuentas de confianza)                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 🟡     | El selector solo aparece a cuentas de confianza; no hay ninguna de prueba en preproducción. El 403 para las demás está probado en smoke-api.                                                    |
+| Login                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | ✅     |                                                                                                                                                                                                 |
+| Registro                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 🟡     | Hecho; la cuenta de prueba se creó por la API, no desde la pantalla                                                                                                                             |
+| **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano.                                                                                                                                                                                                                                                                                                                                     | ⏳     |                                                                                                                                                                                                 |
+| **No implementado todavía en la 2.0** (la app 1.0.13 sí lo tiene casi todo): OCR de etiquetas, IA sobre una foto, reseñar o confirmar la reseña de un producto, compartir, valoración con estrellas, añadir un restaurante, colecciones, «Mis productos seguros» y selector de columnas, historial de búsquedas, caché sin conexión, completar perfil y ajustes de cuenta (email, contraseña, borrar cuenta), panel de administración, enlaces `/p/` `/r/`, escaneo continuo, actualizador del APK | ⏳     |                                                                                                                                                                                                 |
+| Compilación para móviles reales (aarch64), APK firmado de publicación, iOS                                                                                                                                                                                                                                                                                                                                                                                                                         | ⏳     | Solo se ha compilado el APK de depuración x86_64 para el emulador (~172 MB por ser de depuración)                                                                                               |
 
 **Fallos encontrados en las pruebas y ya arreglados:**
+
 - El mapa salía en blanco: el CSS de MapLibre pisaba el tamaño.
 - No pedía la ubicación: faltaban permisos del plugin.
 - El escáner a pantalla completa no tenía salida: ahora va en ventana con «Cancelar», y el botón Atrás también lo cierra.
