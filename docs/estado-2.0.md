@@ -56,11 +56,17 @@ Fallos reales que tapaba el CI anterior y se han arreglado:
 ### Funciones nuevas de la app 2.0
 
 - Ajustes de cuenta: completar perfil, cambiar correo, cambiar contraseña y borrar cuenta. **Borrar cuenta está probado en el emulador**; cambiar correo y contraseña y completar perfil compilan pero no se han probado en pantalla.
+- **Revisiones de la comunidad** en productos y restaurantes: lista de revisiones y botón «Yo también lo he comprobado», con un segundo paso de confirmación. No aparece para tus propias revisiones ni para las de cuentas de confianza. Nada se pinta de verde ni se llama «verificado». Probado en el emulador contra preproducción con dos cuentas temporales.
+- **«¿Qué dice la etiqueta?»**: revisión de un producto con código de barras (sin gluten / contiene gluten y qué has comprobado). Probado en el emulador.
+- **Valoración con estrellas** de restaurantes: guardar, cambiar y quitar. Probado en el emulador.
+- **Compartir** productos y restaurantes: el núcleo Tauri crea el enlace público y abre el menú de compartir del sistema con un plugin nativo nuevo (`tauri-plugin-safeeat-share`: selector de Android, hoja de compartir en iOS). En Android probado en el emulador; **el código de iOS está escrito pero sin compilar**.
+- Todas las cuentas de prueba se borraron después; sus revisiones y valoraciones desaparecieron con ellas.
 
 ### Restaurantes
 
 - En la app 2.0 la información favorable de un restaurante («opciones sin gluten», «todo sin gluten») se muestra en azul orientativo y no en verde: viene de otros usuarios o de OpenStreetMap, y una sola reseña bastaba para pintarlo de verde. Los avisos conservan su color. El servidor no cambia, así que la app 1.0.x lo sigue mostrando como antes.
 - No hay datos verificables sobre freidoras exclusivas ni protocolos de cocina; no se ha añadido nada que lo aparente.
+- **Catálogo de preproducción solo con Madrid:** tiene 17 375 locales, todos de la zona de Madrid. Fuera de ahí el servidor consulta Overpass, que el 12-11-2026 tardaba más de 20 s y devolvía «La fuente de información no está disponible» (por ejemplo, en Valencia). No es un fallo del código nuevo. Para probar en otra ciudad hay que importar su catálogo en preproducción.
 
 ### Infraestructura y claves
 
@@ -84,7 +90,7 @@ Cuando se despliegue el servidor nuevo, la etiqueta que aporte un usuario dejar�
 
 ### Pendiente (no implementado)
 
-OCR de etiquetas, análisis de fotos con Claude, reseñar o confirmar reseñas de productos, compartir, valoración con estrellas, añadir restaurante, colecciones, «Mis productos seguros», historial, caché sin conexión, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
+OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, colecciones, «Mis productos seguros», historial, caché sin conexión, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
 

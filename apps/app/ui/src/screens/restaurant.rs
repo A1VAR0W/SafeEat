@@ -57,7 +57,7 @@ fn RestaurantDetail(
             </section>
             <section class="card">
                 <p>{item.address.clone()}</p>
-                {item.rating.clone().map(|r| view! { <p class="muted">{format!("{:.1} ★ · {} valoraciones", r.average, r.count)}</p> })}
+                {item.rating.clone().map(|r| view! { <p class="muted">{format!("{:.1} ★ · {} {}", r.average, r.count, if r.count == 1 { "valoración" } else { "valoraciones" })}</p> })}
                 <div class="two">
                     <a class="button ghost" href=item.maps_url.clone() target="_blank" rel="noopener">"Cómo llegar"</a>
                     {item.phone.clone().map(|p| view! { <a class="button ghost" href=format!("tel:{p}")>"Llamar"</a> })}

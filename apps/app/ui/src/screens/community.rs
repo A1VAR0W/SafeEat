@@ -42,6 +42,14 @@ fn review_tone(status: &str) -> &'static str {
     }
 }
 
+fn confirmed_by(people: i64) -> String {
+    if people == 1 {
+        "Lo ha comprobado 1 persona".into()
+    } else {
+        format!("Lo han comprobado {people} personas")
+    }
+}
+
 /// `2026-11-12T10:00:00Z` → `12/11/2026`.
 fn short_date(iso: &str) -> String {
     let date = iso.get(..10).unwrap_or(iso);
@@ -133,13 +141,8 @@ fn ReviewItem(review: CommunityReview, path: String, reload: Callback<()>) -> im
             short_date(at)
         )),
         (Some(at), false) => Some(format!(
-            "Lo han comprobado {} {} · {}",
-            review.confirmations,
-            if review.confirmations == 1 {
-                "persona"
-            } else {
-                "personas"
-            },
+            "{} · {}",
+            confirmed_by(review.confirmations),
             short_date(at)
         )),
         (None, _) => None,
@@ -487,5 +490,7 @@ mod tests {
     fn dates_are_shown_day_first() {
         assert_eq!(short_date("2026-11-12T10:00:00.000Z"), "12/11/2026");
         assert_eq!(short_date("raro"), "raro");
+        assert_eq!(confirmed_by(1), "Lo ha comprobado 1 persona");
+        assert_eq!(confirmed_by(3), "Lo han comprobado 3 personas");
     }
 }
