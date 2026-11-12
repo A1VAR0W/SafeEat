@@ -92,7 +92,13 @@ Cuando se despliegue el servidor nuevo, la etiqueta que aporte un usuario dejar�
 
 ### Pendiente (no implementado)
 
-OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin conexión, selector de 1, 2 o 3 columnas en Guardados, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
+OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin conexión, selector de 1, 2 o 3 columnas en Guardados, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK.
+
+### Builds de preproducción publicados (12-11-2026)
+
+- **Android:** `android-builder.yml` con `app=rust` (run 43310502312). APK arm64 de release, versionCode 2000036, firmado con la clave de la 1.x. El workflow compara su certificado con el de `SafeEat-latest.apk` y comprueba los permisos, que no sea depurable y la URL de la API. Publicado en `safeeat-downloads/SafeEat-2.0.0-preproduction.apk`. **No** está en `latest.json`.
+- **iOS:** `ios-builder.yml` con `app=rust` (run 43304761298). IPA sin firmar, publicada en SideStore con el manifiesto `safeeat-downloads/preproduction.json` del servidor. Se ha hecho una copia de seguridad del manifiesto 0.2.0. La copia de `main` en GitHub sigue en 0.2.0.
+- **Ninguno está probado todavía en un dispositivo físico.** La 2.0 no tiene actualizador: cada versión de PRE se instala a mano. Al ser versionCode 2000036, volver a la 1.x en Android exige desinstalar.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
 
