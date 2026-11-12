@@ -13,7 +13,7 @@ const catalog = restaurantCatalog(db);
 const execFileAsync = promisify(execFile);
 
 beforeAll(async () => {
-  await migrate(db, resolve('apps/api/src/db/migrations'));
+  await migrate(db, resolve('db/migrations'));
   await execFileAsync(
     process.execPath,
     [

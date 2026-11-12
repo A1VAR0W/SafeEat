@@ -5,7 +5,7 @@ import type { Database } from './pool';
 import { createPool } from './pool';
 export async function migrate(
   db: Database,
-  directory = process.env.MIGRATIONS_DIR ?? resolve('src/db/migrations'),
+  directory = process.env.MIGRATIONS_DIR ?? resolve('../../db/migrations'),
 ) {
   const client = await db.connect();
   try {

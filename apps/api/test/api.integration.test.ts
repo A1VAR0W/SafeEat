@@ -77,7 +77,7 @@ const restaurants: RestaurantProvider = {
 };
 const bearer = (s: Session) => ({ authorization: `Bearer ${s.accessToken}` });
 beforeAll(async () => {
-  await migrate(db, resolve('apps/api/src/db/migrations'));
+  await migrate(db, resolve('db/migrations'));
   const env = loadEnv({
     NODE_ENV: 'test',
     DATABASE_URL: url,

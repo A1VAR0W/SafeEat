@@ -12,7 +12,7 @@ let app: FastifyInstance, admin: Session, author: Session;
 const headers = (session: Session) => ({ authorization: `Bearer ${session.accessToken}` });
 const password = 'long-admin-test-password';
 beforeAll(async () => {
-  await migrate(db, resolve('apps/api/src/db/migrations'));
+  await migrate(db, resolve('db/migrations'));
   app = await createApp(
     loadEnv({
       NODE_ENV: 'test',

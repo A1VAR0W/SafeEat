@@ -38,7 +38,7 @@ async function register(optIn = false) {
   return s;
 }
 beforeAll(async () => {
-  await migrate(db, resolve('apps/api/src/db/migrations'));
+  await migrate(db, resolve('db/migrations'));
   app = await createApp(
     loadEnv({
       NODE_ENV: 'test',
@@ -64,14 +64,14 @@ it('migrates a populated V1 schema without destroying accounts or inventing pers
     const schema = `v2_${suffix.replaceAll('-', '')}`;
     await client.query(`CREATE SCHEMA ${schema}`);
     await client.query(`SET LOCAL search_path TO ${schema}`);
-    await client.query(await readFile('apps/api/src/db/migrations/001_initial.sql', 'utf8'));
+    await client.query(await readFile('db/migrations/001_initial.sql', 'utf8'));
     const id = randomUUID();
     await client.query('INSERT INTO users(id,email,password_hash) VALUES($1,$2,$3)', [
       id,
       'legacy@example.org',
       'existing-hash',
     ]);
-    await client.query(await readFile('apps/api/src/db/migrations/002_user_profile.sql', 'utf8'));
+    await client.query(await readFile('db/migrations/002_user_profile.sql', 'utf8'));
     const row = (await client.query('SELECT * FROM users WHERE id=$1', [id])).rows[0];
     expect(row).toMatchObject({
       email: 'legacy@example.org',
