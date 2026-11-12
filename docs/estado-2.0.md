@@ -98,6 +98,11 @@ OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin
 
 - **Android:** `android-builder.yml` con `app=rust` (run 43310502312). APK arm64 de release, versionCode 2000036, firmado con la clave de la 1.x. El workflow compara su certificado con el de `SafeEat-latest.apk` y comprueba los permisos, que no sea depurable y la URL de la API. Publicado en `safeeat-downloads/SafeEat-2.0.0-preproduction.apk`. **No** está en `latest.json`.
 - **iOS:** `ios-builder.yml` con `app=rust` (run 43304761298). IPA sin firmar, publicada en SideStore con el manifiesto `safeeat-downloads/preproduction.json` del servidor. Se ha hecho una copia de seguridad del manifiesto 0.2.0. La copia de `main` en GitHub sigue en 0.2.0.
+- **2.0.1 (12-11-2026):** APK `SafeEat-2.0.1-preproduction.apk` (versionCode 2000038, run 43317845756) e IPA en SideStore (run 43317851695). Corrige la cámara:
+  - En el APK de release, R8 eliminaba código interno de ML Kit y el escáner se cerraba con el primer fotograma. Se arregla con `src-tauri/android/proguard-safeeat.pro`.
+  - En iOS se pedía el formato `UPC_A`, que el plugin no admite, y rechazaba el escaneo.
+  - Además: icono de SafeEat (`icons/source/`, que aplican los dos builders), botones «Escribir código» y «Buscar por nombre», las tres listas de Guardados en una fila, y la lista de restaurantes que se actualiza sola al mover el mapa.
+  - Probado en el emulador con el APK de release: la cámara se abre sin cerrarse la app, la lista sigue al mapa y las listas caben en una fila.
 - **Ninguno está probado todavía en un dispositivo físico.** La 2.0 no tiene actualizador: cada versión de PRE se instala a mano. Al ser versionCode 2000036, volver a la 1.x en Android exige desinstalar.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
