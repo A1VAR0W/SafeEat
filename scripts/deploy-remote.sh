@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Deploys SafeEat to the home server over SSH (the host it shares with HallowFest).
 #
-#   scripts/deploy-remote.sh [--env preproduction|production] [--host chatink-dev] [--yes]
+#   scripts/deploy-remote.sh [--env preproduction|production] [--host chatink-dev] [--build-on-server] [--yes]
 #
 # 1. Builds the Rust image locally (keeps the shared server's CPU free) and streams it over SSH.
+#    --build-on-server sends only the sources and builds there (when local Docker is unavailable).
 # 2. Ships the deploy files to /opt/safeeat/releases/<tag>; secrets stay in the server's env files.
 # 3. Production only: verified pg_dump backup first.
 # 4. Runs scripts/deploy-server.sh (additive migrations, api + web, health checks).
@@ -15,11 +16,13 @@ set -euo pipefail
 environment=preproduction
 host="${SAFEEAT_SSH_HOST:-chatink-dev}"
 confirmed=0
+build_on_server=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) environment="$2"; shift 2 ;;
     --host) host="$2"; shift 2 ;;
     --yes) confirmed=1; shift ;;
+    --build-on-server) build_on_server=1; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -58,11 +61,21 @@ echo "Running now: ${previous_image:-nothing}"
 http_status() { curl -s --max-time 10 -w '%{http_code}' "$1" 2>/dev/null | tail -c 3 || true; }
 hallowfest_before="$(http_status "$hallowfest_health")"
 
-log "Building safeeat-server:$tag locally"
-docker build -f infrastructure/production/server.Dockerfile -t "safeeat-server:$tag" .
+if [[ "$build_on_server" == 1 ]]; then
+  log "Building safeeat-server:$tag on $host (low priority)"
+  # Only what the Dockerfile copies; the tar on stdin is the build context.
+  git ls-files -co --exclude-standard -- Cargo.toml Cargo.lock crates apps/server db/migrations       infrastructure/production/server.Dockerfile |
+    while IFS= read -r file; do if [[ -e "$file" ]]; then printf '%s
+' "$file"; fi; done |
+    tar -czf - -T - |
+    remote "nice -n 10 docker build -f infrastructure/production/server.Dockerfile -t safeeat-server:$tag -"
+else
+  log "Building safeeat-server:$tag locally"
+  docker build -f infrastructure/production/server.Dockerfile -t "safeeat-server:$tag" .
 
-log 'Streaming image to the server'
-docker save "safeeat-server:$tag" | gzip -1 | remote 'gunzip | docker load'
+  log 'Streaming image to the server'
+  docker save "safeeat-server:$tag" | gzip -1 | remote 'gunzip | docker load'
+fi
 
 log "Shipping deploy files to $remote_root/releases/$tag"
 git ls-files -co --exclude-standard -- infrastructure/production scripts db/migrations |
