@@ -103,6 +103,14 @@ OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin
   - En iOS se pedía el formato `UPC_A`, que el plugin no admite, y rechazaba el escaneo.
   - Además: icono de SafeEat (`icons/source/`, que aplican los dos builders), botones «Escribir código» y «Buscar por nombre», las tres listas de Guardados en una fila, y la lista de restaurantes que se actualiza sola al mover el mapa.
   - Probado en el emulador con el APK de release: la cámara se abre sin cerrarse la app, la lista sigue al mapa y las listas caben en una fila.
+- **2.0.2 (13-11-2026):** APK `SafeEat-2.0.2-preproduction.apk` (versionCode 2000039, run 43328164250) e IPA en SideStore (run 43328168757). Servidor desplegado en PRE (`d937f5c`).
+  - **IA en la búsqueda:** el índice de búsqueda de Open Food Facts no devuelve ingredientes, así que los resultados nunca se podían analizar (salían «No verificado»). Ahora, tras cada búsqueda, el servidor completa en segundo plano hasta 5 resultados, solo si quedan más de 6 lecturas libres por minuto. La IA de esos va a una cola de baja prioridad: lo que ella abre va siempre primero. La app refresca la lista en silencio (4 veces cada 12 s).
+  - **Textos de la IA:** «La IA no ve gluten en los ingredientes» (azul, nunca verde) con el aviso «Análisis orientativo: no es una certificación» escrito también en las listas.
+  - **Cadenas:** «burguer king» y «mcdonals» encuentran la cadena (trigramas, misma longitud ±2). «burger» o «pizza» siguen siendo búsquedas por nombre.
+  - **Ficha de producto:** veredicto arriba y pestañas Análisis / Ingredientes / Opiniones. El aviso de la comunidad sigue fuera de las pestañas.
+  - **Mapa:** ubicación con GPS si no hay posición de red. Una búsqueda escrita encuadra los 10 más cercanos. Al tocar un punto sale una tarjeta. Filtro único, leyenda con los colores de la lista y chip para quitar la búsqueda. Los restaurantes sin datos dicen «Sin datos de gluten».
+  - Probado en el emulador con el APK de release contra PRE (búsqueda, pestañas, mapa, cadena con falta) y en la API de PRE.
+  - **Pendiente:** la IA con foto (Claude) no funciona en PRE porque falta `ANTHROPIC_API_KEY` en su entorno.
 - **Ninguno está probado todavía en un dispositivo físico.** La 2.0 no tiene actualizador: cada versión de PRE se instala a mano. Al ser versionCode 2000036, volver a la 1.x en Android exige desinstalar.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
