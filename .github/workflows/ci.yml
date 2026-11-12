@@ -49,3 +49,81 @@ jobs:
           APP_ENV: production
           API_PUBLIC_URL: https://safeeat.example.org
           PUBLIC_APP_URL: https://safeeat.example.org
+
+  # SafeEat 2.0 server and shared crates (Rust).
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_USER: safeeat
+          POSTGRES_PASSWORD: ci-only-isolated
+          POSTGRES_DB: safeeat_rust
+        ports: ['5432:5432']
+        options: --health-cmd="pg_isready -U safeeat -d safeeat_rust" --health-interval=5s --health-timeout=3s --health-retries=15
+    env:
+      CARGO_TERM_COLOR: always
+      DATABASE_URL: postgres://safeeat:ci-only-isolated@localhost:5432/safeeat_rust
+      NODE_ENV: test
+      APP_ENV: development
+      PORT: '4555'
+      JWT_ACCESS_SECRET: ci-only-access-secret-0123456789abcdef0123456789abcdef
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-0123456789abcdef0123456789abcde
+      OPENFOODFACTS_USER_AGENT: SafeEat-CI/2.0 (ci@example.org)
+      MIGRATIONS_DIR: db/migrations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: 'rustfmt, clippy' }
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build --locked -p safeeat-server
+      - name: Migrations apply on a clean PostGIS and are idempotent
+        run: |
+          target/debug/safeeat-server migrate
+          target/debug/safeeat-server migrate
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.22.3' }
+      - name: API smoke test against the isolated database
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/smoke-api.seed.sql
+          target/debug/safeeat-server serve > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS "http://localhost:$PORT/api/v1/meta" > /dev/null && break; sleep 1; done
+          API="http://localhost:$PORT/api/v1" PSQL="psql -qtA $DATABASE_URL" node scripts/smoke-api.mjs
+      - name: Server log
+        if: failure()
+        run: tail -n 200 server.log
+
+  # SafeEat 2.0 app (Tauri shell + Leptos UI); its own Cargo workspace.
+  app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/app
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries for the Tauri shell
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: 'rustfmt, clippy', targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: 'apps/app -> target' }
+      - uses: jetli/trunk-action@v0.5.0
+        with: { version: 'v0.22.1' }
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked -p safeeat-ui --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test --locked -p safeeat-ui
+      - name: Build the web UI (WebAssembly)
+        run: trunk build --release
+        working-directory: apps/app/ui
+      - name: Compile and lint the Tauri shell
+        run: cargo clippy --locked -p safeeat-app -- -D warnings
