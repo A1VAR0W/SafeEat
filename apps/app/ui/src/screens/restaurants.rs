@@ -104,20 +104,26 @@ async fn locate() -> Option<(f64, f64)> {
         Err(e) => web_sys::console::warn_1(&format!("location permission: {}", e.message).into()),
         _ => {}
     }
-    let position: Position = api::invoke(
-        "plugin:geolocation|get_current_position",
-        PositionArgs {
-            options: PositionOptions {
-                enable_high_accuracy: false,
-                timeout: 10_000,
-                maximum_age: 120_000,
+    // Quick network position first; without one (Wi-Fi off, weak signal, emulator) the
+    // GPS, which takes longer but works anywhere outdoors and near windows.
+    for (high, timeout) in [(false, 8_000), (true, 20_000)] {
+        let position: Result<Position, _> = api::invoke(
+            "plugin:geolocation|get_current_position",
+            PositionArgs {
+                options: PositionOptions {
+                    enable_high_accuracy: high,
+                    timeout,
+                    maximum_age: 120_000,
+                },
             },
-        },
-    )
-    .await
-    .map_err(|e| web_sys::console::warn_1(&format!("location: {}", e.message).into()))
-    .ok()?;
-    Some((position.coords.latitude, position.coords.longitude))
+        )
+        .await;
+        match position {
+            Ok(p) => return Some((p.coords.latitude, p.coords.longitude)),
+            Err(e) => web_sys::console::warn_1(&format!("location ({high}): {}", e.message).into()),
+        }
+    }
+    None
 }
 
 fn places_json(items: &[Restaurant], highlight: Option<&str>) -> String {
@@ -350,8 +356,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
                                 {[r.distance_m.map(distance), (!r.address.is_empty()).then(|| r.address.clone())]
                                     .into_iter().flatten().collect::<Vec<_>>().join(" · ")}
                             </span>
-                            <span class=format!("badge {}", support_tone(r.gluten_support))>{r.gluten_support.label()}</span>
-                            <span class="map-preview-open">"Ver ficha" <Icon svg=icons::CHEVRON /></span>
+                            <span class="map-preview-foot">
+                                <span class=format!("badge {}", support_tone(r.gluten_support))>{r.gluten_support.label()}</span>
+                                <span class="map-preview-open">"Ver ficha" <Icon svg=icons::CHEVRON /></span>
+                            </span>
                         </button>
                         <button class="icon-button" aria-label="Cerrar" on:click=close_preview>
                             <Icon svg=icons::CLOSE />
@@ -438,6 +446,16 @@ pub fn RestaurantRow(item: Restaurant) -> impl IntoView {
 }
 
 /// Search field with suggestions: chains first ("Cadena X · N locales").
+fn hide_keyboard() {
+    use wasm_bindgen::JsCast;
+    if let Some(el) = document()
+        .active_element()
+        .and_then(|e| e.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        let _ = el.blur();
+    }
+}
+
 #[component]
 fn SuggestBox(
     query: RwSignal<String>,
@@ -489,6 +507,7 @@ fn SuggestBox(
     };
     let choose = move |s: RestaurantSuggestion| {
         items.set(vec![]);
+        hide_keyboard();
         match (s.kind, s.chain_key.clone(), s.id.clone()) {
             (SuggestionKind::Chain, Some(key), _) => nav.push(Route::Chain(key)),
             (SuggestionKind::Restaurant, _, Some(id)) => nav.push(Route::Restaurant(id)),
@@ -509,7 +528,7 @@ fn SuggestBox(
         <form class="suggest" role="search" on:submit=move |ev| {
             ev.prevent_default();
             let q = text.get_untracked().trim().to_string();
-            if q.chars().count() >= 2 { query.set(q); items.set(vec![]); on_search.run(()); }
+            if q.chars().count() >= 2 { query.set(q); items.set(vec![]); hide_keyboard(); on_search.run(()); }
         }>
             <span class="icon suggest-icon" inner_html=icons::SEARCH></span>
             <input

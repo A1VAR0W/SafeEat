@@ -988,8 +988,17 @@ li + li > .suggestion {
   box-shadow: var(--shadow);
   pointer-events: none;
 }
+/* The preview card sits where the button is: the card's close button takes its place. */
 .map-controls.lifted {
-  bottom: 148px;
+  display: none;
+}
+.map-preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  margin-top: 2px;
 }
 /* Tapped marker: a short card over the map, the full page one tap away. */
 .map-preview {
@@ -1029,10 +1038,10 @@ li + li > .suggestion {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  margin-top: 2px;
   color: var(--accent);
   font-weight: 700;
   font-size: 0.9375rem;
+  white-space: nowrap;
 }
 .map-preview-open svg {
   width: 18px;

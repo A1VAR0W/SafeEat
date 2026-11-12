@@ -280,10 +280,10 @@ impl GlutenSupport {
     }
     pub fn label(self) -> &'static str {
         match self {
-            GlutenSupport::DedicatedGlutenFree => "Todo sin gluten",
+            GlutenSupport::DedicatedGlutenFree => "100 % sin gluten",
             GlutenSupport::GlutenFreeOptions => "Opciones sin gluten",
             GlutenSupport::NoGlutenFreeOptions => "Sin opciones sin gluten",
-            GlutenSupport::Unknown => "No verificado",
+            GlutenSupport::Unknown => "Sin datos de gluten",
         }
     }
     pub fn is_positive(self) -> bool {
