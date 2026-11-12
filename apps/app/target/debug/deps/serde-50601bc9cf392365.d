@@ -1,0 +1,14 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\serde-50601bc9cf392365.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\build\serde-82de1b46639286b1\out/private.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libserde-50601bc9cf392365.rlib: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\build\serde-82de1b46639286b1\out/private.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libserde-50601bc9cf392365.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\build\serde-82de1b46639286b1\out/private.rs
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs:
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\build\serde-82de1b46639286b1\out/private.rs:
+
+# env-dep:OUT_DIR=C:\\Users\\Alvaro\\Documents\\App_IA\\SafeEat\\apps\\app\\target\\debug\\build\\serde-82de1b46639286b1\\out

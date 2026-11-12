@@ -1,0 +1,11 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\wasm32-unknown-unknown\debug\deps\utf8_iter-14f5d24f9fb52c81.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\basic.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\handler.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\indices.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\macros.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\report.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\str.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\wasm32-unknown-unknown\debug\deps\libutf8_iter-14f5d24f9fb52c81.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\basic.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\handler.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\indices.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\macros.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\report.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\str.rs
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\basic.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\handler.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\indices.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\macros.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\report.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\utf8_iter-1.1.0\src\str.rs:

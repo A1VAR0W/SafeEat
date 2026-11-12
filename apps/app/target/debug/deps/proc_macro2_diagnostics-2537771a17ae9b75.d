@@ -1,0 +1,10 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\proc_macro2_diagnostics-2537771a17ae9b75.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\ext.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\diagnostic.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\line.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libproc_macro2_diagnostics-2537771a17ae9b75.rlib: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\ext.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\diagnostic.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\line.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libproc_macro2_diagnostics-2537771a17ae9b75.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\ext.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\diagnostic.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\line.rs
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\ext.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\diagnostic.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro2-diagnostics-0.11.0\src\line.rs:

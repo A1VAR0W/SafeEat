@@ -1,0 +1,187 @@
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use safeeat_contracts::{ChainDetail, GlutenSupport, Restaurant};
+use serde_json::json;
+
+use crate::api::{self, Failure};
+use crate::icons;
+use crate::nav::{use_nav, use_session, Route};
+use crate::nav::MapCenter;
+use crate::screens::restaurants::{support_tone, RestaurantRow};
+use crate::ui::{ErrorBox, Header, Icon, Loading};
+
+#[component]
+pub fn RestaurantScreen(id: String) -> impl IntoView {
+    let state = RwSignal::new(None::<Result<Restaurant, Failure>>);
+    let path = StoredValue::new(format!("/restaurants/{}", api::enc(&id)));
+    let load = move || spawn_local(async move { state.set(Some(api::get(&path.get_value()).await)) });
+    load();
+    let title = Signal::derive(move || state.with(|s| match s {
+        Some(Ok(r)) => r.name.clone(),
+        _ => "Restaurante".into(),
+    }));
+    view! {
+        <Header title=title />
+        {move || match state.get() {
+            None => view! { <Loading /> }.into_any(),
+            Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| load()) /></div> }.into_any(),
+            Some(Ok(r)) => view! { <RestaurantDetail item=r state=state /> }.into_any(),
+        }}
+    }
+}
+
+#[component]
+fn RestaurantDetail(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failure>>>) -> impl IntoView {
+    let nav = use_nav();
+    let support = item.gluten_support;
+    let chain = item.chain.clone();
+    view! {
+        <article class="stack">
+            <section class=format!("verdict {}", support_tone(support))>
+                <span class="verdict-icon" inner_html=if support.is_positive() { icons::CHECK } else if support == GlutenSupport::NoGlutenFreeOptions { icons::X_CIRCLE } else { icons::HELP }></span>
+                <p class="verdict-text">{support.label()}</p>
+            </section>
+            <section class="card">
+                <p>{item.address.clone()}</p>
+                {item.rating.clone().map(|r| view! { <p class="muted">{format!("{:.1} ★ · {} valoraciones", r.average, r.count)}</p> })}
+                <div class="two">
+                    <a class="button ghost" href=item.maps_url.clone() target="_blank" rel="noopener">"Cómo llegar"</a>
+                    {item.phone.clone().map(|p| view! { <a class="button ghost" href=format!("tel:{p}")>"Llamar"</a> })}
+                </div>
+            </section>
+            {chain.clone().map(|c| {
+                let key = c.key.clone();
+                view! {
+                    <button class="row card" on:click=move |_| nav.push(Route::Chain(key.clone()))>
+                        <span class="thumb icon-thumb" inner_html=icons::STORE></span>
+                        <span class="row-body">
+                            <span class="row-title">"Cadena " {c.name.clone()}</span>
+                            <span class="muted small">
+                                {if item.has_local_review == Some(true) { "Este local tiene su propia revisión, que manda sobre la de la cadena." } else { "Ver otros locales y el veredicto de la cadena" }}
+                            </span>
+                        </span>
+                        <Icon svg=icons::CHEVRON class="chevron" />
+                    </button>
+                }
+            })}
+            {(!item.evidence.is_empty()).then(|| view! {
+                <section class="card">
+                    <h3 class="card-title">"¿En qué se basa?"</h3>
+                    <ul class="reasons">{item.evidence.iter().map(|e| view! { <li>{e.text.clone()}</li> }).collect_view()}</ul>
+                </section>
+            })}
+            <ReviewForm item=item.clone() state=state />
+            <p class="muted small source">"Las etiquetas de un restaurante no garantizan cómo se prepara la comida. Pregunta siempre."</p>
+        </article>
+    }
+}
+
+#[component]
+fn ReviewForm(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failure>>>) -> impl IntoView {
+    let session = use_session();
+    let nav = use_nav();
+    let trusted = session.0.with(|u| u.as_ref().is_some_and(|u| u.is_trusted()));
+    let in_chain = item.chain.is_some();
+    let scope = RwSignal::new("local");
+    let busy = RwSignal::new(false);
+    let message = RwSignal::new(None::<Result<&'static str, String>>);
+    let id = StoredValue::new(item.id.clone());
+    let send = move |support: GlutenSupport| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        spawn_local(async move {
+            let body = json!({ "support": support.as_str(), "scope": scope.get_untracked() });
+            let path = format!("/restaurants/{}/gluten-report", api::enc(&id.get_value()));
+            let result = api::send::<Restaurant>("POST", &path, Some(body)).await;
+            busy.set(false);
+            match result {
+                Ok(r) => {
+                    state.set(Some(Ok(r)));
+                    message.set(Some(Ok("Gracias, tu revisión se ha guardado.")));
+                }
+                Err(e) => message.set(Some(Err(e.message))),
+            }
+        });
+    };
+    view! {
+        <section class="card">
+            <h3 class="card-title">"¿Has comido aquí?"</h3>
+            {if session.0.with(Option::is_none) {
+                view! {
+                    <p class="muted">"Inicia sesión para contar tu experiencia."</p>
+                    <button class="button ghost" on:click=move |_| nav.push(Route::Login)>"Iniciar sesión"</button>
+                }.into_any()
+            } else {
+                view! {
+                    {(in_chain && trusted).then(|| view! {
+                        <div class="segmented" role="radiogroup" aria-label="Aplicar a">
+                            <button role="radio" aria-checked=move || (scope.get() == "local").to_string()
+                                class:active=move || scope.get() == "local" on:click=move |_| scope.set("local")>"Solo este restaurante"</button>
+                            <button role="radio" aria-checked=move || (scope.get() == "chain").to_string()
+                                class:active=move || scope.get() == "chain" on:click=move |_| scope.set("chain")>"Toda la cadena"</button>
+                        </div>
+                    })}
+                    <div class="stack-tight">
+                        <button class="button safe" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::DedicatedGlutenFree)>"Todo es sin gluten"</button>
+                        <button class="button safe-soft" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::GlutenFreeOptions)>"Tiene opciones sin gluten"</button>
+                        <button class="button danger" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::NoGlutenFreeOptions)>"No tiene opciones sin gluten"</button>
+                    </div>
+                }.into_any()
+            }}
+            {move || message.get().map(|m| match m {
+                Ok(text) => view! { <p class="field-ok" role="status">{text}</p> }.into_any(),
+                Err(text) => view! { <ErrorBox message=text /> }.into_any(),
+            })}
+        </section>
+    }
+}
+
+#[component]
+pub fn ChainScreen(key: String) -> impl IntoView {
+    let state = RwSignal::new(None::<Result<ChainDetail, Failure>>);
+    let key = StoredValue::new(key);
+    let load = move || {
+        spawn_local(async move {
+            // Nearest branches first: the server sorts by distance to the map centre.
+            let near = expect_context::<MapCenter>().0.get_value()
+                .map(|(lat, lng)| format!("?latitude={lat:.5}&longitude={lng:.5}"))
+                .unwrap_or_default();
+            let path = format!("/restaurants/chains/{}{near}", api::enc(&key.get_value()));
+            state.set(Some(api::get(&path).await));
+        })
+    };
+    load();
+    let title = Signal::derive(move || state.with(|s| match s {
+        Some(Ok(c)) => format!("Cadena {}", c.chain.name),
+        _ => "Cadena".into(),
+    }));
+    view! {
+        <Header title=title />
+        {move || match state.get() {
+            None => view! { <Loading /> }.into_any(),
+            Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| load()) /></div> }.into_any(),
+            Some(Ok(c)) => {
+                let support = c.chain.gluten_support;
+                let exceptions = c.branches.iter().filter(|b| b.has_local_review == Some(true)).count();
+                view! {
+                    <article class="stack">
+                        <section class=format!("verdict {}", support_tone(support))>
+                            <span class="verdict-icon" inner_html=if support.is_positive() { icons::CHECK } else { icons::HELP }></span>
+                            <p class="verdict-text">{support.label()}</p>
+                        </section>
+                        <p class="muted">{format!("{} locales en total", c.chain.branch_count)}
+                            {(exceptions > 0).then(|| format!(" · {exceptions} con revisión propia"))}</p>
+                        {c.can_mark_chain.then(|| view! {
+                            <p class="muted small">"Tu cuenta es de confianza: puedes marcar toda la cadena desde la ficha de cualquier local."</p>
+                        })}
+                        <ul class="list">
+                            {c.branches.into_iter().map(|r| view! { <li><RestaurantRow item=r /></li> }).collect_view()}
+                        </ul>
+                    </article>
+                }.into_any()
+            }
+        }}
+    }
+}

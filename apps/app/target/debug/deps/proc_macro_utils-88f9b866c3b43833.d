@@ -1,0 +1,10 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\proc_macro_utils-88f9b866c3b43833.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\parser.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\assert.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\__private.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libproc_macro_utils-88f9b866c3b43833.rlib: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\parser.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\assert.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\__private.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\libproc_macro_utils-88f9b866c3b43833.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\parser.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\assert.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\__private.rs
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\parser.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\assert.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\proc-macro-utils-0.10.0\src\__private.rs:

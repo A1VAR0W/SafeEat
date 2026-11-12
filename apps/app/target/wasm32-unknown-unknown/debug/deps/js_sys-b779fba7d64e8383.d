@@ -1,0 +1,9 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\wasm32-unknown-unknown\debug\deps\js_sys-b779fba7d64e8383.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\mod.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\jspi.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\queue.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\task\singlethread.rs
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\wasm32-unknown-unknown\debug\deps\libjs_sys-b779fba7d64e8383.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\mod.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\jspi.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\queue.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\task\singlethread.rs
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\mod.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\jspi.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\queue.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\js-sys-0.3.107\src\futures\task\singlethread.rs:

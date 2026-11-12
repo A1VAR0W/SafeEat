@@ -1,0 +1,11 @@
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\erased-9a86cf47ebe61d7f.d: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\liberased-9a86cf47ebe61d7f.rlib: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+C:\Users\Alvaro\Documents\App_IA\SafeEat\apps\app\target\debug\deps\liberased-9a86cf47ebe61d7f.rmeta: C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs:
+C:\Users\Alvaro\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md:
