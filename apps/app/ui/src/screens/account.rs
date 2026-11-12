@@ -131,7 +131,7 @@ pub fn LoginScreen() -> impl IntoView {
             <button class="button ghost" type="button" on:click=move |_| { register.update(|r| *r = !*r); error.set(None); }>
                 {move || if register.get() { "Ya tengo cuenta" } else { "Crear una cuenta nueva" }}
             </button>
-            <p class="muted small">"La sesión se guarda solo mientras la app está abierta."</p>
+            <p class="muted small">"Tu sesión se guarda cifrada en este móvil hasta que la cierres."</p>
         </form>
     }
 }
@@ -163,6 +163,9 @@ pub fn ProfileScreen() -> impl IntoView {
                     {u.is_trusted().then(|| view! { <span class="badge tone-safe">"Cuenta de confianza"</span> })}
                 </div>
             })}
+            <Show when=move || session.0.with(Option::is_some)>
+                <crate::screens::settings::AccountSettings />
+            </Show>
             <button class="button ghost" on:click=logout>"Cerrar sesión"</button>
             <p class="muted small">"SafeEat " {env!("CARGO_PKG_VERSION")} {move || meta.get().map(|m| format!(" · {m}"))}</p>
         </section>

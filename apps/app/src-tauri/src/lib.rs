@@ -202,42 +202,60 @@ async fn api(
     path: String,
     body: Option<Value>,
 ) -> Result<Value, Failure> {
-    // Endpoints that return or consume tokens only go through `authenticate`/`logout`,
-    // so no token ever reaches the webview.
-    const TOKEN_PATHS: [&str; 4] = [
+    // Endpoints that return or consume tokens only go through the dedicated commands
+    // (`authenticate`, `account_change`, `delete_account`, `logout`), so no token ever
+    // reaches the webview.
+    const TOKEN_PATHS: [&str; 7] = [
         "/auth/refresh",
         "/auth/login",
         "/auth/register",
         "/auth/logout",
+        "/auth/email",
+        "/auth/password",
+        "/auth/me",
     ];
+    let method =
+        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;
+    let reads_profile = path == "/auth/me" && method == reqwest::Method::GET;
     if !path.starts_with('/')
         || path.contains("..")
-        || TOKEN_PATHS.iter().any(|p| path.starts_with(p))
+        || (TOKEN_PATHS.iter().any(|p| path.starts_with(p)) && !reads_profile)
     {
         return Err(failure(400, &Value::Null));
     }
-    let method =
-        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;
+    authorized(&app, &state, &method, &path, body.as_ref()).await
+}
+
+/// A request with the session's access token; refreshes it once when it has expired.
+async fn authorized(
+    app: &AppHandle,
+    state: &AppState,
+    method: &reqwest::Method,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<Value, Failure> {
+    let (app, method, path) = (app.clone(), method.clone(), path.to_string());
+    let body = body.cloned();
     let access = {
         let mut tokens = state.tokens.lock().await;
         load(&app, &mut tokens);
         // A session restored while offline has a refresh token but no access token yet.
         if tokens.access.is_none() && tokens.refresh.is_some() {
-            if let Refreshed::Rejected = refresh_locked(&app, &state, &mut tokens).await {
+            if let Refreshed::Rejected = refresh_locked(&app, state, &mut tokens).await {
                 return Err(Failure::session_expired());
             }
         }
         tokens.access.clone()
     };
     let (mut status, mut value) =
-        send(&state, &method, &path, body.as_ref(), access.as_deref()).await?;
+        send(state, &method, &path, body.as_ref(), access.as_deref()).await?;
     if status == 401 && access.is_some() {
         let mut tokens = state.tokens.lock().await;
         // Another call may have refreshed (or signed out) while we waited for the lock.
         let fresh = if tokens.access != access {
             tokens.access.is_some()
         } else {
-            match refresh_locked(&app, &state, &mut tokens).await {
+            match refresh_locked(&app, state, &mut tokens).await {
                 Refreshed::Yes => true,
                 Refreshed::Rejected => return Err(Failure::session_expired()),
                 Refreshed::Unavailable => return Err(Failure::offline()),
@@ -248,7 +266,7 @@ async fn api(
         if !fresh {
             return Err(Failure::session_expired());
         }
-        (status, value) = send(&state, &method, &path, body.as_ref(), retry.as_deref()).await?;
+        (status, value) = send(state, &method, &path, body.as_ref(), retry.as_deref()).await?;
     }
     if (200..300).contains(&status) {
         Ok(value)
@@ -295,6 +313,48 @@ async fn authenticate(
         .await;
     }
     Ok(session["user"].clone())
+}
+
+/// Change of e-mail (`kind` "email") or password ("password"). The server answers with
+/// a new session; only the user goes back to the webview.
+#[tauri::command]
+async fn account_change(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    kind: String,
+    body: Value,
+) -> Result<Value, Failure> {
+    let path = match kind.as_str() {
+        "email" => "/auth/email",
+        "password" => "/auth/password",
+        _ => return Err(failure(400, &Value::Null)),
+    };
+    let session = authorized(&app, &state, &reqwest::Method::POST, path, Some(&body)).await?;
+    let mut tokens = state.tokens.lock().await;
+    if !adopt(&app, &mut tokens, &session) {
+        return Err(failure(502, &Value::Null));
+    }
+    Ok(session["user"].clone())
+}
+
+/// Deletes the account on the server and then everything this device keeps about it.
+#[tauri::command]
+async fn delete_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    body: Value,
+) -> Result<(), Failure> {
+    authorized(
+        &app,
+        &state,
+        &reqwest::Method::DELETE,
+        "/auth/me",
+        Some(&body),
+    )
+    .await?;
+    let mut tokens = state.tokens.lock().await;
+    forget(&app, &mut tokens);
+    Ok(())
 }
 
 /// Called once when the app starts: the signed-in user, or `null`.
@@ -362,6 +422,8 @@ pub fn run() {
             api,
             authenticate,
             restore_session,
+            account_change,
+            delete_account,
             logout
         ])
         .run(tauri::generate_context!())
