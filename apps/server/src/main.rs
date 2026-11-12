@@ -9,6 +9,7 @@
 //! ```
 
 mod admin;
+mod ai_check;
 mod app;
 mod auth;
 mod config;
@@ -25,6 +26,7 @@ mod restaurants;
 mod reviews;
 mod sharing;
 mod state;
+mod translate;
 mod util;
 mod web;
 
@@ -69,8 +71,9 @@ async fn serve_api() -> Result<()> {
     let db = pool(&config.database_url, 10).await?;
     let port = config.port;
     let state = state::Inner::new(config, db)?;
+    ai_check::spawn_worker(state.clone());
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
-    tracing::info!(port, "SafeEat API listening");
+    tracing::info!(port, ai = state.ai_check.is_some(), "SafeEat API listening");
     axum::serve(
         listener,
         app::router(state).into_make_service_with_connect_info::<SocketAddr>(),

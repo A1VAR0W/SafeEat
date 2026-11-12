@@ -5,6 +5,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 
+use crate::ai_check::AiChecker;
 use crate::config::Config;
 use crate::providers::ai::LabelAi;
 use crate::providers::food_data_central::FoodDataCentral;
@@ -24,6 +25,8 @@ pub struct Inner {
     pub fdc: Option<FoodDataCentral>,
     pub osm: OpenStreetMap,
     pub ai: Option<LabelAi>,
+    /// On-server model for "Verificado por IA" (background queue).
+    pub ai_check: Option<AiChecker>,
     /// Per-barcode locks so concurrent lookups share one provider request.
     pub barcode_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     pub version: &'static str,
@@ -54,6 +57,10 @@ impl Inner {
                 .anthropic_api_key
                 .clone()
                 .map(|key| LabelAi::new(http.clone(), key, config.anthropic_model.clone())),
+            ai_check: config
+                .ai_local_url
+                .clone()
+                .map(|url| AiChecker::new(http.clone(), url, config.ai_local_model.clone())),
             barcode_locks: Mutex::new(HashMap::new()),
             version: env!("CARGO_PKG_VERSION"),
             config,

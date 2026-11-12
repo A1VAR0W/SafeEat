@@ -7,11 +7,11 @@ use safeeat_gluten_engine::{GlutenInput, Origin};
 use serde_json::{Map, Value};
 
 use super::http::{provider_json, ProviderBudget, TtlCache};
-use super::ExternalProduct;
+use super::{ExternalProduct, IngredientLanguage, ParsedIngredient};
 use crate::error::ApiError;
 use crate::util::safe_http_url;
 
-const FIELDS: &str = "code,product_name,product_name_es,brands,ingredients_text,ingredients_text_es,ingredients_text_en,allergens_tags,traces_tags,labels_tags,image_front_small_url,image_front_thumb_url,nutriments,nutrition_grades";
+const FIELDS: &str = "code,product_name,product_name_es,generic_name_es,lang,brands,ingredients,ingredients_lc,unknown_ingredients_n,ingredients_text,ingredients_text_es,ingredients_text_en,allergens_tags,traces_tags,labels_tags,image_front_small_url,image_front_thumb_url,nutriments,nutrition_grades";
 const SEARCH_FIELDS: &str = "code,product_name,product_name_es,brands,image_front_thumb_url,image_front_small_url,allergens_tags,traces_tags,labels_tags";
 
 /// OFF label tags. `en:crossed-grain-trademark` is the Espiga Barrada / AOECS symbol.
@@ -28,6 +28,7 @@ pub struct OpenFoodFacts {
     search_url: String,
     reads: ProviderBudget,
     searches: ProviderBudget,
+    taxonomy: ProviderBudget,
     search_cache: TtlCache<Vec<ExternalProduct>>,
 }
 
@@ -55,6 +56,64 @@ pub fn certification(labels: &[String]) -> Option<Certification> {
         Some(Certification::GlutenFreeClaim)
     } else {
         None
+    }
+}
+
+fn parse_ingredients(value: Option<&Value>, depth: usize) -> Vec<ParsedIngredient> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            let item = item.as_object()?;
+            Some(ParsedIngredient {
+                id: item.get("id")?.as_str()?.to_string(),
+                text: item
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                percent: item
+                    .get("percent")
+                    .and_then(Value::as_f64)
+                    .filter(|p| p.is_finite() && (0.0..=100.0).contains(p)),
+                children: if depth < 3 {
+                    parse_ingredients(item.get("ingredients"), depth + 1)
+                } else {
+                    Vec::new()
+                },
+            })
+        })
+        .collect()
+}
+
+/// Which text `normalize_off` shows, and in which language it is written.
+fn ingredient_language(p: &Map<String, Value>) -> IngredientLanguage {
+    let has = |key: &str| text(p, key).is_some_and(|v| !v.trim().is_empty());
+    let code = if has("ingredients_text_es") {
+        Some("es".to_string())
+    } else if has("ingredients_text") {
+        first(&[text(p, "ingredients_lc"), text(p, "lang")]).map(str::to_string)
+    } else if has("ingredients_text_en") {
+        Some("en".to_string())
+    } else {
+        None
+    };
+    // OFF parses the text in `ingredients_lc`; its structure only describes what we show then.
+    let parsed_matches = code.as_deref().is_some_and(|c| {
+        has("ingredients_text") && first(&[text(p, "ingredients_lc"), text(p, "lang")]) == Some(c)
+    });
+    IngredientLanguage {
+        parsed: if parsed_matches {
+            parse_ingredients(p.get("ingredients"), 0)
+        } else {
+            Vec::new()
+        },
+        unknown: p.get("unknown_ingredients_n").and_then(Value::as_u64),
+        trace_tags: tags(p, "traces_tags").unwrap_or_default(),
+        code,
     }
 }
 
@@ -100,9 +159,13 @@ pub fn normalize_off(value: &Value) -> Option<ExternalProduct> {
     let labels_list = labels.clone().unwrap_or_default();
     Some(ExternalProduct {
         summary_only: false,
-        name: first(&[text(p, "product_name_es"), text(p, "product_name")])
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("Producto {code}")),
+        name: first(&[
+            text(p, "product_name_es"),
+            text(p, "product_name"),
+            text(p, "generic_name_es"),
+        ])
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Producto {code}")),
         brand,
         image_url: safe_http_url(first(&[
             text(p, "image_front_small_url"),
@@ -144,6 +207,7 @@ pub fn normalize_off(value: &Value) -> Option<ExternalProduct> {
         source: "Open Food Facts · ODbL".into(),
         source_url,
         certification: certification(&labels_list),
+        language: ingredient_language(p),
         barcode: code,
     })
 }
@@ -173,6 +237,7 @@ impl OpenFoodFacts {
             search_url: search_url.trim_end_matches('/').into(),
             reads: ProviderBudget::new(14),
             searches: ProviderBudget::new(8),
+            taxonomy: ProviderBudget::new(20),
             search_cache: TtlCache::new(Duration::from_secs(300), 100),
         }
     }
@@ -205,6 +270,43 @@ impl OpenFoodFacts {
                 "La fuente ha enviado información incompleta.",
             )
         })
+    }
+
+    /// Spanish names for taxonomy ids (`None` when OFF has no Spanish name).
+    pub async fn spanish_names(
+        &self,
+        tagtype: &str,
+        ids: &[String],
+    ) -> Result<Vec<(String, Option<String>)>, ApiError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.taxonomy.take()?;
+        let request = self
+            .http
+            .get(format!("{}/api/v2/taxonomy", self.base_url))
+            .query(&[
+                ("tagtype", tagtype),
+                ("tags", &ids.join(",")),
+                ("lc", "es"),
+                ("fields", "name"),
+            ]);
+        let raw = provider_json(request, Duration::from_secs(4)).await?;
+        let entries = raw.as_ref().and_then(Value::as_object);
+        Ok(ids
+            .iter()
+            .map(|id| {
+                let name = entries
+                    .and_then(|e| e.get(id))
+                    .and_then(|v| v.get("name"))
+                    .and_then(|n| n.get("es"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty())
+                    .map(str::to_string);
+                (id.clone(), name)
+            })
+            .collect())
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<ExternalProduct>, ApiError> {

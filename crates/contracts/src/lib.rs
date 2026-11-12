@@ -206,6 +206,40 @@ pub struct Product {
     /// Only present for the authenticated owner of the verdict.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub my_verdict: Option<PersonalVerdict>,
+    /// Source-language ingredients when `ingredients` is a Spanish translation.
+    /// The gluten analysis always runs on this original text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingredients_original: Option<String>,
+    /// ISO 639-1 language of `ingredients_original` ("fr", "en"...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingredients_language: Option<String>,
+    /// Second opinion of the on-server model. Never part of `assessment` (1.0.x
+    /// validates its enums), and never shown when the engine found any evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_check: Option<AiCheck>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AiCheckStatus {
+    /// Every ingredient passed the deterministic gates and the model: "Verificado por IA".
+    Verified,
+    /// The model thinks some ingredients may contain gluten (listed in `flagged`).
+    Suspected,
+    /// Queued; the server CPU is slow, results arrive within a minute or two.
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCheck {
+    pub status: AiCheckStatus,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flagged: Vec<String>,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]

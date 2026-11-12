@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use super::http::{provider_json, ProviderBudget};
 use super::open_food_facts::OpenFoodFacts;
-use super::ExternalProduct;
+use super::{ExternalProduct, IngredientLanguage};
 use crate::error::ApiError;
 
 pub struct FoodDataCentral {
@@ -97,6 +97,10 @@ impl FoodDataCentral {
             source: "USDA FoodData Central · CC0".into(),
             source_url,
             certification: None,
+            language: IngredientLanguage {
+                code: Some("en".into()),
+                ..Default::default()
+            },
         }))
     }
 }

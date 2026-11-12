@@ -26,6 +26,9 @@ pub struct Config {
     pub usda_fdc_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub anthropic_model: String,
+    /// llama.cpp server for "Verificado por IA" (unset: feature off).
+    pub ai_local_url: Option<String>,
+    pub ai_local_model: String,
     pub trust_proxy: u8,
 }
 
@@ -136,6 +139,11 @@ impl Config {
             usda_fdc_api_key: get("USDA_FDC_API_KEY"),
             anthropic_api_key: get("ANTHROPIC_API_KEY"),
             anthropic_model: get("ANTHROPIC_MODEL").unwrap_or_else(|| "claude-sonnet-5-5".into()),
+            ai_local_url: get("AI_LOCAL_URL")
+                .map(|v| url(&v, "AI_LOCAL_URL"))
+                .transpose()?,
+            ai_local_model: get("AI_LOCAL_MODEL")
+                .unwrap_or_else(|| "Qwen2.5 1.5B en el servidor de SafeEat".into()),
             trust_proxy,
         };
         if config.node_env == NodeEnv::Production {

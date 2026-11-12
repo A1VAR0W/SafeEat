@@ -20,6 +20,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::ai_check;
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, JsonBody, MaybeUser, QueryMap};
 use crate::permissions::review_note;
@@ -28,6 +29,7 @@ use crate::providers::ExternalProduct;
 use crate::ratelimit::{per_hour, per_minute, Limit};
 use crate::reviews::{self, Kind};
 use crate::state::AppState;
+use crate::translate::{self, Translation};
 use crate::util::{self, now_iso};
 
 const SEARCH_LIMIT: Limit = per_minute("product-search", 15);
@@ -105,12 +107,6 @@ async fn latest_many(
 fn contributed(state: &AppState, item: Product, contribution: Option<&Contribution>) -> Product {
     let Some(c) = contribution else { return item };
     let community = community_assessment(&c.ingredients);
-    let risk = |s: GlutenStatus| match s {
-        GlutenStatus::ContainsGluten => 3,
-        GlutenStatus::MayContainTraces => 2,
-        GlutenStatus::GlutenFree => 1,
-        GlutenStatus::Unknown => 0,
-    };
     let use_community = item.ingredients.is_none()
         || item.assessment.status == GlutenStatus::Unknown
         || risk(community.status) > risk(item.assessment.status);
@@ -138,6 +134,16 @@ fn contributed(state: &AppState, item: Product, contribution: Option<&Contributi
         },
         community_contribution: true,
         ingredients_image_url: Some(photo_url(state, &barcode, c.id)),
+        ingredients_original: if use_community {
+            None
+        } else {
+            item.ingredients_original.clone()
+        },
+        ingredients_language: if use_community {
+            None
+        } else {
+            item.ingredients_language.clone()
+        },
         ..item
     }
 }
@@ -165,6 +171,9 @@ pub fn community_product(state: &AppState, code: &str, c: &Contribution) -> Prod
         stale: false,
         user_created: false,
         my_verdict: None,
+        ingredients_original: None,
+        ingredients_language: None,
+        ai_check: None,
     }
 }
 
@@ -176,7 +185,7 @@ pub async fn with_reports_many(state: &AppState, items: Vec<Product>) -> ApiResu
         .map(|p| p.id.clone())
         .collect();
     if ids.is_empty() {
-        return Ok(items);
+        return Ok(ai_check::attach(state, items).await);
     }
     let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
         "WITH reports AS (SELECT r.product_id,r.status,
@@ -195,7 +204,7 @@ pub async fn with_reports_many(state: &AppState, items: Vec<Product>) -> ApiResu
         .into_iter()
         .map(|(id, a, b, c, d)| (id, (a, b, c, d)))
         .collect();
-    Ok(items
+    let items: Vec<Product> = items
         .into_iter()
         .map(|item| {
             if item.user_created {
@@ -215,7 +224,8 @@ pub async fn with_reports_many(state: &AppState, items: Vec<Product>) -> ApiResu
                 ..item
             }
         })
-        .collect())
+        .collect();
+    Ok(ai_check::attach(state, items).await)
 }
 
 pub async fn with_reports(state: &AppState, item: Product) -> ApiResult<Product> {
@@ -223,10 +233,12 @@ pub async fn with_reports(state: &AppState, item: Product) -> ApiResult<Product>
 }
 
 /// Same hash on save and on read, so a verdict notices later ingredient changes.
+/// Hashes the original list, so a new Spanish rendering is not "changed ingredients".
 pub fn ingredients_hash(product: &Product) -> String {
     let text = product
-        .ingredients
+        .ingredients_original
         .as_deref()
+        .or(product.ingredients.as_deref())
         .unwrap_or("")
         .trim()
         .to_lowercase();
@@ -298,8 +310,33 @@ pub async fn hydrate_stored(state: &AppState, data: Value, expired: bool) -> Api
     with_reports(state, view).await
 }
 
-fn from_external(external: &ExternalProduct) -> Product {
+fn risk(status: GlutenStatus) -> u8 {
+    match status {
+        GlutenStatus::ContainsGluten => 3,
+        GlutenStatus::MayContainTraces => 2,
+        GlutenStatus::GlutenFree => 1,
+        GlutenStatus::Unknown => 0,
+    }
+}
+
+/// `translation` is the Spanish view of the ingredients. The analysis runs on the
+/// original; the translation is analysed too and wins only when it finds gluten or
+/// traces the original missed (e.g. "farine de blé" → "harina de trigo").
+fn from_external(external: &ExternalProduct, translation: Option<&Translation>) -> Product {
     let mut assessment = assess_gluten(&external.gluten);
+    if let Some(t) = translation {
+        let translated = assess_gluten(&GlutenInput {
+            ingredients: Some(t.text.clone()),
+            ..external.gluten.clone()
+        });
+        if matches!(
+            translated.status,
+            GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
+        ) && risk(translated.status) > risk(assessment.status)
+        {
+            assessment = translated;
+        }
+    }
     assessment.certification = external.certification;
     if external.summary_only {
         assessment.reasons.push(Reason {
@@ -319,7 +356,9 @@ fn from_external(external: &ExternalProduct) -> Product {
         community_contribution: false,
         gluten_reports: None,
         verified_gluten_reports: None,
-        ingredients: external.ingredients.clone(),
+        ingredients: translation
+            .map(|t| t.text.clone())
+            .or_else(|| external.ingredients.clone()),
         assessment,
         nutrition: external.nutrition.clone(),
         quality: score_nutrition(&external.nutrition),
@@ -330,6 +369,9 @@ fn from_external(external: &ExternalProduct) -> Product {
         stale: external.summary_only,
         user_created: false,
         my_verdict: None,
+        ingredients_original: translation.and(external.ingredients.clone()),
+        ingredients_language: translation.map(|t| t.language.clone()),
+        ai_check: None,
     }
 }
 
@@ -338,7 +380,11 @@ fn to_json(item: &Product) -> ApiResult<Value> {
 }
 
 async fn save(state: &AppState, external: &ExternalProduct) -> ApiResult<Product> {
-    let item = from_external(external);
+    let translation = translate::spanish_ingredients(state, &external.language).await;
+    let item = from_external(external, translation.as_ref());
+    if let Some(items) = ai_check::eligible(&item, &external.language) {
+        ai_check::enqueue(state, &item, items).await;
+    }
     sqlx::query(
         "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,'openfoodfacts',$3,now()+interval '24 hours')
          ON CONFLICT(id) DO UPDATE SET provider='openfoodfacts',data=$3,fetched_at=now(),expires_at=now()+interval '24 hours'",
@@ -356,7 +402,7 @@ async fn save_previews(
     state: &AppState,
     externals: &[ExternalProduct],
 ) -> ApiResult<Vec<(Value, bool)>> {
-    let items: Vec<Product> = externals.iter().map(from_external).collect();
+    let items: Vec<Product> = externals.iter().map(|e| from_external(e, None)).collect();
     let ids: Vec<String> = items.iter().map(|p| p.id.clone()).collect();
     let codes: Vec<String> = items
         .iter()
@@ -636,6 +682,9 @@ async fn analyze_text(
         stale: false,
         user_created: true,
         my_verdict: None,
+        ingredients_original: None,
+        ingredients_language: None,
+        ai_check: None,
     };
     sqlx::query("INSERT INTO products(id,provider,owner_id,data,expires_at) VALUES($1,'user',$2,$3,now()+interval '30 days')")
         .bind(&item.id)
@@ -1002,4 +1051,75 @@ pub fn routes(state: &AppState) -> Router<AppState> {
             "/api/v1/products/{id}/reviews/{review}/confirm",
             post(confirm_review).route_layer(limit(state, reviews::CONFIRM_PRODUCT_LIMIT)),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::IngredientLanguage;
+
+    fn french(ingredients: &str) -> ExternalProduct {
+        ExternalProduct {
+            summary_only: false,
+            barcode: "3000000000001".into(),
+            name: "Biscuits".into(),
+            brand: None,
+            image_url: None,
+            information_source: InformationSource::Api,
+            ingredients: Some(ingredients.into()),
+            gluten: GlutenInput {
+                ingredients: Some(ingredients.into()),
+                source: "Open Food Facts".into(),
+                origin: Some(Origin::Provider),
+                ..Default::default()
+            },
+            nutrition: NutritionInput::default(),
+            nutri_score: None,
+            source: "Open Food Facts".into(),
+            source_url: "https://world.openfoodfacts.org/product/3000000000001".into(),
+            certification: None,
+            language: IngredientLanguage {
+                code: Some("fr".into()),
+                ..Default::default()
+            },
+        }
+    }
+
+    #[test]
+    fn translation_only_makes_the_assessment_more_cautious() {
+        // The engine has no French vocabulary: "farine de blé" alone is UNKNOWN.
+        let ext = french("Farine de blé, sucre, beurre.");
+        assert_eq!(
+            from_external(&ext, None).assessment.status,
+            GlutenStatus::Unknown
+        );
+        let t = Translation {
+            text: "Harina de trigo, azúcar, mantequilla.".into(),
+            language: "fr".into(),
+        };
+        let item = from_external(&ext, Some(&t));
+        assert_eq!(item.assessment.status, GlutenStatus::ContainsGluten);
+        assert_eq!(item.ingredients.as_deref(), Some(t.text.as_str()));
+        assert_eq!(
+            item.ingredients_original.as_deref(),
+            Some("Farine de blé, sucre, beurre.")
+        );
+        assert_eq!(item.ingredients_language.as_deref(), Some("fr"));
+        // The verdict hash follows the original, not the rendering.
+        assert_eq!(
+            ingredients_hash(&item),
+            ingredients_hash(&from_external(&ext, None))
+        );
+
+        // A translated "sin gluten" never upgrades an UNKNOWN original.
+        let claim = Translation {
+            text: "Harina de arroz. Sin gluten.".into(),
+            language: "fr".into(),
+        };
+        let ext = french("Farine de riz.");
+        assert_eq!(
+            from_external(&ext, Some(&claim)).assessment.status,
+            GlutenStatus::Unknown
+        );
+    }
 }

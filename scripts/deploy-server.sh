@@ -13,6 +13,10 @@ if [[ "${SAFEEAT_SKIP_BUILD:-0}" != 1 ]]; then "${compose[@]}" build api; fi
 "${compose[@]}" up -d --wait postgres
 # Migrations are additive, so the previous image keeps working if a rollback is needed.
 "${compose[@]}" run --rm --no-deps api migrate
+# Optional on-server model for "Verificado por IA" (see docker-compose.yml, service ai).
+if grep -q '^AI_LOCAL_URL=' "$SAFEEAT_ENV_FILE"; then
+  "${compose[@]}" --profile ai up -d --wait --wait-timeout 180 ai
+fi
 "${compose[@]}" up -d --wait --wait-timeout 120 api web
 "${compose[@]}" exec -T api safeeat-server healthcheck http://127.0.0.1:4000/ready
 "${compose[@]}" exec -T web sh -c 'exec safeeat-server healthcheck "http://127.0.0.1:3000${WEB_BASE_PATH:-}/health"'

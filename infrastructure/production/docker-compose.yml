@@ -69,6 +69,27 @@ services:
     cpus: 0.5
     pids_limit: 128
     logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
+  ai:
+    # Optional "Verificado por IA" second opinion (llama.cpp + Qwen2.5 1.5B Q4_K_M,
+    # sha256 6a1a2eb6…407e). Started by deploy-server.sh only when the env file sets
+    # AI_LOCAL_URL=http://ai:8080. Private network only: the model never reaches the internet.
+    image: ghcr.io/ggml-org/llama.cpp@sha256:086942d6ac097c894d9d5bbaf8085c53af85e113fbb9d6d61b3748863c86aa5f
+    profiles: [ai]
+    command:
+      ['-m', '/models/${AI_MODEL_FILE:-qwen2.5-1.5b-instruct-q4_k_m.gguf}', '-t', '2', '-c', '2048',
+       '-np', '1', '--host', '0.0.0.0', '--port', '8080']
+    volumes: ['${AI_MODELS_DIR:-/opt/safeeat/models}:/models:ro']
+    networks: [private]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=16m']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    # The home server CPU is an AMD E2-6110: never let the model starve HallowFest.
+    mem_limit: 1400m
+    cpus: 1.5
+    pids_limit: 64
+    logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
 networks:
   private: { internal: true }
   egress:
