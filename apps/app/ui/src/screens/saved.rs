@@ -17,7 +17,7 @@ pub fn SavedScreen() -> impl IntoView {
         }
         spawn_local(async move {
             let result = api::get::<Page<Product>>("/favorites/products").await.map(|p| p.items);
-            items.set(Some(result));
+            items.try_set(Some(result));
         });
     };
     load();

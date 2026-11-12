@@ -49,7 +49,7 @@ pub fn ScanScreen() -> impl IntoView {
                 api::invoke("plugin:barcode-scanner|request_permissions", NoArgs {}).await;
             let denied = matches!(&permission, Ok(v) if v.as_str() == Some("denied"));
             if denied {
-                scan_error.set(Some(
+                scan_error.try_set(Some(
                     "SafeEat no tiene permiso para usar la cámara. Actívalo en los ajustes del móvil o escribe el código abajo."
                         .into(),
                 ));
@@ -77,14 +77,14 @@ pub fn ScanScreen() -> impl IntoView {
                 }
                 Ok(_) => {
                     nav.drop_history_entry();
-                    scan_error.set(Some("Ese código no es de un producto. Prueba otra vez.".into()));
+                    scan_error.try_set(Some("Ese código no es de un producto. Prueba otra vez.".into()));
                 }
                 // Cancelled by back/«Cancelar»: that already consumed the history entry.
                 Err(_) if scan_state.1.get_value() => {}
                 Err(e) => {
                     web_sys::console::warn_1(&format!("scan: {}", e.message).into());
                     nav.drop_history_entry();
-                    scan_error.set(Some(
+                    scan_error.try_set(Some(
                         "No se pudo abrir la cámara. Escribe el código de barras abajo.".into(),
                     ));
                 }
@@ -181,9 +181,10 @@ fn ProductSearch() -> impl IntoView {
                 if free { "&glutenFree=true" } else { "" }
             );
             let result = api::get::<Items<Product>>(&path).await.map(|r| r.items);
-            if generation.get_value() == ticket {
-                results.set(Some(result));
-                loading.set(false);
+            // The screen may be gone (tab switch) before the answer arrives.
+            if generation.try_get_value() == Some(ticket) {
+                results.try_set(Some(result));
+                loading.try_set(false);
             }
         });
     };

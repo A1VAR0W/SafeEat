@@ -23,8 +23,10 @@ pub fn ProductScreen(id: String) -> impl IntoView {
     let path = StoredValue::new(path_for(&id));
     let load = move || {
         spawn_local(async move {
-            let result = api::get::<Product>(&path.get_value()).await;
-            state.set(Some(result));
+            // Also runs from the AI poll timer, possibly after leaving the screen.
+            let Some(path) = path.try_get_value() else { return };
+            let result = api::get::<Product>(&path).await;
+            state.try_set(Some(result));
         });
     };
     load();
@@ -238,10 +240,14 @@ fn PersonalVerdictCard(product: Product, state: RwSignal<Option<Result<Product, 
                 }
                 None => api::send("DELETE", &path, None).await,
             };
-            busy.set(false);
+            busy.try_set(false);
             match result {
-                Ok(p) => state.set(Some(Ok(p))),
-                Err(e) => error.set(Some(e.message)),
+                Ok(p) => {
+                    state.try_set(Some(Ok(p)));
+                }
+                Err(e) => {
+                    error.try_set(Some(e.message));
+                }
             }
         });
     };
@@ -311,7 +317,7 @@ fn FavoriteButton(id: String) -> impl IntoView {
     if session.0.with_untracked(Option::is_some) {
         spawn_local(async move {
             if let Ok(v) = api::get::<serde_json::Value>(&path.get_value()).await {
-                saved.set(v["saved"].as_bool().unwrap_or(false));
+                saved.try_set(v["saved"].as_bool().unwrap_or(false));
             }
         });
     }
@@ -325,7 +331,7 @@ fn FavoriteButton(id: String) -> impl IntoView {
         spawn_local(async move {
             let method = if next { "POST" } else { "DELETE" };
             if api::send::<serde_json::Value>(method, &path.get_value(), None).await.is_err() {
-                saved.set(!next);
+                saved.try_set(!next);
             }
         });
     };

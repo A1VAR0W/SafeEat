@@ -152,8 +152,9 @@ Leyenda de esta tabla:
 | Veredicto personal (me sienta bien / no es seguro) | ✅ | Aparece «Marcado por ti como seguro» |
 | Aviso «los ingredientes han cambiado» | 🟡 | Probado en el servidor (smoke-api), no en la app |
 | Favoritos (corazón) y pestaña Guardados | ✅ | |
-| Búsqueda de productos por nombre, con cada resultado ya evaluado | ✅ | «galletas maria» |
-| Mapa (MapLibre + OpenFreeMap): agrupación de marcadores, tu ubicación, «Buscar en esta zona», filtros, lista de resultados | ✅ | |
+| Búsqueda de productos por nombre, con cada resultado ya evaluado, y filtro «Solo sin gluten declarado» | ✅ | «galletas»: con el filtro quedan 2, igual que la API |
+| Mapa (MapLibre + OpenFreeMap): agrupación de marcadores, tu ubicación, lista de resultados | ✅ | |
+| Filtros del mapa («Con opciones sin gluten», «Todo sin gluten») y «Buscar en esta zona» al mover el mapa | ✅ | |
 | Sugerencias con las cadenas primero | ✅ | «burger k» → «Cadena Burger King · 184 locales» |
 | Pantalla de cadena con los locales más cercanos | ✅ | Ordenados por distancia (130 m, 140 m, 410 m…) |
 | Ficha de restaurante: cómo llegar, llamar, cadena, en qué se basa | ✅ | |
@@ -162,7 +163,7 @@ Leyenda de esta tabla:
 | Login | ✅ | |
 | Registro | 🟡 | Hecho; la cuenta de prueba se creó por la API, no desde la pantalla |
 | **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano. | ⏳ | |
-| OCR de etiquetas, IA sobre una foto, colecciones, ajustes de cuenta, panel de administración, enlaces `/p/` `/r/`, actualizador | ⏳ | La app 1.0.13 sigue teniéndolo |
+| **No implementado todavía en la 2.0** (la app 1.0.13 sí lo tiene casi todo): OCR de etiquetas, IA sobre una foto, reseñar o confirmar la reseña de un producto, compartir, valoración con estrellas, añadir un restaurante, colecciones, «Mis productos seguros» y selector de columnas, historial de búsquedas, caché sin conexión, completar perfil y ajustes de cuenta (email, contraseña, borrar cuenta), panel de administración, enlaces `/p/` `/r/`, escaneo continuo, actualizador del APK | ⏳ | |
 | Compilación para móviles reales (aarch64), APK firmado de publicación, iOS | ⏳ | Solo se ha compilado el APK de depuración x86_64 para el emulador (~172 MB por ser de depuración) |
 
 **Fallos encontrados en las pruebas y ya arreglados:**
@@ -172,6 +173,9 @@ Leyenda de esta tabla:
 - La pantalla de cadena se quedaba en «Cargando…» por un error interno.
 - La reseña de restaurante fallaba siempre porque el servidor pide un comentario y la app no tenía dónde escribirlo.
 - La sugerencia de cadena repetía el texto («Cadena Cadena…»).
+- La app se colgaba si cambiabas de pestaña mientras esperaba una respuesta (por ejemplo, una búsqueda). Ahora ignora la respuesta si la pantalla ya no está.
+
+**Datos de prueba:** la cuenta de prueba usada en el emulador se borró al terminar, y con ella su reseña, su favorito y su veredicto. El Burger King de la calle Carretas ha vuelto a «No verificado».
 
 **Sobre el emulador:** para instalar la 2.0 se desinstaló la app Expo del emulador (no del móvil), porque el APK de depuración va firmado con otra clave.
 

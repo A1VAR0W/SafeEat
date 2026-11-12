@@ -62,14 +62,17 @@ pub fn LoginScreen() -> impl IntoView {
                 },
             )
             .await;
-            busy.set(false);
+            // The screen may be gone by now: `try_` never panics on a disposed signal.
+            busy.try_set(false);
             match result {
                 Ok(user) => {
                     session.0.set(Some(user));
-                    password.set(String::new());
+                    password.try_set(String::new());
                     nav.back();
                 }
-                Err(e) => error.set(Some(e.message)),
+                Err(e) => {
+                    error.try_set(Some(e.message));
+                }
             }
         });
     };
@@ -132,7 +135,7 @@ pub fn ProfileScreen() -> impl IntoView {
     let meta = RwSignal::new(None::<String>);
     spawn_local(async move {
         if let Ok(m) = api::get::<safeeat_contracts::Meta>("/meta").await {
-            meta.set(Some(format!("Servidor {} · {}", m.version, m.environment)));
+            meta.try_set(Some(format!("Servidor {} · {}", m.version, m.environment)));
         }
     });
     let logout = move |_| {

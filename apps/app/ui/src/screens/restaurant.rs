@@ -16,7 +16,10 @@ pub fn RestaurantScreen(id: String) -> impl IntoView {
     // Lives here because saving a review re-renders the whole detail.
     let saved = RwSignal::new(false);
     let path = StoredValue::new(format!("/restaurants/{}", api::enc(&id)));
-    let load = move || spawn_local(async move { state.set(Some(api::get(&path.get_value()).await)) });
+    let load = move || spawn_local(async move {
+        let result = api::get(&path.get_value()).await;
+        state.try_set(Some(result));
+    });
     load();
     let title = Signal::derive(move || state.with(|s| match s {
         Some(Ok(r)) => r.name.clone(),
@@ -117,13 +120,15 @@ fn ReviewForm(
             });
             let path = format!("/restaurants/{}/gluten-report", api::enc(&id.get_value()));
             let result = api::send::<Restaurant>("POST", &path, Some(body)).await;
-            busy.set(false);
+            busy.try_set(false);
             match result {
                 Ok(r) => {
-                    saved.set(true);
-                    state.set(Some(Ok(r)));
+                    saved.try_set(true);
+                    state.try_set(Some(Ok(r)));
                 }
-                Err(e) => error.set(Some(e.message)),
+                Err(e) => {
+                    error.try_set(Some(e.message));
+                }
             }
         });
     };
@@ -187,7 +192,8 @@ pub fn ChainScreen(key: String) -> impl IntoView {
                 .map(|(lat, lng)| format!("?latitude={lat:.5}&longitude={lng:.5}"))
                 .unwrap_or_default();
             let path = format!("/restaurants/chains/{}{near}", api::enc(&key.get_value()));
-            state.set(Some(api::get(&path).await));
+            let result = api::get(&path).await;
+            state.try_set(Some(result));
         })
     };
     load();
