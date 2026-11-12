@@ -63,6 +63,10 @@ export const ProductSchema = z.object({
   fetchedAt: z.string(),
   stale: z.boolean().default(false),
   userCreated: z.boolean().default(false),
+  /** Label text contributed by a user; shown next to the provider's list, never instead of it. */
+  communityIngredients: z.string().optional(),
+  /** The provider's own analysis when a community label raised the risk in `assessment`. */
+  providerAssessment: AssessmentSchema.optional(),
 });
 export type Product = z.infer<typeof ProductSchema>;
 export const CommunityReviewSchema = z.object({

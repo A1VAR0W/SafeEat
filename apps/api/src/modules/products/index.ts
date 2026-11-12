@@ -27,14 +27,42 @@ export function productService(
     );
     return result.rows[0];
   }
-  function contributed(item: Product, contribution?: Contribution): Product {
-    if (!contribution) return item;
-    const communityAssessment = assessGluten({
-      ingredients: contribution.ingredients,
+  /**
+   * Analysis of a label contributed by a user. It can warn (gluten, traces) but never
+   * says "gluten free": one person's reading of a label is not a manufacturer's declaration.
+   */
+  function communityAssessment(ingredients: string): Product['assessment'] {
+    const assessment = assessGluten({
+      ingredients,
       source: 'Etiqueta revisada por un usuario',
       origin: 'ocr',
       reviewed: true,
     });
+    if (assessment.status !== 'GLUTEN_FREE') return assessment;
+    return {
+      ...assessment,
+      status: 'UNKNOWN',
+      confidence: 0,
+      reasons: [
+        {
+          code: 'INSUFFICIENT_EVIDENCE',
+          message: 'No disponemos de información suficiente para confirmar que sea seguro.',
+        },
+        {
+          code: 'COMMUNITY_CLAIM_UNVERIFIED',
+          message:
+            'Un usuario ha aportado una etiqueta que dice «sin gluten», pero no está confirmado por el fabricante. Compruébalo en el envase.',
+        },
+      ],
+    };
+  }
+  /**
+   * Adds a user's label without replacing what the provider said. It changes the
+   * assessment only to warn of gluten or traces; it never makes a product look safer.
+   */
+  function contributed(item: Product, contribution?: Contribution): Product {
+    if (!contribution) return item;
+    const community = communityAssessment(contribution.ingredients);
     const risk = (status: Product['assessment']['status']) =>
       status === 'CONTAINS_GLUTEN'
         ? 3
@@ -43,17 +71,22 @@ export function productService(
           : status === 'GLUTEN_FREE'
             ? 1
             : 0;
-    const useCommunity =
-      !item.ingredients ||
-      item.assessment.status === 'UNKNOWN' ||
-      risk(communityAssessment.status) > risk(item.assessment.status);
+    const warns =
+      (community.status === 'CONTAINS_GLUTEN' || community.status === 'MAY_CONTAIN_TRACES') &&
+      risk(community.status) > risk(item.assessment.status);
+    const fillsIngredients = !item.ingredients;
     return ProductSchema.parse({
       ...item,
       name: item.name.startsWith('Producto ') ? contribution.product_name : item.name,
-      ingredients: useCommunity ? contribution.ingredients : item.ingredients,
-      assessment: useCommunity ? communityAssessment : item.assessment,
-      informationSource: useCommunity ? 'community' : item.informationSource,
+      ingredients: fillsIngredients ? contribution.ingredients : item.ingredients,
+      assessment:
+        warns || (fillsIngredients && item.assessment.status === 'UNKNOWN')
+          ? community
+          : item.assessment,
+      ...(warns ? { providerAssessment: item.assessment } : {}),
+      informationSource: warns || fillsIngredients ? 'community' : item.informationSource,
       communityContribution: true,
+      communityIngredients: contribution.ingredients,
       ingredientsImageUrl: `${apiPublicUrl.replace(/\/$/, '')}/api/v1/products/${encodeURIComponent(item.barcode!)}/ingredients-photo?v=${contribution.id}`,
     });
   }
@@ -93,12 +126,8 @@ export function productService(
       barcode: code,
       name: c.product_name,
       ingredients: c.ingredients,
-      assessment: assessGluten({
-        ingredients: c.ingredients,
-        source: 'Etiqueta revisada por un usuario',
-        origin: 'ocr',
-        reviewed: true,
-      }),
+      communityIngredients: c.ingredients,
+      assessment: communityAssessment(c.ingredients),
       nutrition: {},
       quality: scoreNutrition({}),
       source: 'Comunidad SafeEat',

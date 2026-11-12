@@ -217,6 +217,14 @@ pub struct Product {
     /// validates its enums), and never shown when the engine found any evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_check: Option<AiCheck>,
+    /// Label text typed or photographed by a user. Shown next to the provider's
+    /// ingredients, never instead of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub community_ingredients: Option<String>,
+    /// The provider's own analysis, when a community label raised the risk shown in
+    /// `assessment`. Lets the app show both without losing the original.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_assessment: Option<Assessment>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

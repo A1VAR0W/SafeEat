@@ -60,14 +60,34 @@ fn photo_url(state: &AppState, code: &str, contribution: Uuid) -> String {
     )
 }
 
+/// Analysis of a label contributed by a user. It can warn (gluten, traces) but it can
+/// never say "gluten free": one person's reading of a label is not a declaration by
+/// the manufacturer. A "sin gluten" found there stays UNKNOWN with its own reason.
 fn community_assessment(ingredients: &str) -> safeeat_contracts::Assessment {
-    assess_gluten(&GlutenInput {
+    let mut assessment = assess_gluten(&GlutenInput {
         ingredients: Some(ingredients.into()),
         source: "Etiqueta revisada por un usuario".into(),
         origin: Some(Origin::Ocr),
         reviewed: Some(true),
         ..Default::default()
-    })
+    });
+    if assessment.status == GlutenStatus::GlutenFree {
+        assessment.status = GlutenStatus::Unknown;
+        assessment.confidence = 0.0;
+        assessment.reasons = vec![
+            Reason {
+                code: "INSUFFICIENT_EVIDENCE".into(),
+                message: "No disponemos de información suficiente para confirmar que sea seguro."
+                    .into(),
+            },
+            Reason {
+                code: "COMMUNITY_CLAIM_UNVERIFIED".into(),
+                message: "Un usuario ha aportado una etiqueta que dice «sin gluten», pero no está confirmado por el fabricante. Compruébalo en el envase."
+                    .into(),
+            },
+        ];
+    }
+    assessment
 }
 
 pub async fn latest(state: &AppState, code: &str) -> ApiResult<Option<Contribution>> {
@@ -106,44 +126,52 @@ async fn latest_many(
 
 fn contributed(state: &AppState, item: Product, contribution: Option<&Contribution>) -> Product {
     let Some(c) = contribution else { return item };
-    let community = community_assessment(&c.ingredients);
-    let use_community = item.ingredients.is_none()
-        || item.assessment.status == GlutenStatus::Unknown
-        || risk(community.status) > risk(item.assessment.status);
     let barcode = item.barcode.clone().unwrap_or_default();
+    let photo = photo_url(state, &barcode, c.id);
+    overlay_contribution(item, c, photo)
+}
+
+/// Adds a user's label to a provider product without replacing what the provider said.
+/// - The provider's ingredients stay; the user's text goes in `community_ingredients`
+///   (only when the provider has none is it also shown as the ingredient list).
+/// - The user's label changes `assessment` only to warn of gluten or traces the
+///   provider did not report; the provider's analysis is then kept in
+///   `provider_assessment`. It never makes a product look safer.
+fn overlay_contribution(item: Product, c: &Contribution, photo: String) -> Product {
+    let community = community_assessment(&c.ingredients);
+    let warns = matches!(
+        community.status,
+        GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
+    ) && risk(community.status) > risk(item.assessment.status);
+    let fills_ingredients = item.ingredients.is_none();
     Product {
         name: if item.name.starts_with("Producto ") {
             c.product_name.clone()
         } else {
             item.name.clone()
         },
-        ingredients: if use_community {
+        ingredients: if fills_ingredients {
             Some(c.ingredients.clone())
         } else {
             item.ingredients.clone()
         },
-        assessment: if use_community {
+        provider_assessment: warns.then(|| item.assessment.clone()),
+        assessment: if warns {
+            community
+        } else if fills_ingredients && item.assessment.status == GlutenStatus::Unknown {
+            // Nothing from the provider: show what the user's label says (never green).
             community
         } else {
             item.assessment.clone()
         },
-        information_source: if use_community {
+        information_source: if warns || fills_ingredients {
             InformationSource::Community
         } else {
             item.information_source
         },
         community_contribution: true,
-        ingredients_image_url: Some(photo_url(state, &barcode, c.id)),
-        ingredients_original: if use_community {
-            None
-        } else {
-            item.ingredients_original.clone()
-        },
-        ingredients_language: if use_community {
-            None
-        } else {
-            item.ingredients_language.clone()
-        },
+        community_ingredients: Some(c.ingredients.clone()),
+        ingredients_image_url: Some(photo),
         ..item
     }
 }
@@ -174,6 +202,8 @@ pub fn community_product(state: &AppState, code: &str, c: &Contribution) -> Prod
         ingredients_original: None,
         ingredients_language: None,
         ai_check: None,
+        community_ingredients: Some(c.ingredients.clone()),
+        provider_assessment: None,
     }
 }
 
@@ -372,6 +402,8 @@ fn from_external(external: &ExternalProduct, translation: Option<&Translation>) 
         ingredients_original: translation.and(external.ingredients.clone()),
         ingredients_language: translation.map(|t| t.language.clone()),
         ai_check: None,
+        community_ingredients: None,
+        provider_assessment: None,
     }
 }
 
@@ -463,11 +495,20 @@ async fn from_cache(state: &AppState, code: &str) -> ApiResult<Option<Product>> 
     let contribution = latest(state, code).await?;
     match row {
         Some(row) if row.fresh && (row.provider != "community" || contribution.is_some()) => {
-            Ok(Some(if row.provider == "community" {
-                community_product(state, code, contribution.as_ref().expect("checked"))
-            } else {
-                contributed(state, parse(row.data)?, contribution.as_ref())
-            }))
+            if row.provider == "community" {
+                return Ok(Some(community_product(
+                    state,
+                    code,
+                    contribution.as_ref().expect("checked"),
+                )));
+            }
+            let item = parse(row.data)?;
+            // An analysis made by an older engine is not served as fresh: the product
+            // is fetched again so a corrected rule reaches cached products at once.
+            if item.assessment.engine_version != safeeat_gluten_engine::ENGINE_VERSION {
+                return Ok(None);
+            }
+            Ok(Some(contributed(state, item, contribution.as_ref())))
         }
         _ => Ok(None),
     }
@@ -685,6 +726,8 @@ async fn analyze_text(
         ingredients_original: None,
         ingredients_language: None,
         ai_check: None,
+        community_ingredients: None,
+        provider_assessment: None,
     };
     sqlx::query("INSERT INTO products(id,provider,owner_id,data,expires_at) VALUES($1,'user',$2,$3,now()+interval '30 days')")
         .bind(&item.id)
@@ -1085,10 +1128,83 @@ mod tests {
         }
     }
 
+    fn label(ingredients: &str) -> Contribution {
+        Contribution {
+            id: Uuid::nil(),
+            product_name: "Galletas".into(),
+            ingredients: ingredients.into(),
+        }
+    }
+
+    fn overlay(provider: Option<&str>, user_label: &str) -> Product {
+        let mut ext = french(provider.unwrap_or(""));
+        if provider.is_none() {
+            ext.ingredients = None;
+            ext.gluten.ingredients = None;
+        }
+        overlay_contribution(
+            from_external(&ext, None),
+            &label(user_label),
+            "photo".into(),
+        )
+    }
+
+    #[test]
+    fn a_user_label_never_turns_a_product_gluten_free() {
+        // Provider has ingredients and found nothing: its data stays, the label is extra.
+        let item = overlay(Some("Arroz, sal."), "Arroz, sal. Sin gluten.");
+        assert_eq!(item.assessment.status, GlutenStatus::Unknown);
+        assert_eq!(item.ingredients.as_deref(), Some("Arroz, sal."));
+        assert_eq!(
+            item.community_ingredients.as_deref(),
+            Some("Arroz, sal. Sin gluten.")
+        );
+        assert_eq!(item.information_source, InformationSource::Api);
+        assert!(item.community_contribution);
+        assert!(item.provider_assessment.is_none());
+
+        // Provider has nothing at all: the label is shown, still not green.
+        let item = overlay(None, "Arroz, sal. Sin gluten.");
+        assert_eq!(item.assessment.status, GlutenStatus::Unknown);
+        assert_eq!(item.information_source, InformationSource::Community);
+        assert!(item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "COMMUNITY_CLAIM_UNVERIFIED"));
+        assert_eq!(
+            community_product_status("Sin gluten"),
+            GlutenStatus::Unknown
+        );
+    }
+
+    fn community_product_status(text: &str) -> GlutenStatus {
+        community_assessment(text).status
+    }
+
+    #[test]
+    fn a_user_label_can_only_add_a_warning_and_keeps_the_original() {
+        let item = overlay(Some("Arroz, sal. Sin gluten."), "Harina de trigo, sal.");
+        assert_eq!(item.assessment.status, GlutenStatus::ContainsGluten);
+        assert_eq!(
+            item.provider_assessment.as_ref().map(|a| a.status),
+            Some(GlutenStatus::GlutenFree)
+        );
+        assert_eq!(item.ingredients.as_deref(), Some("Arroz, sal. Sin gluten."));
+        assert_eq!(item.information_source, InformationSource::Community);
+
+        // A provider warning is never weakened by a user's label.
+        let item = overlay(Some("Harina de trigo."), "Sin gluten.");
+        assert_eq!(item.assessment.status, GlutenStatus::ContainsGluten);
+        assert!(item.provider_assessment.is_none());
+        let item = overlay(Some("Arroz. Puede contener trigo."), "Arroz. Sin gluten.");
+        assert_eq!(item.assessment.status, GlutenStatus::MayContainTraces);
+    }
+
     #[test]
     fn translation_only_makes_the_assessment_more_cautious() {
-        // The engine has no French vocabulary: "farine de blé" alone is UNKNOWN.
-        let ext = french("Farine de blé, sucre, beurre.");
+        // The engine has no Polish vocabulary: "mąka pszenna" alone is UNKNOWN.
+        let ext = french("Mąka pszenna, cukier, masło.");
         assert_eq!(
             from_external(&ext, None).assessment.status,
             GlutenStatus::Unknown
@@ -1102,7 +1218,7 @@ mod tests {
         assert_eq!(item.ingredients.as_deref(), Some(t.text.as_str()));
         assert_eq!(
             item.ingredients_original.as_deref(),
-            Some("Farine de blé, sucre, beurre.")
+            Some("Mąka pszenna, cukier, masło.")
         );
         assert_eq!(item.ingredients_language.as_deref(), Some("fr"));
         // The verdict hash follows the original, not the rendering.
