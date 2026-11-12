@@ -20,12 +20,19 @@ use tauri::{AppHandle, State};
 use tauri_plugin_safeeat_secure::SecureExt;
 use tokio::sync::Mutex;
 
-/// Build-time API origin (no trailing slash). Preproduction unless the release
-/// build sets `SAFEEAT_API_URL`.
+/// Build-time API origin (no trailing slash). Debug builds default to preproduction;
+/// release builds must set `SAFEEAT_API_URL` (see the assertion below).
 const API_URL: &str = match option_env!("SAFEEAT_API_URL") {
     Some(url) => url,
     None => "https://chat-ink.tail552c89.ts.net:10000/preproduction",
 };
+
+// A release build must say which server it talks to: without this, an APK meant for
+// production would silently use preproduction.
+const _: () = assert!(
+    cfg!(debug_assertions) || option_env!("SAFEEAT_API_URL").is_some(),
+    "set SAFEEAT_API_URL for release builds (the API origin, without a trailing slash)"
+);
 
 const KEY_REFRESH: &str = "refresh";
 const KEY_USER: &str = "user";

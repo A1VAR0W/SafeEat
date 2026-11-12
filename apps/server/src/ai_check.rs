@@ -1,11 +1,12 @@
-//! "Verificado por IA": a second opinion from a small model running on the server.
+//! Orientative AI analysis (wire status `VERIFIED`, shown as "Análisis orientativo por
+//! IA", never as a green safety badge): a second opinion from a small model running on the server.
 //!
 //! Measured on the home server (AMD E2-6110, no AVX2): Qwen2.5-1.5B Q4_K_M reads
 //! ~6 tokens/s, so a whole list takes about a minute and, judged as a list, it called
 //! "harina de trigo" gluten-free. Asked one ingredient at a time with examples it is
 //! usable but still wrong now and then (1-2 of 30 gluten products passed in our
-//! test set). So the model never decides alone. A product only gets the green
-//! "Verificado por IA" when ALL of these hold:
+//! test set). So the model never decides alone.
+//! The model is asked only when ALL of these hold:
 //!   1. the deterministic engine found no evidence at all (status UNKNOWN, no clauses);
 //!   2. Open Food Facts recognised every ingredient (`unknown_ingredients_n == 0`);
 //!   3. no word of a multilingual blocklist of gluten sources and vague ingredients
@@ -142,7 +143,7 @@ impl AiChecker {
 }
 
 /// Ingredient items worth asking about, or `None` when a deterministic gate already
-/// rules the green badge out (see module docs).
+/// rules a favourable AI result out (see module docs).
 pub fn eligible(item: &Product, language: &IngredientLanguage) -> Option<Vec<String>> {
     if item.user_created
         || item.assessment.status != GlutenStatus::Unknown
@@ -608,7 +609,7 @@ mod gate_regression {
                 asked_safe += 1;
             }
         }
-        // Most plain gluten-free lists still get a chance at the green badge.
+        // Most plain gluten-free lists still reach the model.
         assert!(
             asked_safe >= 14,
             "only {asked_safe} safe cases reach the model"

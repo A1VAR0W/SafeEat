@@ -26,7 +26,7 @@ pub struct Config {
     pub usda_fdc_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub anthropic_model: String,
-    /// llama.cpp server for "Verificado por IA" (unset: feature off).
+    /// llama.cpp server for the orientative AI analysis (unset: feature off).
     pub ai_local_url: Option<String>,
     pub ai_local_model: String,
     pub trust_proxy: u8,

@@ -63,7 +63,7 @@ class SecurePlugin(private val activity: Activity) : Plugin(activity) {
       val cipher = Cipher.getInstance(TRANSFORMATION)
       cipher.init(Cipher.ENCRYPT_MODE, secretKey())
       val sealed = cipher.iv + cipher.doFinal(args.value.toByteArray(Charsets.UTF_8))
-      prefs.edit().putString(args.key, Base64.encodeToString(sealed, Base64.NO_WRAP)).apply()
+      prefs.edit().putString(args.key, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
       invoke.resolve()
     } catch (error: Exception) {
       invoke.reject("No se pudo guardar de forma segura")
@@ -84,7 +84,7 @@ class SecurePlugin(private val activity: Activity) : Plugin(activity) {
         value = String(cipher.doFinal(sealed, IV_BYTES, sealed.size - IV_BYTES), Charsets.UTF_8)
       } catch (error: Exception) {
         // Key lost (restored backup, cleared keystore): the entry is useless, drop it.
-        prefs.edit().remove(args.key).apply()
+        prefs.edit().remove(args.key).commit()
       }
     }
     result.put("value", value ?: JSONObject.NULL)
@@ -94,7 +94,7 @@ class SecurePlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun remove(invoke: Invoke) {
     val args = invoke.parseArgs(KeyArgs::class.java)
-    prefs.edit().remove(args.key).apply()
+    prefs.edit().remove(args.key).commit()
     invoke.resolve()
   }
 

@@ -25,7 +25,7 @@ pub struct Inner {
     pub fdc: Option<FoodDataCentral>,
     pub osm: OpenStreetMap,
     pub ai: Option<LabelAi>,
-    /// On-server model for "Verificado por IA" (background queue).
+    /// On-server model for the orientative AI analysis (background queue).
     pub ai_check: Option<AiChecker>,
     /// Per-barcode locks so concurrent lookups share one provider request.
     pub barcode_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,

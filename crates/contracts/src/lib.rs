@@ -230,7 +230,8 @@ pub struct Product {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AiCheckStatus {
-    /// Every ingredient passed the deterministic gates and the model: "Verificado por IA".
+    /// Every ingredient passed the deterministic gates and the model. Orientative only:
+    /// shown as "Análisis orientativo por IA", never as a certification or in green.
     Verified,
     /// The model thinks some ingredients may contain gluten (listed in `flagged`).
     Suspected,
