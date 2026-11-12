@@ -1,8 +1,12 @@
 //! What the product card says, in the order of docs/SAFETY.md:
 //! personal verdict → certified seal → automatic analysis → community.
 //! Pure functions, unit-tested on the host (`cargo test -p safeeat-ui`).
+//!
+//! Green (`Tone::Safe`) is reserved for a declaration by the manufacturer or the
+//! user's own verdict. An AI result or a community review that found nothing is
+//! `Tone::Info`: useful, clearly labelled, never a food-safety badge.
 
-use safeeat_contracts::{AiCheckStatus, GlutenStatus, Product, VerdictValue};
+use safeeat_contracts::{AiCheckStatus, Certification, GlutenStatus, Product, VerdictValue};
 
 /// Visual tone of a badge. Every tone also carries an icon and words, never colour alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +15,8 @@ pub enum Tone {
     Danger,
     Caution,
     Unknown,
+    /// Orientative information (AI, community). Neutral colour, never green.
+    Info,
 }
 
 impl Tone {
@@ -20,6 +26,7 @@ impl Tone {
             Tone::Danger => "tone-danger",
             Tone::Caution => "tone-caution",
             Tone::Unknown => "tone-unknown",
+            Tone::Info => "tone-info",
         }
     }
     pub fn icon(self) -> &'static str {
@@ -28,6 +35,7 @@ impl Tone {
             Tone::Danger => crate::icons::X_CIRCLE,
             Tone::Caution => crate::icons::ALERT,
             Tone::Unknown => crate::icons::HELP,
+            Tone::Info => crate::icons::SPARKLES,
         }
     }
 }
@@ -55,7 +63,7 @@ pub fn status_title(status: GlutenStatus) -> &'static str {
 pub struct Summary {
     pub tone: Tone,
     pub text: String,
-    /// Shown under a green answer that still needs care ("Verificado por IA").
+    /// Shown under an answer that still needs care (AI or community information).
     pub warning: Option<&'static str>,
 }
 
@@ -118,9 +126,9 @@ pub fn summary(p: &Product) -> Summary {
                 }
             } else {
                 Summary {
-                    tone: Tone::Safe,
-                    text: "Revisión verificada: sin gluten".into(),
-                    warning: None,
+                    tone: Tone::Info,
+                    text: "Revisión de confianza: sin gluten".into(),
+                    warning: Some("Opinión de la comunidad, no del fabricante"),
                 }
             };
         }
@@ -143,11 +151,11 @@ pub fn summary(p: &Product) -> Summary {
         }
         if let Some(ai) = &p.ai_check {
             return match ai.status {
-                // Green, but the words keep the warning.
+                // Orientative only: the AI never certifies and cannot see traces.
                 AiCheckStatus::Verified => Summary {
-                    tone: Tone::Safe,
-                    text: "Verificado por IA".into(),
-                    warning: Some("La IA puede equivocarse: revisa la etiqueta"),
+                    tone: Tone::Info,
+                    text: "No verificado · la IA no ve gluten".into(),
+                    warning: Some("Análisis orientativo: no es una certificación"),
                 },
                 AiCheckStatus::Suspected => Summary {
                     tone: Tone::Caution,
@@ -161,6 +169,16 @@ pub fn summary(p: &Product) -> Summary {
                 },
             };
         }
+    }
+    // A declaration with the certification symbol says so in the answer itself.
+    if status == GlutenStatus::GlutenFree
+        && p.assessment.certification == Some(Certification::CertifiedSeal)
+    {
+        return Summary {
+            tone: Tone::Safe,
+            text: "Sin gluten · con sello de certificación".into(),
+            warning: None,
+        };
     }
     Summary {
         tone: status_tone(status),
@@ -209,12 +227,40 @@ mod tests {
     }
 
     #[test]
-    fn ai_verified_is_green_but_says_to_check_the_label() {
+    fn ai_is_never_green_and_never_called_verified() {
         let mut p = product("UNKNOWN");
         p.ai_check = ai(AiCheckStatus::Verified);
         let s = summary(&p);
-        assert_eq!(s.tone, Tone::Safe);
-        assert!(s.warning.is_some_and(|w| w.contains("revisa la etiqueta")));
+        assert_eq!(s.tone, Tone::Info);
+        assert!(s.text.starts_with("No verificado"));
+        assert!(s.warning.is_some_and(|w| w.contains("no es una certificación")));
+    }
+
+    #[test]
+    fn only_a_declaration_or_her_own_verdict_is_green() {
+        // Every combination of community and AI information on an UNKNOWN product.
+        for free in [0, 1, 3] {
+            for verified in [0, 1] {
+                for status in [None, Some(AiCheckStatus::Verified)] {
+                    let mut p = product("UNKNOWN");
+                    p.gluten_reports = Some(ProductReportCounts {
+                        gluten_free: free,
+                        contains_gluten: 0,
+                    });
+                    p.verified_gluten_reports = Some(ProductReportCounts {
+                        gluten_free: verified.min(free),
+                        contains_gluten: 0,
+                    });
+                    p.ai_check = status.and_then(|s| ai(s));
+                    assert_ne!(summary(&p).tone, Tone::Safe, "{free} {verified} {status:?}");
+                }
+            }
+        }
+        let mut p = product("GLUTEN_FREE");
+        assert_eq!(summary(&p).tone, Tone::Safe);
+        assert_eq!(summary(&p).text, "Sin gluten declarado");
+        p.assessment.certification = Some(Certification::CertifiedSeal);
+        assert!(summary(&p).text.contains("sello"));
     }
 
     #[test]

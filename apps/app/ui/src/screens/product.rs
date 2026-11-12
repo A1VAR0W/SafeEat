@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use safeeat_contracts::{AiCheck, AiCheckStatus, GlutenStatus, Product, VerdictValue};
+use safeeat_contracts::{AiCheck, AiCheckStatus, GlutenStatus, InformationSource, Product, VerdictValue};
 use serde_json::json;
 
 use crate::api::{self, Failure};
@@ -104,11 +104,28 @@ fn ProductDetail(product: Product, state: RwSignal<Option<Result<Product, Failur
             // 2. Her own verdict.
             <PersonalVerdictCard product=p.clone() state=state />
 
-            // 3. Certified seal / declaration.
+            // 3. Certified seal / declaration, with where it comes from.
             {p.assessment.certification.map(|c| view! {
                 <div class="notice tone-safe">
                     <Icon svg=icons::SEAL />
-                    <div class="notice-body"><p><strong>{c.label()}</strong></p></div>
+                    <div class="notice-body">
+                        <p><strong>{c.label()}</strong></p>
+                        <p class="small">"Según " {p.source.clone()} ". SafeEat no puede comprobar el certificado: confirma el sello en el envase."</p>
+                    </div>
+                </div>
+            })}
+
+            // A user's label raised the warning: the provider's own analysis stays visible.
+            {p.provider_assessment.clone().map(|a| view! {
+                <div class="notice tone-caution">
+                    <Icon svg=icons::USERS />
+                    <div class="notice-body">
+                        <p><strong>"Aviso de la comunidad"</strong></p>
+                        <p class="small">
+                            "Una etiqueta aportada por un usuario indica más riesgo que los datos del proveedor («"
+                            {status_title(a.status)} "»). Mostramos el aviso por precaución."
+                        </p>
+                    </div>
                 </div>
             })}
 
@@ -151,11 +168,12 @@ fn ProductDetail(product: Product, state: RwSignal<Option<Result<Product, Failur
 fn AiCard(ai: AiCheck) -> impl IntoView {
     match ai.status {
         AiCheckStatus::Verified => view! {
-            <section class="card ai ai-verified">
-                <h3 class="card-title"><span class="icon" inner_html=icons::SPARKLES></span>"Verificado por IA"</h3>
+            <section class="card ai tone-info">
+                <h3 class="card-title"><span class="icon" inner_html=icons::SPARKLES></span>"Análisis orientativo por IA"</h3>
+                <p>"La IA no ha visto ingredientes con gluten en esta lista."</p>
                 <div class="ai-warning">
                     <span class="icon" inner_html=icons::ALERT></span>
-                    <p>{ai.message.clone()}</p>
+                    <p>"No es una certificación. La IA puede equivocarse y no detecta trazas ni contaminación cruzada. Revisa siempre la etiqueta."</p>
                 </div>
                 <p class="muted small">{ai.model.clone()}</p>
             </section>
@@ -214,6 +232,16 @@ fn Ingredients(product: Product) -> impl IntoView {
                     </button>
                 }
             })}
+            // A user's label is shown next to the provider's list, never instead of it.
+            {product.community_ingredients.clone()
+                .filter(|label| product.ingredients.as_deref() != Some(label.as_str()) || product.information_source == InformationSource::Community)
+                .map(|label| view! {
+                    <div class="community-label">
+                        <p class="label"><Icon svg=icons::USERS />" Etiqueta aportada por un usuario"</p>
+                        {(product.ingredients.as_deref() != Some(label.as_str())).then(|| view! { <p class="ingredients">{label.clone()}</p> })}
+                        <p class="muted small">"No está comprobada por SafeEat ni por el fabricante. Compárala con el envase."</p>
+                    </div>
+                })}
         </section>
     }
 }

@@ -208,10 +208,71 @@ pub async fn enqueue(state: &AppState, item: &Product, items: Vec<String>) {
         items,
         attempts: 0,
     };
+    let (hash, items) = (job.hash.clone(), job.items.clone());
     if ai.sender.try_send(job).is_err() {
         // Queue full: try again the next time the product is fetched.
         ai.pending.lock().expect("pending lock").remove(&item.id);
+        return;
     }
+    // Remembered in the database so a restart does not lose the job.
+    let stored = sqlx::query(
+        "INSERT INTO product_ai_queue(product_id,ingredients_hash,items) VALUES($1,$2,$3)
+         ON CONFLICT (product_id) DO UPDATE SET ingredients_hash=EXCLUDED.ingredients_hash, items=EXCLUDED.items, queued_at=now()",
+    )
+    .bind(&item.id)
+    .bind(&hash)
+    .bind(&items)
+    .execute(&state.db)
+    .await;
+    if let Err(error) = stored {
+        tracing::warn!(%error, "AI job not persisted; it will be lost on restart");
+    }
+}
+
+/// Jobs left over from before a restart go back into the queue.
+async fn restore_queue(state: &AppState, ai: &AiChecker) {
+    let rows = sqlx::query_as::<_, (String, String, Vec<String>)>(
+        "SELECT product_id,ingredients_hash,items FROM product_ai_queue ORDER BY queued_at LIMIT $1",
+    )
+    .bind(QUEUE as i64)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+    let mut restored = 0;
+    for (product_id, hash, items) in rows {
+        if !ai
+            .pending
+            .lock()
+            .expect("pending lock")
+            .insert(product_id.clone())
+        {
+            continue;
+        }
+        let job = AiJob {
+            product_id,
+            hash,
+            items,
+            attempts: 0,
+        };
+        if let Err(error) = ai.sender.try_send(job) {
+            let id = &error.into_inner().product_id;
+            ai.pending.lock().expect("pending lock").remove(id);
+            break;
+        }
+        restored += 1;
+    }
+    if restored > 0 {
+        tracing::info!(restored, "AI checks restored after restart");
+    }
+}
+
+/// The job is finished (stored, or given up): forget it.
+async fn forget(state: &AppState, job: &AiJob) {
+    let _ = sqlx::query("DELETE FROM product_ai_queue WHERE product_id=$1 AND ingredients_hash=$2")
+        .bind(&job.product_id)
+        .bind(&job.hash)
+        .execute(&state.db)
+        .await;
 }
 
 async fn ask(ai: &AiChecker, item: &str) -> anyhow::Result<bool> {
@@ -290,6 +351,7 @@ pub fn spawn_worker(state: AppState) {
         if let Err(error) = ask(ai, "agua").await {
             tracing::warn!(%error, "AI model not reachable yet");
         }
+        restore_queue(&state, ai).await;
         while let Some(mut job) = receiver.recv().await {
             if let Err(error) = run(&state, ai, &job).await {
                 job.attempts += 1;
@@ -309,6 +371,7 @@ pub fn spawn_worker(state: AppState) {
                     continue;
                 }
             }
+            forget(&state, &job).await;
             ai.pending
                 .lock()
                 .expect("pending lock")
@@ -326,7 +389,7 @@ fn view(
     let (status, message) = match status {
         "VERIFIED" => (
             AiCheckStatus::Verified,
-            "Ningún ingrediente parece contener gluten según la IA. La IA puede equivocarse y no detecta trazas ni contaminación cruzada: revisa siempre la etiqueta.".to_string(),
+            "Análisis orientativo: la IA no ha visto ingredientes con gluten en esta lista. No es una certificación, puede equivocarse y no detecta trazas ni contaminación cruzada. Revisa siempre la etiqueta.".to_string(),
         ),
         "SUSPECTED" => (
             AiCheckStatus::Suspected,
@@ -437,6 +500,8 @@ mod tests {
             ingredients_original: None,
             ingredients_language: None,
             ai_check: None,
+            community_ingredients: None,
+            provider_assessment: None,
         }
     }
 
@@ -527,6 +592,16 @@ mod gate_regression {
                 ..Default::default()
             });
             let reaches_model = eligible(&item, &tests_support::recognised()).is_some();
+            if case["g"] == 0 {
+                // The wider vocabulary of engine 1.1.0 must not flag real gluten-free lists.
+                assert!(
+                    !matches!(
+                        item.assessment.status,
+                        GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
+                    ),
+                    "false positive on a gluten-free list: {text}"
+                );
+            }
             if case["g"] == 1 {
                 assert!(!reaches_model, "gluten case reached the model: {text}");
             } else if reaches_model {
