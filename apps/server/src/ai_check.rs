@@ -104,7 +104,11 @@ pub struct AiJob {
     pub product_id: String,
     pub hash: String,
     pub items: Vec<String>,
+    /// Failed attempts so far; the job is retried later up to `MAX_ATTEMPTS`.
+    pub attempts: u8,
 }
+
+const MAX_ATTEMPTS: u8 = 3;
 
 /// The background queue. `pending` lets responses say "Comprobando…".
 pub struct AiChecker {
@@ -202,6 +206,7 @@ pub async fn enqueue(state: &AppState, item: &Product, items: Vec<String>) {
         product_id: item.id.clone(),
         hash,
         items,
+        attempts: 0,
     };
     if ai.sender.try_send(job).is_err() {
         // Queue full: try again the next time the product is fetched.
@@ -285,9 +290,24 @@ pub fn spawn_worker(state: AppState) {
         if let Err(error) = ask(ai, "agua").await {
             tracing::warn!(%error, "AI model not reachable yet");
         }
-        while let Some(job) = receiver.recv().await {
+        while let Some(mut job) = receiver.recv().await {
             if let Err(error) = run(&state, ai, &job).await {
-                tracing::warn!(product = %job.product_id, %error, "AI check failed; retried on next fetch");
+                job.attempts += 1;
+                tracing::warn!(product = %job.product_id, attempts = job.attempts, %error, "AI check failed");
+                if job.attempts < MAX_ATTEMPTS {
+                    // Keep it marked as pending and try again in a few minutes.
+                    let state = state.clone();
+                    let delay = Duration::from_secs(120 * u64::from(job.attempts));
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        let ai = state.ai_check.as_ref().expect("checked above");
+                        if let Err(error) = ai.sender.try_send(job) {
+                            let id = &error.into_inner().product_id;
+                            ai.pending.lock().expect("pending lock").remove(id);
+                        }
+                    });
+                    continue;
+                }
             }
             ai.pending
                 .lock()
