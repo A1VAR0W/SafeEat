@@ -80,6 +80,11 @@ jobs:
           case "$url" in https://*) ;; *) echo "API_PUBLIC_URL must be https" >&2; exit 1 ;; esac
           curl -sf --max-time 30 "$url/api/v1/meta" | grep -q "\"environment\":\"$APP_ENV\""
           echo "SAFEEAT_API_URL=$url" >> "$GITHUB_ENV"
+          # Xcode runs the Rust build itself and Tauri forwards only TAURI_*/CARGO_*
+          # variables: Cargo's [env] reaches the compiler from any folder below apps/app.
+          mkdir -p .cargo
+          printf '[env]\nSAFEEAT_API_URL = "%s"\n' "$url" > .cargo/config.toml
+          cat .cargo/config.toml
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: 'wasm32-unknown-unknown,aarch64-apple-ios' }
       - uses: Swatinem/rust-cache@v2
