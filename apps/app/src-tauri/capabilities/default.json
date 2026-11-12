@@ -7,7 +7,9 @@
   "permissions": [
     "core:default",
     "barcode-scanner:default",
-    "geolocation:default",
-    "haptics:default"
+    "geolocation:allow-check-permissions",
+    "geolocation:allow-request-permissions",
+    "geolocation:allow-get-current-position",
+    "haptics:allow-vibrate"
   ]
 }

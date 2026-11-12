@@ -91,7 +91,12 @@ fn ProductDetail(product: Product, state: RwSignal<Option<Result<Product, Failur
             // 1. The answer, in one line, big.
             <section class=format!("verdict {}", summary.tone.class()) aria-live="polite">
                 <span class="verdict-icon" inner_html=summary.tone.icon()></span>
-                <p class="verdict-text">{summary.text.clone()}</p>
+                <div class="verdict-body">
+                    <p class="verdict-text">{summary.text.clone()}</p>
+                    {summary.warning.map(|w| view! {
+                        <p class="verdict-warning"><span class="icon" inner_html=icons::ALERT></span>{w}</p>
+                    })}
+                </div>
             </section>
 
             // 2. Her own verdict.

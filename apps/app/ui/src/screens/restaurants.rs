@@ -60,12 +60,22 @@ struct Coords {
     latitude: f64,
     longitude: f64,
 }
-#[derive(Serialize)]
-struct NoArgs {}
 
 async fn locate() -> Option<(f64, f64)> {
-    let _: Result<serde_json::Value, _> =
-        api::invoke("plugin:geolocation|request_permissions", NoArgs {}).await;
+    #[derive(Serialize)]
+    struct PermissionArgs {
+        permissions: [&'static str; 1],
+    }
+    let status: Result<serde_json::Value, _> = api::invoke(
+        "plugin:geolocation|request_permissions",
+        PermissionArgs { permissions: ["location"] },
+    )
+    .await;
+    match &status {
+        Ok(v) if v["location"] == "denied" => return None,
+        Err(e) => web_sys::console::warn_1(&format!("location permission: {}", e.message).into()),
+        _ => {}
+    }
     let position: Position = api::invoke(
         "plugin:geolocation|get_current_position",
         PositionArgs {
@@ -77,6 +87,7 @@ async fn locate() -> Option<(f64, f64)> {
         },
     )
     .await
+    .map_err(|e| web_sys::console::warn_1(&format!("location: {}", e.message).into()))
     .ok()?;
     Some((position.coords.latitude, position.coords.longitude))
 }

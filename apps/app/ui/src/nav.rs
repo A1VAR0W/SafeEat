@@ -46,6 +46,15 @@ impl Nav {
         push_history();
         scroll_top();
     }
+    /// Push when a history entry already exists for it (the scanner's).
+    pub fn push_without_history(&self, route: Route) {
+        self.stack.update(|s| s.push(route));
+        scroll_top();
+    }
+    /// Removes an unused history entry; the resulting popstate is a no-op on the Home screen.
+    pub fn drop_history_entry(&self) {
+        let _ = window().history().map(|h| h.back());
+    }
     pub fn back(&self) {
         let _ = window().history().map(|h| h.back());
     }
@@ -83,6 +92,22 @@ fn scroll_top() {
     window().scroll_to_with_x_and_y(0.0, 0.0);
 }
 
+/// True while the camera scanner is open (the webview turns transparent around it).
+#[derive(Clone, Copy)]
+pub struct Scanning(pub RwSignal<bool>, pub StoredValue<bool>);
+
+#[derive(serde::Serialize)]
+struct NoArgs {}
+
+/// Closes the camera; the pending scan then fails, which is not an error for her.
+pub fn cancel_scan(scanning: Scanning) {
+    scanning.1.set_value(true);
+    leptos::task::spawn_local(async {
+        let _: Result<serde_json::Value, _> =
+            crate::api::invoke("plugin:barcode-scanner|cancel", NoArgs {}).await;
+    });
+}
+
 /// Signed-in user, if any. The tokens themselves stay in the Tauri shell.
 #[derive(Clone, Copy)]
 pub struct Session(pub RwSignal<Option<User>>);
@@ -108,7 +133,22 @@ pub fn App() -> impl IntoView {
     provide_context(nav);
     provide_context(Session(RwSignal::new(None)));
     provide_context(MapCenter(StoredValue::new(None)));
-    let handle = window_event_listener(ev::popstate, move |_| nav.pop());
+    let scanning = Scanning(RwSignal::new(false), StoredValue::new(false));
+    provide_context(scanning);
+    // Back while scanning closes the camera instead of leaving the screen.
+    let handle = window_event_listener(ev::popstate, move |_| {
+        if scanning.0.get_untracked() {
+            cancel_scan(scanning);
+        } else {
+            nav.pop();
+        }
+    });
+    Effect::new(move |_| {
+        let on = scanning.0.get();
+        if let Some(root) = document().document_element() {
+            let _ = root.class_list().toggle_with_force("scanning", on);
+        }
+    });
     on_cleanup(move || handle.remove());
 
     let screen = move || {
@@ -147,6 +187,13 @@ pub fn App() -> impl IntoView {
             </main>
             <TabBar />
         </div>
+        <Show when=move || scanning.0.get()>
+            <div class="scan-overlay" role="dialog" aria-label="Escáner">
+                <p class="scan-hint">"Apunta al código de barras"</p>
+                <div class="scan-frame" aria-hidden="true"></div>
+                <button class="button scan-cancel" on:click=move |_| nav.back()>"Cancelar"</button>
+            </div>
+        </Show>
     }
 }
 

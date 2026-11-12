@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api;
 use crate::icons;
-use crate::nav::{use_nav, use_session, Route};
+use crate::nav::{use_nav, use_session, Route, Scanning};
 use crate::ui::{Empty, ErrorBox, Icon, Loading, ProductRow};
 
 #[derive(Serialize)]
@@ -32,7 +32,8 @@ pub fn ScanScreen() -> impl IntoView {
     let nav = use_nav();
     let session = use_session();
     let scan_error = RwSignal::new(None::<String>);
-    let scanning = RwSignal::new(false);
+    let scan_state = expect_context::<Scanning>();
+    let scanning = scan_state.0;
     let code = RwSignal::new(String::new());
     let code_error = RwSignal::new(None::<&'static str>);
 
@@ -41,6 +42,7 @@ pub fn ScanScreen() -> impl IntoView {
             return;
         }
         scanning.set(true);
+        scan_state.1.set_value(false);
         scan_error.set(None);
         spawn_local(async move {
             let permission: Result<serde_json::Value, _> =
@@ -54,10 +56,14 @@ pub fn ScanScreen() -> impl IntoView {
                 scanning.set(false);
                 return;
             }
+            // A history entry so the Android back button cancels the scan.
+            if let Ok(h) = window().history() {
+                let _ = h.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", None);
+            }
             let result: Result<Scanned, _> = api::invoke(
                 "plugin:barcode-scanner|scan",
                 ScanArgs {
-                    windowed: false,
+                    windowed: true,
                     formats: ["EAN_13", "EAN_8", "UPC_A", "UPC_E"],
                 },
             )
@@ -66,13 +72,22 @@ pub fn ScanScreen() -> impl IntoView {
             match result {
                 Ok(found) if valid_code(found.content.trim()) => {
                     api::buzz();
-                    nav.push(Route::Product(found.content.trim().to_string()));
+                    // Reuse the history entry pushed for the scanner.
+                    nav.push_without_history(Route::Product(found.content.trim().to_string()));
                 }
-                Ok(_) => scan_error.set(Some("Ese código no es de un producto. Prueba otra vez.".into())),
-                Err(e) if e.message.to_lowercase().contains("cancel") => {}
-                Err(_) => scan_error.set(Some(
-                    "No se pudo abrir la cámara. Escribe el código de barras abajo.".into(),
-                )),
+                Ok(_) => {
+                    nav.drop_history_entry();
+                    scan_error.set(Some("Ese código no es de un producto. Prueba otra vez.".into()));
+                }
+                // Cancelled by back/«Cancelar»: that already consumed the history entry.
+                Err(_) if scan_state.1.get_value() => {}
+                Err(e) => {
+                    web_sys::console::warn_1(&format!("scan: {}", e.message).into());
+                    nav.drop_history_entry();
+                    scan_error.set(Some(
+                        "No se pudo abrir la cámara. Escribe el código de barras abajo.".into(),
+                    ));
+                }
             }
         });
     };

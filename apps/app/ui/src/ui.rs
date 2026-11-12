@@ -76,6 +76,7 @@ pub fn SummaryBadge(product: Product) -> impl IntoView {
         <span class=format!("badge {}", s.tone.class())>
             <span class="icon" inner_html=s.tone.icon()></span>
             {s.text}
+            {s.warning.map(|_| view! { <span class="icon badge-warn" inner_html=icons::ALERT></span> })}
         </span>
     }
 }

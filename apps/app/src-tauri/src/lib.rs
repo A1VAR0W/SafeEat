@@ -119,7 +119,13 @@ async fn api(
     path: String,
     body: Option<Value>,
 ) -> Result<Value, Failure> {
-    if !path.starts_with('/') || path.contains("..") || path.starts_with("/auth/refresh") {
+    // Endpoints that return or consume tokens only go through `authenticate`/`logout`,
+    // so no token ever reaches the webview.
+    const TOKEN_PATHS: [&str; 4] = ["/auth/refresh", "/auth/login", "/auth/register", "/auth/logout"];
+    if !path.starts_with('/')
+        || path.contains("..")
+        || TOKEN_PATHS.iter().any(|p| path.starts_with(p))
+    {
         return Err(failure(400, &Value::Null));
     }
     let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;

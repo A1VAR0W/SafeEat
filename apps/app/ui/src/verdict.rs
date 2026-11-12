@@ -55,6 +55,8 @@ pub fn status_title(status: GlutenStatus) -> &'static str {
 pub struct Summary {
     pub tone: Tone,
     pub text: String,
+    /// Shown under a green answer that still needs care ("Verificado por IA").
+    pub warning: Option<&'static str>,
 }
 
 fn plural(n: i64, one: &str, many: &str) -> String {
@@ -74,14 +76,17 @@ pub fn summary(p: &Product) -> Summary {
                 VerdictValue::Safe if p.assessment.status.risk() >= 2 => Summary {
                     tone: Tone::Caution,
                     text: "Marcado por ti como seguro · el análisis detecta riesgo".into(),
+                    warning: None,
                 },
                 VerdictValue::Safe => Summary {
                     tone: Tone::Safe,
                     text: "Marcado por ti como seguro".into(),
+                    warning: None,
                 },
                 VerdictValue::Unsafe => Summary {
                     tone: Tone::Danger,
                     text: "Marcado por ti como no seguro".into(),
+                    warning: None,
                 },
             };
         }
@@ -98,6 +103,7 @@ pub fn summary(p: &Product) -> Summary {
         return Summary {
             tone: Tone::Caution,
             text: "Información sobre gluten contradictoria".into(),
+            warning: None,
         };
     }
     if unknown {
@@ -108,11 +114,13 @@ pub fn summary(p: &Product) -> Summary {
                 Summary {
                     tone: Tone::Danger,
                     text: "Revisión verificada: contiene gluten".into(),
+                    warning: None,
                 }
             } else {
                 Summary {
                     tone: Tone::Safe,
                     text: "Revisión verificada: sin gluten".into(),
+                    warning: None,
                 }
             };
         }
@@ -120,6 +128,7 @@ pub fn summary(p: &Product) -> Summary {
             return Summary {
                 tone: Tone::Danger,
                 text: format!("{} gluten", plural(contains, "usuario indica", "usuarios indican")),
+                warning: None,
             };
         }
         if free > 0 {
@@ -129,6 +138,7 @@ pub fn summary(p: &Product) -> Summary {
                     "{} sin gluten · sin confirmar",
                     plural(free, "usuario indica", "usuarios indican")
                 ),
+                warning: None,
             };
         }
         if let Some(ai) = &p.ai_check {
@@ -136,15 +146,18 @@ pub fn summary(p: &Product) -> Summary {
                 // Green, but the words keep the warning.
                 AiCheckStatus::Verified => Summary {
                     tone: Tone::Safe,
-                    text: "Verificado por IA · revisa la etiqueta".into(),
+                    text: "Verificado por IA".into(),
+                    warning: Some("La IA puede equivocarse: revisa la etiqueta"),
                 },
                 AiCheckStatus::Suspected => Summary {
                     tone: Tone::Caution,
                     text: "La IA ve posible gluten".into(),
+                    warning: None,
                 },
                 AiCheckStatus::Pending => Summary {
                     tone: Tone::Unknown,
                     text: "No verificado · IA comprobando".into(),
+                    warning: None,
                 },
             };
         }
@@ -152,6 +165,7 @@ pub fn summary(p: &Product) -> Summary {
     Summary {
         tone: status_tone(status),
         text: status_title(status).into(),
+        warning: None,
     }
 }
 
@@ -200,7 +214,7 @@ mod tests {
         p.ai_check = ai(AiCheckStatus::Verified);
         let s = summary(&p);
         assert_eq!(s.tone, Tone::Safe);
-        assert!(s.text.contains("revisa la etiqueta"));
+        assert!(s.warning.is_some_and(|w| w.contains("revisa la etiqueta")));
     }
 
     #[test]
