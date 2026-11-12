@@ -31,6 +31,23 @@ extern "C" {
 
 /// Puerta del Sol, only until the real location (or the user's pan) arrives.
 const FALLBACK: (f64, f64) = (40.4168, -3.7038);
+/// Below this zoom the view covers too much ground to list restaurants usefully.
+const MIN_AUTO_ZOOM: f64 = 11.0;
+/// Quiet time after the map stops before searching again (one request per gesture).
+const AUTO_DELAY_MS: u64 = 600;
+
+/// Approximate distance in metres (equirectangular; plenty for "has the view moved?").
+fn metres_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let lat = ((a.0 + b.0) / 2.0).to_radians();
+    let dx = (b.1 - a.1).to_radians() * lat.cos();
+    let dy = (b.0 - a.0).to_radians();
+    6_371_000.0 * (dx * dx + dy * dy).sqrt()
+}
+
+/// A fifth of the visible width (about 400 px) at this zoom: smaller pans keep the list.
+fn auto_threshold_m(lat: f64, zoom: f64) -> f64 {
+    156_543.0 * lat.to_radians().cos() / 2f64.powf(zoom) * 400.0 * 0.2
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Filter {
@@ -134,7 +151,6 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let nav = use_nav();
     let host = NodeRef::<leptos::html::Div>::new();
     let center = StoredValue::new(FALLBACK);
-    let moved = RwSignal::new(false);
     let filter = RwSignal::new(Filter::All);
     let query = RwSignal::new(String::from("restaurantes"));
     let results = RwSignal::new(None::<Result<Vec<Restaurant>, Failure>>);
@@ -142,6 +158,9 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let located = RwSignal::new(None::<bool>);
     let map_failed = RwSignal::new(false);
     let generation = StoredValue::new(0u32);
+    let searched_at = StoredValue::new(None::<(f64, f64)>);
+    let too_far = RwSignal::new(false);
+    let auto_timer = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
 
     let shared = expect_context::<MapCenter>().0;
     let search = move || {
@@ -155,8 +174,8 @@ pub fn RestaurantsScreen() -> impl IntoView {
         };
         let ticket = generation.get_value() + 1;
         generation.set_value(ticket);
+        searched_at.set_value(Some((lat, lng)));
         loading.set(true);
-        moved.set(false);
         spawn_local(async move {
             let path = format!(
                 "/restaurants/search?q={}&latitude={lat:.5}&longitude={lng:.5}{mode}",
@@ -178,11 +197,29 @@ pub fn RestaurantsScreen() -> impl IntoView {
     Effect::new(move |_| {
         let Some(el) = host.get() else { return };
         let on_move = Closure::<dyn FnMut(f64, f64, f64, bool)>::new(
-            move |lat, lng, _zoom, by_user: bool| {
+            move |lat, lng, zoom: f64, by_user: bool| {
                 center.set_value((lat, lng));
-                if by_user {
-                    moved.set(true);
+                if !by_user {
+                    return;
                 }
+                if let Some(h) = auto_timer.get_value() {
+                    h.clear();
+                }
+                let far = zoom < MIN_AUTO_ZOOM;
+                too_far.set(far);
+                let moved_enough = searched_at.get_value().is_none_or(|last| {
+                    metres_between(last, (lat, lng)) > auto_threshold_m(lat, zoom)
+                });
+                if far || !moved_enough {
+                    return;
+                }
+                // Like Google Maps: the list follows the map once she stops moving it.
+                let handle = set_timeout_with_handle(
+                    search,
+                    std::time::Duration::from_millis(AUTO_DELAY_MS),
+                )
+                .ok();
+                auto_timer.set_value(handle);
             },
         );
         let on_select =
@@ -250,10 +287,8 @@ pub fn RestaurantsScreen() -> impl IntoView {
                     <Icon svg=icons::LOCATE />
                 </button>
             </div>
-            <Show when=move || moved.get()>
-                <button class="button raised area-button" on:click=move |_| { query.set("restaurantes".into()); search(); }>
-                    "Buscar en esta zona"
-                </button>
+            <Show when=move || too_far.get()>
+                <p class="map-hint raised" role="status">"Acerca el mapa para ver restaurantes"</p>
             </Show>
         </div>
         <section class="sheet">
@@ -266,9 +301,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 <ErrorBox message="No se pudo cargar el mapa. La lista sigue funcionando." />
             </Show>
             <Show when=move || located.get() == Some(false)>
-                <p class="muted small">"No tenemos tu ubicación: mueve el mapa y pulsa «Buscar en esta zona»."</p>
+                <p class="muted small">"No tenemos tu ubicación: mueve el mapa y la lista se actualizará sola."</p>
             </Show>
-            <Show when=move || loading.get()>
+            // First load: spinner. Later updates keep the current list (no jumps) and say so.
+            <Show when=move || loading.get() && results.with(Option::is_none)>
                 <Loading label="Buscando restaurantes…" />
             </Show>
             {move || match results.get() {
@@ -277,12 +313,17 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 Some(Ok(items)) if items.is_empty() => view! {
                     <Empty title="Nada por aquí" text="No encontramos restaurantes en esta zona con ese filtro." />
                 }.into_any(),
-                Some(Ok(items)) => view! {
-                    <p class="muted small" role="status">{format!("{} restaurantes", items.len())}</p>
+                Some(Ok(items)) => {
+                    let count = items.len();
+                    view! {
+                    <p class="muted small" role="status">
+                        {move || if loading.get() { "Actualizando…".to_string() } else { format!("{count} {}", if count == 1 { "restaurante" } else { "restaurantes" }) }}
+                    </p>
                     <ul class="list">
                         {items.into_iter().map(|r| view! { <li><RestaurantRow item=r /></li> }).collect_view()}
                     </ul>
-                }.into_any(),
+                    }.into_any()
+                }
             }}
         </section>
     }

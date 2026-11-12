@@ -139,7 +139,11 @@ jobs:
       - name: Tauri CLI
         run: cargo install tauri-cli --version 2.12.4 --locked || cargo tauri --version
       - name: Generate the Android project
-        run: cargo tauri android init --ci
+        run: |
+          cargo tauri android init --ci
+          # gen/ starts from Tauri's template: add our icon and our R8 rules.
+          cargo tauri icon src-tauri/icons/source/icon.json
+          cp src-tauri/android/proguard-safeeat.pro src-tauri/gen/android/app/
       - name: Build the release APK (arm64)
         run: |
           set -euo pipefail

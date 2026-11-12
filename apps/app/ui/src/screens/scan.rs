@@ -12,7 +12,21 @@ use crate::ui::{Empty, ErrorBox, Icon, Loading, ProductRow};
 #[derive(Serialize)]
 struct ScanArgs {
     windowed: bool,
-    formats: [&'static str; 4],
+    formats: &'static [&'static str],
+}
+
+/// Product barcodes. The iOS scanner has no UPC-A (it reads them as EAN-13 with a
+/// leading 0) and rejects the whole call if it is asked for it, so it is Android only.
+fn scan_formats() -> &'static [&'static str] {
+    let android = window()
+        .navigator()
+        .user_agent()
+        .is_ok_and(|ua| ua.contains("Android"));
+    if android {
+        &["EAN_13", "EAN_8", "UPC_A", "UPC_E"]
+    } else {
+        &["EAN_13", "EAN_8", "UPC_E"]
+    }
 }
 
 #[derive(Deserialize)]
@@ -22,6 +36,13 @@ struct Scanned {
 
 #[derive(Serialize)]
 struct NoArgs {}
+
+/// Which of the two big buttons under «Escanear» is open.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Code,
+    Name,
+}
 
 /// Only digits, 8/12/13/14 long, like the server validates.
 fn valid_code(code: &str) -> bool {
@@ -38,6 +59,16 @@ pub fn ScanScreen() -> impl IntoView {
     let scanning = scan_state.0;
     let code = RwSignal::new(String::new());
     let code_error = RwSignal::new(None::<&'static str>);
+    let mode = RwSignal::new(None::<Mode>);
+    let toggle =
+        move |m: Mode| mode.update(|current| *current = (*current != Some(m)).then_some(m));
+    let code_input = NodeRef::<leptos::html::Input>::new();
+    // Opening «Escribir código» goes straight to the keyboard.
+    Effect::new(move |_| {
+        if let Some(input) = code_input.get() {
+            let _ = input.focus();
+        }
+    });
 
     let scan = move |_| {
         if scanning.get_untracked() {
@@ -49,7 +80,8 @@ pub fn ScanScreen() -> impl IntoView {
         spawn_local(async move {
             let permission: Result<serde_json::Value, _> =
                 api::invoke("plugin:barcode-scanner|request_permissions", NoArgs {}).await;
-            let denied = matches!(&permission, Ok(v) if v.as_str() == Some("denied"));
+            // The plugin answers `{ "camera": "granted" | "denied" | "prompt" }`.
+            let denied = matches!(&permission, Ok(v) if v["camera"].as_str() == Some("denied"));
             if denied {
                 scan_error.try_set(Some(
                     "SafeEat no tiene permiso para usar la cámara. Actívalo en los ajustes del móvil o escribe el código abajo."
@@ -66,7 +98,7 @@ pub fn ScanScreen() -> impl IntoView {
                 "plugin:barcode-scanner|scan",
                 ScanArgs {
                     windowed: true,
-                    formats: ["EAN_13", "EAN_8", "UPC_A", "UPC_E"],
+                    formats: scan_formats(),
                 },
             )
             .await;
@@ -136,12 +168,39 @@ pub fn ScanScreen() -> impl IntoView {
             </button>
             {move || scan_error.get().map(|m| view! { <ErrorBox message=m /> })}
 
-            <form class="card form-row" on:submit=move |ev| { ev.prevent_default(); open_code(); }>
-                <label class="label" for="code">
-                    <Icon svg=icons::KEYBOARD /> "Escribir el código"
-                </label>
+            <div class="action-tiles">
+                <button
+                    type="button"
+                    class="action-tile"
+                    class:active=move || mode.get() == Some(Mode::Code)
+                    aria-expanded=move || (mode.get() == Some(Mode::Code)).to_string()
+                    aria-controls="code-panel"
+                    on:click=move |_| toggle(Mode::Code)
+                >
+                    <span class="action-tile-icon" inner_html=icons::KEYBOARD></span>
+                    <strong>"Escribir código"</strong>
+                    <span>"Los números bajo las barras"</span>
+                </button>
+                <button
+                    type="button"
+                    class="action-tile"
+                    class:active=move || mode.get() == Some(Mode::Name)
+                    aria-expanded=move || (mode.get() == Some(Mode::Name)).to_string()
+                    aria-controls="name-panel"
+                    on:click=move |_| toggle(Mode::Name)
+                >
+                    <span class="action-tile-icon" inner_html=icons::SEARCH></span>
+                    <strong>"Buscar por nombre"</strong>
+                    <span>"Galletas, pan, cerveza…"</span>
+                </button>
+            </div>
+
+            <Show when=move || mode.get() == Some(Mode::Code)>
+            <form id="code-panel" class="card form-row" on:submit=move |ev| { ev.prevent_default(); open_code(); }>
+                <label class="label" for="code">"Código de barras"</label>
                 <div class="input-row">
                     <input
+                        node_ref=code_input
                         id="code"
                         class="input"
                         inputmode="numeric"
@@ -157,8 +216,11 @@ pub fn ScanScreen() -> impl IntoView {
                 </div>
                 <p id="code-error" class="field-error" role="alert">{move || code_error.get()}</p>
             </form>
+            </Show>
 
-            <ProductSearch searches=searches />
+            <Show when=move || mode.get() == Some(Mode::Name)>
+                <ProductSearch searches=searches />
+            </Show>
             <RecentProducts searches=searches />
         </section>
     }
@@ -172,6 +234,12 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     let loading = RwSignal::new(false);
     // Each search gets a number; late answers of older searches are ignored.
     let generation = StoredValue::new(0u32);
+    let input = NodeRef::<leptos::html::Input>::new();
+    Effect::new(move |_| {
+        if let Some(el) = input.get() {
+            let _ = el.focus();
+        }
+    });
 
     let run = move || {
         let q = text.get_untracked().trim().to_string();
@@ -201,10 +269,11 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     };
 
     view! {
-        <form class="card form-row" role="search" on:submit=move |ev| { ev.prevent_default(); run(); }>
-            <label class="label" for="q"><Icon svg=icons::SEARCH /> "Buscar por nombre"</label>
+        <form id="name-panel" class="card form-row" role="search" on:submit=move |ev| { ev.prevent_default(); run(); }>
+            <label class="label" for="q">"Nombre del producto"</label>
             <div class="input-row">
                 <input
+                    node_ref=input
                     id="q"
                     class="input"
                     type="search"

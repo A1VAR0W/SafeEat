@@ -96,7 +96,10 @@ jobs:
           cargo install tauri-cli --version 2.12.4 --locked || cargo tauri --version
           brew install xcodegen
       - name: Generate the Xcode project
-        run: cargo tauri ios init --ci
+        run: |
+          cargo tauri ios init --ci
+          # gen/ starts from Tauri's template icon: put the SafeEat logo in.
+          cargo tauri icon src-tauri/icons/source/icon.json
       - name: Build the unsigned IPA
         run: cargo tauri ios build --ci --no-sign --target aarch64 --build-number ${{ github.run_number }}
       - name: Check and name the IPA

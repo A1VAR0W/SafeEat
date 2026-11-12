@@ -573,6 +573,67 @@ button {
   opacity: 0.9;
 }
 
+/* Two equal tiles under the scan button: same family, quieter (card, not filled). */
+.action-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.action-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 132px;
+  padding: var(--space-4);
+  text-align: left;
+  border: 1.5px solid var(--line);
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  transition: transform 120ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
+}
+.action-tile:active {
+  transform: scale(0.98);
+}
+.action-tile.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.action-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.action-tile.active .action-tile-icon {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.action-tile-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.action-tile strong {
+  font-size: 1.0625rem;
+  line-height: 1.25;
+}
+.action-tile span:last-child {
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-tile,
+  .scan-cta {
+    transition: none;
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -837,12 +898,22 @@ li + li > .suggestion {
   bottom: var(--space-4);
   z-index: 4;
 }
-.area-button {
+.map-hint {
   position: absolute;
   left: 50%;
-  bottom: var(--space-4);
+  bottom: calc(var(--space-4) + 16px);
   transform: translateX(-50%);
   z-index: 4;
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  pointer-events: none;
 }
 .sheet {
   position: relative;
@@ -1077,6 +1148,21 @@ body::before {
 .chips.wrap {
   flex-wrap: wrap;
   overflow-x: visible;
+}
+/* Saved: the three fixed lists fit in one row, even on narrow phones. */
+.shelf-tabs {
+  display: flex;
+  gap: var(--space-2);
+}
+.shelf-tabs .chip {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-head {
   display: flex;

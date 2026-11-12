@@ -78,12 +78,19 @@ fn SavedProducts() -> impl IntoView {
         }
     };
     view! {
-        <div class="chips wrap" role="tablist" aria-label="Listas">
-            {chip(Shelf::Favorites, "Favoritos".into())}
-            {chip(Shelf::Safe, "Me sientan bien".into())}
-            {chip(Shelf::Unsafe, "No son seguros".into())}
+        <div role="tablist" aria-label="Listas" class="stack-tight">
+            // The three fixed lists always share one row; her bookmarks wrap below.
+            <div class="shelf-tabs">
+                {chip(Shelf::Favorites, "Favoritos".into())}
+                {chip(Shelf::Safe, "Me sientan bien".into())}
+                {chip(Shelf::Unsafe, "No son seguros".into())}
+            </div>
             {move || match collections.get() {
-                Some(Ok(list)) => list.into_iter().map(|c| chip(Shelf::Collection(c.id.clone()), format!("{} · {}", c.name, c.count))).collect_view().into_any(),
+                Some(Ok(list)) if !list.is_empty() => view! {
+                    <div class="chips wrap">
+                        {list.into_iter().map(|c| chip(Shelf::Collection(c.id.clone()), format!("{} · {}", c.name, c.count))).collect_view()}
+                    </div>
+                }.into_any(),
                 _ => ().into_any(),
             }}
         </div>

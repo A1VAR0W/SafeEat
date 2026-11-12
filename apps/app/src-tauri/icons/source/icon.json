@@ -1,0 +1,7 @@
+{
+  "default": "safeeat-logo.svg",
+  "bg_color": "#006B4E",
+  "android_fg": "android-fg.svg",
+  "android_bg": "android-bg.svg",
+  "android_fg_scale": 85
+}
