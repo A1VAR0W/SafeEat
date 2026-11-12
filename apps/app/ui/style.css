@@ -592,7 +592,10 @@ button {
   background: var(--card);
   color: var(--text);
   box-shadow: var(--shadow);
-  transition: transform 120ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
+  transition:
+    transform 120ms ease-out,
+    border-color 150ms ease-out,
+    background-color 150ms ease-out;
 }
 .action-tile:active {
   transform: scale(0.98);
