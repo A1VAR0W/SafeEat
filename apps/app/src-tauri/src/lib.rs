@@ -1,15 +1,23 @@
 //! SafeEat 2.0 app shell: every network call goes through here (reqwest), so the
 //! webview never talks to the API directly (no CORS, no tokens in JavaScript).
 //!
-//! Session: the access token and the refresh token live only in memory until the
-//! secure-storage plugin (Android Keystore / iOS Keychain) exists. Closing the app
-//! therefore signs the user out; it never writes a token to a plain file.
+//! Session:
+//! - The access token lives only in memory.
+//! - The refresh token (and the signed-in user's profile, to show the session while
+//!   offline) are kept in the device's secure storage: Android Keystore / iOS Keychain
+//!   (`tauri-plugin-safeeat-secure`). Never in a plain file, preferences or the webview.
+//! - On start `restore_session` exchanges the stored refresh token. The server rotates
+//!   it on every use, so the new one is stored *before* the new access token is used.
+//! - Only an explicit rejection (401) signs the user out; a network failure keeps the
+//!   stored session for the next attempt.
+//! - On desktop (development) nothing is stored: the session lasts while the app is open.
 
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_safeeat_secure::SecureExt;
 use tokio::sync::Mutex;
 
 /// Build-time API origin (no trailing slash). Preproduction unless the release
@@ -19,15 +27,23 @@ const API_URL: &str = match option_env!("SAFEEAT_API_URL") {
     None => "https://chat-ink.tail552c89.ts.net:10000/preproduction",
 };
 
+const KEY_REFRESH: &str = "refresh";
+const KEY_USER: &str = "user";
+
 #[derive(Default)]
 struct Tokens {
     access: Option<String>,
     refresh: Option<String>,
+    /// The signed-in user as the server last returned it.
+    user: Option<Value>,
+    /// The secure storage has been read once in this run.
+    loaded: bool,
 }
 
 struct AppState {
     http: reqwest::Client,
-    /// Held across a refresh, so concurrent 401s refresh only once.
+    /// Held across a refresh, a login and a logout, so they never interleave and
+    /// concurrent 401s refresh only once.
     tokens: Mutex<Tokens>,
 }
 
@@ -47,6 +63,15 @@ impl Failure {
             code: "OFFLINE".into(),
             message: "No hay conexión con SafeEat. Comprueba tu conexión e inténtalo de nuevo."
                 .into(),
+        }
+    }
+
+    /// The server no longer accepts this session: the UI goes back to signed out.
+    fn session_expired() -> Self {
+        Failure {
+            status: 401,
+            code: "SESSION_EXPIRED".into(),
+            message: "Tu sesión ha caducado. Inicia sesión de nuevo.".into(),
         }
     }
 }
@@ -91,10 +116,63 @@ fn failure(status: u16, value: &Value) -> Failure {
     }
 }
 
-/// Exchanges the refresh token. Caller holds the tokens lock.
-async fn refresh_locked(state: &AppState, tokens: &mut Tokens) -> bool {
-    let Some(refresh) = tokens.refresh.clone() else {
+/// Forgets the session everywhere: memory and secure storage.
+fn forget(app: &AppHandle, tokens: &mut Tokens) {
+    app.secure().remove(KEY_REFRESH);
+    app.secure().remove(KEY_USER);
+    *tokens = Tokens {
+        loaded: true,
+        ..Tokens::default()
+    };
+}
+
+/// Takes a session returned by login, register or refresh. The refresh token is
+/// written to secure storage first: if the app dies right after, the stored token is
+/// the valid one (the server has already revoked the previous one).
+fn adopt(app: &AppHandle, tokens: &mut Tokens, session: &Value) -> bool {
+    let (Some(access), Some(refresh)) = (
+        session["accessToken"].as_str(),
+        session["refreshToken"].as_str(),
+    ) else {
         return false;
+    };
+    app.secure().set(KEY_REFRESH, refresh);
+    if !session["user"].is_null() {
+        app.secure().set(KEY_USER, &session["user"].to_string());
+        tokens.user = Some(session["user"].clone());
+    }
+    tokens.refresh = Some(refresh.to_string());
+    tokens.access = Some(access.to_string());
+    tokens.loaded = true;
+    true
+}
+
+/// Reads the stored session once per run (no network).
+fn load(app: &AppHandle, tokens: &mut Tokens) {
+    if tokens.loaded {
+        return;
+    }
+    tokens.loaded = true;
+    tokens.refresh = app.secure().get(KEY_REFRESH);
+    tokens.user = tokens
+        .refresh
+        .as_ref()
+        .and_then(|_| app.secure().get(KEY_USER))
+        .and_then(|text| serde_json::from_str(&text).ok());
+}
+
+enum Refreshed {
+    Yes,
+    /// The server rejected the refresh token: signed out.
+    Rejected,
+    /// No answer (offline, server error): the stored session is kept.
+    Unavailable,
+}
+
+/// Exchanges the refresh token. Caller holds the tokens lock.
+async fn refresh_locked(app: &AppHandle, state: &AppState, tokens: &mut Tokens) -> Refreshed {
+    let Some(refresh) = tokens.refresh.clone() else {
+        return Refreshed::Rejected;
     };
     let body = json!({ "refreshToken": refresh });
     match send(
@@ -106,22 +184,19 @@ async fn refresh_locked(state: &AppState, tokens: &mut Tokens) -> bool {
     )
     .await
     {
-        Ok((200, session)) => {
-            tokens.access = session["accessToken"].as_str().map(str::to_string);
-            tokens.refresh = session["refreshToken"].as_str().map(str::to_string);
-            tokens.access.is_some()
+        Ok((200, session)) if adopt(app, tokens, &session) => Refreshed::Yes,
+        Ok((400 | 401 | 403, _)) => {
+            forget(app, tokens);
+            Refreshed::Rejected
         }
-        Ok((401, _)) => {
-            *tokens = Tokens::default();
-            false
-        }
-        _ => false,
+        _ => Refreshed::Unavailable,
     }
 }
 
 /// Generic API call. `path` starts after `/api/v1`, e.g. `/products/barcode/123`.
 #[tauri::command]
 async fn api(
+    app: AppHandle,
     state: State<'_, AppState>,
     method: String,
     path: String,
@@ -143,22 +218,37 @@ async fn api(
     }
     let method =
         reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;
-    let access = state.tokens.lock().await.access.clone();
+    let access = {
+        let mut tokens = state.tokens.lock().await;
+        load(&app, &mut tokens);
+        // A session restored while offline has a refresh token but no access token yet.
+        if tokens.access.is_none() && tokens.refresh.is_some() {
+            if let Refreshed::Rejected = refresh_locked(&app, &state, &mut tokens).await {
+                return Err(Failure::session_expired());
+            }
+        }
+        tokens.access.clone()
+    };
     let (mut status, mut value) =
         send(&state, &method, &path, body.as_ref(), access.as_deref()).await?;
     if status == 401 && access.is_some() {
         let mut tokens = state.tokens.lock().await;
-        // Another call may have refreshed while we waited for the lock.
+        // Another call may have refreshed (or signed out) while we waited for the lock.
         let fresh = if tokens.access != access {
             tokens.access.is_some()
         } else {
-            refresh_locked(&state, &mut tokens).await
+            match refresh_locked(&app, &state, &mut tokens).await {
+                Refreshed::Yes => true,
+                Refreshed::Rejected => return Err(Failure::session_expired()),
+                Refreshed::Unavailable => return Err(Failure::offline()),
+            }
         };
         let retry = tokens.access.clone();
         drop(tokens);
-        if fresh {
-            (status, value) = send(&state, &method, &path, body.as_ref(), retry.as_deref()).await?;
+        if !fresh {
+            return Err(Failure::session_expired());
         }
+        (status, value) = send(&state, &method, &path, body.as_ref(), retry.as_deref()).await?;
     }
     if (200..300).contains(&status) {
         Ok(value)
@@ -167,9 +257,10 @@ async fn api(
     }
 }
 
-/// Login or register: stores the tokens in memory and returns only the user.
+/// Login or register: keeps the tokens and returns only the user.
 #[tauri::command]
 async fn authenticate(
+    app: AppHandle,
     state: State<'_, AppState>,
     mode: String,
     body: Value,
@@ -179,20 +270,20 @@ async fn authenticate(
         "register" => "/auth/register",
         _ => return Err(failure(400, &Value::Null)),
     };
+    let mut tokens = state.tokens.lock().await;
+    load(&app, &mut tokens);
     let (status, session) = send(&state, &reqwest::Method::POST, path, Some(&body), None).await?;
     if !(200..300).contains(&status) {
         return Err(failure(status, &session));
     }
-    let mut tokens = state.tokens.lock().await;
-    tokens.access = session["accessToken"].as_str().map(str::to_string);
-    tokens.refresh = session["refreshToken"].as_str().map(str::to_string);
-    Ok(session["user"].clone())
-}
-
-#[tauri::command]
-async fn logout(state: State<'_, AppState>) -> Result<(), Failure> {
-    let mut tokens = state.tokens.lock().await;
-    if let Some(refresh) = tokens.refresh.take() {
+    // A previous account on this device is dropped completely before the new one.
+    let previous = tokens.refresh.take();
+    forget(&app, &mut tokens);
+    if !adopt(&app, &mut tokens, &session) {
+        return Err(failure(502, &Value::Null));
+    }
+    drop(tokens);
+    if let Some(refresh) = previous {
         let body = json!({ "refreshToken": refresh });
         let _ = send(
             &state,
@@ -203,7 +294,46 @@ async fn logout(state: State<'_, AppState>) -> Result<(), Failure> {
         )
         .await;
     }
-    *tokens = Tokens::default();
+    Ok(session["user"].clone())
+}
+
+/// Called once when the app starts: the signed-in user, or `null`.
+#[tauri::command]
+async fn restore_session(app: AppHandle, state: State<'_, AppState>) -> Result<Value, Failure> {
+    let mut tokens = state.tokens.lock().await;
+    load(&app, &mut tokens);
+    if tokens.refresh.is_none() {
+        return Ok(Value::Null);
+    }
+    if tokens.access.is_none() {
+        if let Refreshed::Rejected = refresh_locked(&app, &state, &mut tokens).await {
+            return Ok(Value::Null);
+        }
+    }
+    // Offline: the stored profile keeps the app signed in; the tokens are exchanged
+    // on the first call that reaches the server.
+    Ok(tokens.user.clone().unwrap_or(Value::Null))
+}
+
+#[tauri::command]
+async fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), Failure> {
+    let mut tokens = state.tokens.lock().await;
+    load(&app, &mut tokens);
+    let refresh = tokens.refresh.take();
+    // The device forgets the session first, even if the server cannot be reached.
+    forget(&app, &mut tokens);
+    drop(tokens);
+    if let Some(refresh) = refresh {
+        let body = json!({ "refreshToken": refresh });
+        let _ = send(
+            &state,
+            &reqwest::Method::POST,
+            "/auth/logout",
+            Some(&body),
+            None,
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -216,17 +346,24 @@ pub fn run() {
         .https_only(API_URL.starts_with("https://"))
         .build()
         .expect("http client");
-    let builder = tauri::Builder::default().manage(AppState {
-        http,
-        tokens: Mutex::new(Tokens::default()),
-    });
+    let builder = tauri::Builder::default()
+        .manage(AppState {
+            http,
+            tokens: Mutex::new(Tokens::default()),
+        })
+        .plugin(tauri_plugin_safeeat_secure::init());
     #[cfg(mobile)]
     let builder = builder
         .plugin(tauri_plugin_barcode_scanner::init())
         .plugin(tauri_plugin_geolocation::init())
         .plugin(tauri_plugin_haptics::init());
     builder
-        .invoke_handler(tauri::generate_handler![api, authenticate, logout])
+        .invoke_handler(tauri::generate_handler![
+            api,
+            authenticate,
+            restore_session,
+            logout
+        ])
         .run(tauri::generate_context!())
         .expect("error while running SafeEat");
 }

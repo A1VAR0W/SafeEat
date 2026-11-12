@@ -82,15 +82,20 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo build --locked -p safeeat-server
-      - name: Migrations apply on a clean PostGIS and are idempotent
+      - name: Migrations (1.0.x schema with data, then the 2.0 upgrade, then a no-op run)
         run: |
+          # The seed is 1.0.x data: it goes in at schema 009, so the 2.0 migrations are
+          # checked on a populated database, the way production will be upgraded.
+          mkdir legacy-migrations
+          cp db/migrations/00[1-9]_*.sql legacy-migrations/
+          MIGRATIONS_DIR=legacy-migrations target/debug/safeeat-server migrate
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/smoke-api.seed.sql
           target/debug/safeeat-server migrate
           target/debug/safeeat-server migrate
       - uses: actions/setup-node@v4
         with: { node-version: '22.22.3' }
       - name: API smoke test against the isolated database
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/smoke-api.seed.sql
           target/debug/safeeat-server serve > server.log 2>&1 &
           for i in $(seq 1 30); do curl -fsS "http://localhost:$PORT/api/v1/meta" > /dev/null && break; sleep 1; done
           API="http://localhost:$PORT/api/v1" PSQL="psql -qtA $DATABASE_URL" node scripts/smoke-api.mjs

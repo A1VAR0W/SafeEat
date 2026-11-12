@@ -34,20 +34,40 @@ fn to_js<T: Serialize>(value: &T) -> JsValue {
         .unwrap_or(JsValue::NULL)
 }
 
+thread_local! {
+    /// Run when the shell reports that the server no longer accepts the session.
+    static SESSION_EXPIRED: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The app registers how to go back to "signed out" (once, at start).
+pub fn on_session_expired(handler: impl Fn() + 'static) {
+    SESSION_EXPIRED.with(|slot| *slot.borrow_mut() = Some(Box::new(handler)));
+}
+
 /// Any Tauri command (also plugin commands such as `plugin:haptics|vibrate`).
 pub async fn invoke<T: DeserializeOwned>(cmd: &str, args: impl Serialize) -> Result<T, Failure> {
     match tauri_invoke(cmd, to_js(&args)).await {
         Ok(value) => serde_wasm_bindgen::from_value(value)
             .map_err(|_| Failure::local("Respuesta inesperada del servidor.")),
-        Err(error) => Err(
-            serde_wasm_bindgen::from_value(error.clone()).unwrap_or_else(|_| {
-                Failure::local(
-                    &error
-                        .as_string()
-                        .unwrap_or_else(|| "Algo ha fallado.".into()),
-                )
-            }),
-        ),
+        Err(error) => {
+            let failure: Failure =
+                serde_wasm_bindgen::from_value(error.clone()).unwrap_or_else(|_| {
+                    Failure::local(
+                        &error
+                            .as_string()
+                            .unwrap_or_else(|| "Algo ha fallado.".into()),
+                    )
+                });
+            if failure.code == "SESSION_EXPIRED" {
+                SESSION_EXPIRED.with(|slot| {
+                    if let Some(handler) = slot.borrow().as_ref() {
+                        handler();
+                    }
+                });
+            }
+            Err(failure)
+        }
     }
 }
 

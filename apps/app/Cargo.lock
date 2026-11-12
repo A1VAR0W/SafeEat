@@ -3501,6 +3501,7 @@ dependencies = [
  "tauri-plugin-barcode-scanner",
  "tauri-plugin-geolocation",
  "tauri-plugin-haptics",
+ "tauri-plugin-safeeat-secure",
  "tokio",
 ]
 
@@ -4425,6 +4426,15 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "tauri-plugin-safeeat-secure"
+version = "2.0.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

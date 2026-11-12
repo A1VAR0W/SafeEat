@@ -131,7 +131,20 @@ pub fn App() -> impl IntoView {
         stack: RwSignal::new(vec![Route::Home]),
     };
     provide_context(nav);
-    provide_context(Session(RwSignal::new(None)));
+    let session = Session(RwSignal::new(None));
+    provide_context(session);
+    // The session survives closing the app: the shell keeps it in the device's
+    // secure storage and gives back the signed-in user (never a token).
+    crate::api::on_session_expired(move || session.0.set(None));
+    leptos::task::spawn_local(async move {
+        #[derive(serde::Serialize)]
+        struct NoArgs {}
+        if let Ok(Some(user)) =
+            crate::api::invoke::<Option<User>>("restore_session", NoArgs {}).await
+        {
+            session.0.set(Some(user));
+        }
+    });
     provide_context(MapCenter(StoredValue::new(None)));
     let scanning = Scanning(RwSignal::new(false), StoredValue::new(false));
     provide_context(scanning);

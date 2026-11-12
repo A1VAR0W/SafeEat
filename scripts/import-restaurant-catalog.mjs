@@ -122,6 +122,16 @@ try {
     'INSERT INTO restaurant_catalog_imports(region,item_count) VALUES($1,$2) ON CONFLICT(region) DO UPDATE SET imported_at=now(),item_count=$2',
     [region, count],
   );
+  // Schema 2.0 (migration 010) recomputes chains from the raw OSM brand tags, kept in
+  // their own columns. Older databases do not have them yet.
+  const rawBrand = await db.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_name='restaurant_catalog' AND column_name='brand_wikidata'",
+  );
+  if (rawBrand.rowCount)
+    await db.query(
+      'UPDATE restaurant_catalog SET brand=chain_name,brand_wikidata=chain_key WHERE region=$1',
+      [region],
+    );
   // Resolve exact brand aliases before extending positive reports to known siblings.
   await db.query('SELECT refresh_restaurant_chains()');
   // Preserve the original reason while extending existing positive reports to known siblings.
