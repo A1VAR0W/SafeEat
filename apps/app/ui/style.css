@@ -1067,3 +1067,25 @@ body::before {
 .share-fallback .input {
   font-size: 0.875rem;
 }
+
+/* ---------- saved: lists, bookmarks ---------- */
+.section-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: var(--space-2) 0 0;
+}
+.chips.wrap {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}

@@ -33,6 +33,9 @@ pub fn ProductScreen(id: String) -> impl IntoView {
                 return;
             };
             let result = api::get::<Product>(&path).await;
+            if let Ok(p) = &result {
+                crate::history::remember_product(p);
+            }
             state.try_set(Some(result));
         });
     };
@@ -98,7 +101,7 @@ fn ProductDetail(
                     {p.brand.clone().map(|b| view! { <p class="muted">{b}</p> })}
                     {p.barcode.clone().map(|b| view! { <p class="muted small mono">{b}</p> })}
                 </div>
-                <FavoriteButton id=p.id.clone() />
+                <FavoriteButton kind="products" id=p.id.clone() />
             </div>
 
             // 1. The answer, in one line, big.
@@ -114,6 +117,7 @@ fn ProductDetail(
 
             // 2. Her own verdict.
             <PersonalVerdictCard product=p.clone() state=state />
+            {(!p.user_created).then(|| view! { <CollectionPicker id=p.id.clone() /> })}
 
             // 3. Certified seal / declaration, with where it comes from.
             {p.assessment.certification.map(|c| view! {
@@ -364,12 +368,13 @@ fn Community(product: Product) -> impl IntoView {
     }
 }
 
+/// Heart toggle for a product (`kind = "products"`) or a restaurant (`"restaurants"`).
 #[component]
-fn FavoriteButton(id: String) -> impl IntoView {
+pub fn FavoriteButton(kind: &'static str, id: String) -> impl IntoView {
     let session = use_session();
     let nav = use_nav();
     let saved = RwSignal::new(false);
-    let path = StoredValue::new(format!("/favorites/products/{}", api::enc(&id)));
+    let path = StoredValue::new(format!("/favorites/{kind}/{}", api::enc(&id)));
     if session.0.with_untracked(Option::is_some) {
         spawn_local(async move {
             if let Ok(v) = api::get::<serde_json::Value>(&path.get_value()).await {
@@ -399,7 +404,11 @@ fn FavoriteButton(id: String) -> impl IntoView {
             class="icon-button fav"
             class:on=move || saved.get()
             aria-pressed=move || saved.get().to_string()
-            aria-label=move || if saved.get() { "Quitar de guardados" } else { "Guardar producto" }
+            aria-label=move || match (saved.get(), kind) {
+                (true, _) => "Quitar de guardados",
+                (false, "restaurants") => "Guardar restaurante",
+                (false, _) => "Guardar producto",
+            }
             on:click=toggle
         >
             <Icon svg=icons::HEART />
@@ -420,4 +429,100 @@ fn allergen_marks(text: &str) -> impl IntoView {
             }
         })
         .collect_view()
+}
+
+/// "Organizar en marcadores": tick the bookmarks this product belongs to.
+#[component]
+fn CollectionPicker(id: String) -> impl IntoView {
+    let session = use_session();
+    let collections = RwSignal::new(Vec::<safeeat_contracts::Collection>::new());
+    let member = RwSignal::new(Vec::<String>::new());
+    let busy = RwSignal::new(None::<String>);
+    let error = RwSignal::new(None::<String>);
+    let id = StoredValue::new(id);
+    if session.0.with_untracked(Option::is_some) {
+        spawn_local(async move {
+            let list =
+                api::get::<safeeat_contracts::Items<safeeat_contracts::Collection>>("/collections")
+                    .await;
+            let ids = api::get::<serde_json::Value>(&format!(
+                "/collections/for-product/{}",
+                api::enc(&id.get_value())
+            ))
+            .await;
+            if let (Ok(list), Ok(ids)) = (list, ids) {
+                let ids = ids["ids"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                member.try_set(ids);
+                collections.try_set(list.items);
+            }
+        });
+    }
+    let toggle = move |collection: String| {
+        if busy.get_untracked().is_some() {
+            return;
+        }
+        let inside = member.with_untracked(|m| m.contains(&collection));
+        busy.set(Some(collection.clone()));
+        error.set(None);
+        spawn_local(async move {
+            let path = format!(
+                "/collections/{}/products/{}",
+                api::enc(&collection),
+                api::enc(&id.get_value())
+            );
+            let method = if inside { "DELETE" } else { "POST" };
+            let result = api::send::<serde_json::Value>(method, &path, None).await;
+            busy.try_set(None);
+            match result {
+                Ok(_) => {
+                    member.try_update(|m| {
+                        if inside {
+                            m.retain(|c| c != &collection);
+                        } else {
+                            m.push(collection);
+                        }
+                    });
+                }
+                Err(e) => {
+                    error.try_set(Some(e.message));
+                }
+            }
+        });
+    };
+    view! {
+        <Show when=move || collections.with(|c| !c.is_empty())>
+            <section class="card">
+                <h3 class="card-title"><span class="icon" inner_html=icons::BOOKMARK></span>"Organizar en marcadores"</h3>
+                <div class="stack-tight">
+                    {move || collections.get().into_iter().map(|c| {
+                        let cid = c.id.clone();
+                        let checked = {
+                            let cid = cid.clone();
+                            move || member.with(|m| m.contains(&cid))
+                        };
+                        let pending = {
+                            let cid = cid.clone();
+                            move || busy.with(|b| b.as_deref() == Some(cid.as_str()))
+                        };
+                        view! {
+                            <label class="check">
+                                <input type="checkbox" prop:checked=checked disabled=move || busy.with(Option::is_some)
+                                    on:change=move |_| toggle(cid.clone()) />
+                                {c.name.clone()}
+                                <Show when=pending><span class="spinner small" aria-hidden="true"></span></Show>
+                            </label>
+                        }
+                    }).collect_view()}
+                </div>
+                {move || error.get().map(|m| view! { <ErrorBox message=m /> })}
+            </section>
+        </Show>
+    }
 }

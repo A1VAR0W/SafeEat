@@ -60,6 +60,8 @@ Fallos reales que tapaba el CI anterior y se han arreglado:
 - **«¿Qué dice la etiqueta?»**: revisión de un producto con código de barras (sin gluten / contiene gluten y qué has comprobado). Probado en el emulador.
 - **Valoración con estrellas** de restaurantes: guardar, cambiar y quitar. Probado en el emulador.
 - **Compartir** productos y restaurantes: el núcleo Tauri crea el enlace público y abre el menú de compartir del sistema con un plugin nativo nuevo (`tauri-plugin-safeeat-share`: selector de Android, hoja de compartir en iOS). En Android probado en el emulador; **el código de iOS está escrito pero sin compilar**.
+- **Guardados** con dos pestañas, Productos y Restaurantes. En Productos: «Favoritos», «Me sientan bien» y «No son seguros» (su veredicto personal, «Mis productos seguros») y sus marcadores. Se pueden crear y eliminar marcadores, y desde la ficha de un producto, «Organizar en marcadores». Los restaurantes se guardan con el corazón de su ficha. Probado en el emulador.
+- **Historial en el móvil**: productos vistos hace poco y búsquedas recientes, con «Borrar historial». Solo guarda nombre, marca e imagen, nunca el estado de gluten (al abrirlo se ve el análisis actual), ni el veredicto personal, ni los productos creados desde una etiqueta propia. Probado en el emulador.
 - Todas las cuentas de prueba se borraron después; sus revisiones y valoraciones desaparecieron con ellas.
 
 ### Restaurantes
@@ -90,7 +92,7 @@ Cuando se despliegue el servidor nuevo, la etiqueta que aporte un usuario dejar�
 
 ### Pendiente (no implementado)
 
-OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, colecciones, «Mis productos seguros», historial, caché sin conexión, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
+OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin conexión, selector de 1, 2 o 3 columnas en Guardados, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
 

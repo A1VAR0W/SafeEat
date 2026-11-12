@@ -8,6 +8,7 @@ use crate::icons;
 use crate::nav::MapCenter;
 use crate::nav::{use_nav, use_session, Route};
 use crate::screens::community::{CommunityReviews, RatingCard, ShareButton};
+use crate::screens::product::FavoriteButton;
 use crate::screens::restaurants::{support_tone, RestaurantRow};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
 
@@ -56,7 +57,10 @@ fn RestaurantDetail(
                 <p class="verdict-text">{support.label()}</p>
             </section>
             <section class="card">
-                <p>{item.address.clone()}</p>
+                <div class="card-head">
+                    <p>{item.address.clone()}</p>
+                    <FavoriteButton kind="restaurants" id=item.id.clone() />
+                </div>
                 {item.rating.clone().map(|r| view! { <p class="muted">{format!("{:.1} ★ · {} {}", r.average, r.count, if r.count == 1 { "valoración" } else { "valoraciones" })}</p> })}
                 <div class="two">
                     <a class="button ghost" href=item.maps_url.clone() target="_blank" rel="noopener">"Cómo llegar"</a>

@@ -4,6 +4,7 @@ use safeeat_contracts::{Items, Product};
 use serde::{Deserialize, Serialize};
 
 use crate::api;
+use crate::history::{self, RecentProduct};
 use crate::icons;
 use crate::nav::{use_nav, use_session, Route, Scanning};
 use crate::ui::{Empty, ErrorBox, Icon, Loading, ProductRow};
@@ -32,6 +33,7 @@ pub fn ScanScreen() -> impl IntoView {
     let nav = use_nav();
     let session = use_session();
     let scan_error = RwSignal::new(None::<String>);
+    let searches = RwSignal::new(history::recent_searches());
     let scan_state = expect_context::<Scanning>();
     let scanning = scan_state.0;
     let code = RwSignal::new(String::new());
@@ -156,13 +158,14 @@ pub fn ScanScreen() -> impl IntoView {
                 <p id="code-error" class="field-error" role="alert">{move || code_error.get()}</p>
             </form>
 
-            <ProductSearch />
+            <ProductSearch searches=searches />
+            <RecentProducts searches=searches />
         </section>
     }
 }
 
 #[component]
-fn ProductSearch() -> impl IntoView {
+fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     let text = RwSignal::new(String::new());
     let only_free = RwSignal::new(false);
     let results = RwSignal::new(None::<Result<Vec<Product>, api::Failure>>);
@@ -176,6 +179,8 @@ fn ProductSearch() -> impl IntoView {
             results.set(None);
             return;
         }
+        history::remember_search(&q);
+        searches.set(history::recent_searches());
         let ticket = generation.get_value() + 1;
         generation.set_value(ticket);
         loading.set(true);
@@ -218,6 +223,16 @@ fn ProductSearch() -> impl IntoView {
                 />
                 "Solo sin gluten declarado"
             </label>
+            <Show when=move || results.with(Option::is_none) && searches.with(|s| !s.is_empty())>
+                <div class="chips" role="group" aria-label="Búsquedas recientes">
+                    {move || searches.get().into_iter().map(|q| {
+                        let label = q.clone();
+                        view! {
+                            <button type="button" class="chip" on:click=move |_| { text.set(q.clone()); run(); }>{label}</button>
+                        }
+                    }).collect_view()}
+                </div>
+            </Show>
         </form>
         <Show when=move || loading.get()>
             <Loading label="Buscando productos…" />
@@ -234,5 +249,62 @@ fn ProductSearch() -> impl IntoView {
                 </ul>
             }.into_any(),
         }}
+    }
+}
+
+/// Products she opened lately on this device. Opening one always loads the current
+/// analysis: the list itself stores no gluten status.
+#[component]
+fn RecentProducts(searches: RwSignal<Vec<String>>) -> impl IntoView {
+    let nav = use_nav();
+    let items = RwSignal::new(history::recent_products());
+    let asking = RwSignal::new(false);
+    let row = move |p: RecentProduct| {
+        let id = p.id.clone();
+        view! {
+            <li>
+                <button class="row" on:click=move |_| nav.push(Route::Product(id.clone()))>
+                    <span class="thumb">
+                        {p.image_url.map(|src| view! { <img src=src alt="" loading="lazy" decoding="async" /> })}
+                    </span>
+                    <span class="row-body">
+                        <span class="row-title">{p.name}</span>
+                        {p.brand.map(|b| view! { <span class="muted small">{b}</span> })}
+                    </span>
+                    <Icon svg=icons::CHEVRON class="chevron" />
+                </button>
+            </li>
+        }
+    };
+    view! {
+        <Show when=move || items.with(|i| !i.is_empty()) || searches.with(|s| !s.is_empty())>
+            <section class="stack" aria-labelledby="recent-title">
+                <h2 class="section-title" id="recent-title">"Vistos hace poco"</h2>
+                <Show when=move || items.with(|i| !i.is_empty())
+                    fallback=|| view! { <p class="muted small">"Aún no has abierto ningún producto."</p> }>
+                    <p class="muted small">"Ábrelos para ver su análisis actual."</p>
+                    <ul class="list">{move || items.get().into_iter().map(row).collect_view()}</ul>
+                </Show>
+                <Show
+                    when=move || asking.get()
+                    fallback=move || view! {
+                        <button class="button ghost small" on:click=move |_| asking.set(true)>"Borrar historial"</button>
+                    }
+                >
+                    <div class="confirm-box" role="group" aria-label="Borrar historial">
+                        <p class="small">"Se borran los productos vistos y las búsquedas de este móvil. Tus guardados no cambian."</p>
+                        <div class="two">
+                            <button class="button ghost small" on:click=move |_| asking.set(false)>"Cancelar"</button>
+                            <button class="button small" on:click=move |_| {
+                                history::clear();
+                                items.set(Vec::new());
+                                searches.set(Vec::new());
+                                asking.set(false);
+                            }>"Borrar"</button>
+                        </div>
+                    </div>
+                </Show>
+            </section>
+        </Show>
     }
 }

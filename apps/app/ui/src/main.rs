@@ -1,4 +1,5 @@
 mod api;
+mod history;
 mod icons;
 mod nav;
 mod screens;
