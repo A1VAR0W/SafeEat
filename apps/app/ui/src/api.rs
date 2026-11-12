@@ -39,9 +39,15 @@ pub async fn invoke<T: DeserializeOwned>(cmd: &str, args: impl Serialize) -> Res
     match tauri_invoke(cmd, to_js(&args)).await {
         Ok(value) => serde_wasm_bindgen::from_value(value)
             .map_err(|_| Failure::local("Respuesta inesperada del servidor.")),
-        Err(error) => Err(serde_wasm_bindgen::from_value(error.clone()).unwrap_or_else(|_| {
-            Failure::local(&error.as_string().unwrap_or_else(|| "Algo ha fallado.".into()))
-        })),
+        Err(error) => Err(
+            serde_wasm_bindgen::from_value(error.clone()).unwrap_or_else(|_| {
+                Failure::local(
+                    &error
+                        .as_string()
+                        .unwrap_or_else(|| "Algo ha fallado.".into()),
+                )
+            }),
+        ),
     }
 }
 

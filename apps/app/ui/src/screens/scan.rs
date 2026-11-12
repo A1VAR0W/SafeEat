@@ -77,7 +77,9 @@ pub fn ScanScreen() -> impl IntoView {
                 }
                 Ok(_) => {
                     nav.drop_history_entry();
-                    scan_error.try_set(Some("Ese código no es de un producto. Prueba otra vez.".into()));
+                    scan_error.try_set(Some(
+                        "Ese código no es de un producto. Prueba otra vez.".into(),
+                    ));
                 }
                 // Cancelled by back/«Cancelar»: that already consumed the history entry.
                 Err(_) if scan_state.1.get_value() => {}
@@ -93,7 +95,11 @@ pub fn ScanScreen() -> impl IntoView {
     };
 
     let open_code = move || {
-        let value: String = code.get_untracked().chars().filter(char::is_ascii_digit).collect();
+        let value: String = code
+            .get_untracked()
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect();
         if valid_code(&value) {
             code_error.set(None);
             nav.push(Route::Product(value));

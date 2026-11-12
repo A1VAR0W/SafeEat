@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::api::{self, Failure};
 use crate::icons;
-use crate::nav::{use_nav, use_session, Route};
 use crate::nav::MapCenter;
+use crate::nav::{use_nav, use_session, Route};
 use crate::screens::restaurants::{support_tone, RestaurantRow};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
 
@@ -16,15 +16,19 @@ pub fn RestaurantScreen(id: String) -> impl IntoView {
     // Lives here because saving a review re-renders the whole detail.
     let saved = RwSignal::new(false);
     let path = StoredValue::new(format!("/restaurants/{}", api::enc(&id)));
-    let load = move || spawn_local(async move {
-        let result = api::get(&path.get_value()).await;
-        state.try_set(Some(result));
-    });
+    let load = move || {
+        spawn_local(async move {
+            let result = api::get(&path.get_value()).await;
+            state.try_set(Some(result));
+        })
+    };
     load();
-    let title = Signal::derive(move || state.with(|s| match s {
-        Some(Ok(r)) => r.name.clone(),
-        _ => "Restaurante".into(),
-    }));
+    let title = Signal::derive(move || {
+        state.with(|s| match s {
+            Some(Ok(r)) => r.name.clone(),
+            _ => "Restaurante".into(),
+        })
+    });
     view! {
         <Header title=title />
         {move || match state.get() {
@@ -93,10 +97,16 @@ fn ReviewForm(
 ) -> impl IntoView {
     let session = use_session();
     let nav = use_nav();
-    let trusted = session.0.with(|u| u.as_ref().is_some_and(|u| u.is_trusted()));
+    let trusted = session
+        .0
+        .with(|u| u.as_ref().is_some_and(|u| u.is_trusted()));
     // The server asks everyone except authorised coeliacs to say what they checked.
     let needs_note = !session.0.with(|u| {
-        u.as_ref().is_some_and(|u| u.roles.iter().any(|r| matches!(r, safeeat_contracts::Role::AuthorizedCeliac)))
+        u.as_ref().is_some_and(|u| {
+            u.roles
+                .iter()
+                .any(|r| matches!(r, safeeat_contracts::Role::AuthorizedCeliac))
+        })
     });
     let note = RwSignal::new(String::new());
     let note_short = move || needs_note && note.with(|n| n.trim().chars().count() < 10);
@@ -188,7 +198,8 @@ pub fn ChainScreen(key: String) -> impl IntoView {
     let load = move || {
         spawn_local(async move {
             // Nearest branches first: the server sorts by distance to the map centre.
-            let near = center.get_value()
+            let near = center
+                .get_value()
                 .map(|(lat, lng)| format!("?latitude={lat:.5}&longitude={lng:.5}"))
                 .unwrap_or_default();
             let path = format!("/restaurants/chains/{}{near}", api::enc(&key.get_value()));
@@ -197,10 +208,12 @@ pub fn ChainScreen(key: String) -> impl IntoView {
         })
     };
     load();
-    let title = Signal::derive(move || state.with(|s| match s {
-        Some(Ok(c)) => format!("Cadena {}", c.chain.name),
-        _ => "Cadena".into(),
-    }));
+    let title = Signal::derive(move || {
+        state.with(|s| match s {
+            Some(Ok(c)) => format!("Cadena {}", c.chain.name),
+            _ => "Cadena".into(),
+        })
+    });
     view! {
         <Header title=title />
         {move || match state.get() {

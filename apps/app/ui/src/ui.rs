@@ -34,7 +34,11 @@ pub fn Header(
 
 #[component]
 pub fn Loading(#[prop(optional)] label: &'static str) -> impl IntoView {
-    let label = if label.is_empty() { "Cargando…" } else { label };
+    let label = if label.is_empty() {
+        "Cargando…"
+    } else {
+        label
+    };
     view! {
         <div class="loading" role="status">
             <span class="spinner" aria-hidden="true"></span>
@@ -44,7 +48,10 @@ pub fn Loading(#[prop(optional)] label: &'static str) -> impl IntoView {
 }
 
 #[component]
-pub fn ErrorBox(#[prop(into)] message: String, #[prop(optional)] retry: Option<Callback<()>>) -> impl IntoView {
+pub fn ErrorBox(
+    #[prop(into)] message: String,
+    #[prop(optional)] retry: Option<Callback<()>>,
+) -> impl IntoView {
     view! {
         <div class="notice tone-danger" role="alert">
             <Icon svg=icons::ALERT />

@@ -68,7 +68,9 @@ async fn locate() -> Option<(f64, f64)> {
     }
     let status: Result<serde_json::Value, _> = api::invoke(
         "plugin:geolocation|request_permissions",
-        PermissionArgs { permissions: ["location"] },
+        PermissionArgs {
+            permissions: ["location"],
+        },
     )
     .await;
     match &status {
@@ -172,13 +174,16 @@ pub fn RestaurantsScreen() -> impl IntoView {
     // Mount the map once the host element exists.
     Effect::new(move |_| {
         let Some(el) = host.get() else { return };
-        let on_move = Closure::<dyn FnMut(f64, f64, f64, bool)>::new(move |lat, lng, _zoom, by_user: bool| {
-            center.set_value((lat, lng));
-            if by_user {
-                moved.set(true);
-            }
-        });
-        let on_select = Closure::<dyn FnMut(String)>::new(move |id: String| nav.push(Route::Restaurant(id)));
+        let on_move = Closure::<dyn FnMut(f64, f64, f64, bool)>::new(
+            move |lat, lng, _zoom, by_user: bool| {
+                center.set_value((lat, lng));
+                if by_user {
+                    moved.set(true);
+                }
+            },
+        );
+        let on_select =
+            Closure::<dyn FnMut(String)>::new(move |id: String| nav.push(Route::Restaurant(id)));
         let on_error = Closure::<dyn FnMut()>::new(move || map_failed.set(true));
         map_mount(
             &el,
@@ -306,7 +311,11 @@ pub fn RestaurantRow(item: Restaurant) -> impl IntoView {
 
 /// Search field with suggestions: chains first ("Cadena X · N locales").
 #[component]
-fn SuggestBox(query: RwSignal<String>, center: StoredValue<(f64, f64)>, on_search: Callback<()>) -> impl IntoView {
+fn SuggestBox(
+    query: RwSignal<String>,
+    center: StoredValue<(f64, f64)>,
+    on_search: Callback<()>,
+) -> impl IntoView {
     let nav = use_nav();
     let text = RwSignal::new(String::new());
     let items = RwSignal::new(Vec::<RestaurantSuggestion>::new());
@@ -343,7 +352,11 @@ fn SuggestBox(query: RwSignal<String>, center: StoredValue<(f64, f64)>, on_searc
             return;
         }
         // Debounce: one request when typing pauses.
-        let handle = set_timeout_with_handle(move || fetch(value.trim().to_string()), std::time::Duration::from_millis(250)).ok();
+        let handle = set_timeout_with_handle(
+            move || fetch(value.trim().to_string()),
+            std::time::Duration::from_millis(250),
+        )
+        .ok();
         timer.set_value(handle);
     };
     let choose = move |s: RestaurantSuggestion| {

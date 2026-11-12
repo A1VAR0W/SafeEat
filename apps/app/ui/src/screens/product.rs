@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use safeeat_contracts::{AiCheck, AiCheckStatus, GlutenStatus, InformationSource, Product, VerdictValue};
+use safeeat_contracts::{
+    AiCheck, AiCheckStatus, GlutenStatus, InformationSource, Product, VerdictValue,
+};
 use serde_json::json;
 
 use crate::api::{self, Failure};
@@ -24,7 +26,9 @@ pub fn ProductScreen(id: String) -> impl IntoView {
     let load = move || {
         spawn_local(async move {
             // Also runs from the AI poll timer, possibly after leaving the screen.
-            let Some(path) = path.try_get_value() else { return };
+            let Some(path) = path.try_get_value() else {
+                return;
+            };
             let result = api::get::<Product>(&path).await;
             state.try_set(Some(result));
         });
@@ -71,7 +75,10 @@ pub fn ProductScreen(id: String) -> impl IntoView {
 }
 
 #[component]
-fn ProductDetail(product: Product, state: RwSignal<Option<Result<Product, Failure>>>) -> impl IntoView {
+fn ProductDetail(
+    product: Product,
+    state: RwSignal<Option<Result<Product, Failure>>>,
+) -> impl IntoView {
     let p = product;
     let status = p.assessment.status;
     let tone = status_tone(status);
@@ -247,7 +254,10 @@ fn Ingredients(product: Product) -> impl IntoView {
 }
 
 #[component]
-fn PersonalVerdictCard(product: Product, state: RwSignal<Option<Result<Product, Failure>>>) -> impl IntoView {
+fn PersonalVerdictCard(
+    product: Product,
+    state: RwSignal<Option<Result<Product, Failure>>>,
+) -> impl IntoView {
     let session = use_session();
     let nav = use_nav();
     let id = StoredValue::new(product.id.clone());
@@ -263,7 +273,11 @@ fn PersonalVerdictCard(product: Product, state: RwSignal<Option<Result<Product, 
             let path = format!("/products/{}/verdict", api::enc(&id.get_value()));
             let result: Result<Product, Failure> = match value {
                 Some(v) => {
-                    let verdict = if v == VerdictValue::Safe { "SAFE" } else { "UNSAFE" };
+                    let verdict = if v == VerdictValue::Safe {
+                        "SAFE"
+                    } else {
+                        "UNSAFE"
+                    };
                     api::send("PUT", &path, Some(json!({ "verdict": verdict }))).await
                 }
                 None => api::send("DELETE", &path, None).await,
@@ -358,7 +372,10 @@ fn FavoriteButton(id: String) -> impl IntoView {
         saved.set(next); // optimistic; reverted on error
         spawn_local(async move {
             let method = if next { "POST" } else { "DELETE" };
-            if api::send::<serde_json::Value>(method, &path.get_value(), None).await.is_err() {
+            if api::send::<serde_json::Value>(method, &path.get_value(), None)
+                .await
+                .is_err()
+            {
                 saved.try_set(!next);
             }
         });

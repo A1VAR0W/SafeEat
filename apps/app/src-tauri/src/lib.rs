@@ -97,7 +97,15 @@ async fn refresh_locked(state: &AppState, tokens: &mut Tokens) -> bool {
         return false;
     };
     let body = json!({ "refreshToken": refresh });
-    match send(state, &reqwest::Method::POST, "/auth/refresh", Some(&body), None).await {
+    match send(
+        state,
+        &reqwest::Method::POST,
+        "/auth/refresh",
+        Some(&body),
+        None,
+    )
+    .await
+    {
         Ok((200, session)) => {
             tokens.access = session["accessToken"].as_str().map(str::to_string);
             tokens.refresh = session["refreshToken"].as_str().map(str::to_string);
@@ -121,16 +129,23 @@ async fn api(
 ) -> Result<Value, Failure> {
     // Endpoints that return or consume tokens only go through `authenticate`/`logout`,
     // so no token ever reaches the webview.
-    const TOKEN_PATHS: [&str; 4] = ["/auth/refresh", "/auth/login", "/auth/register", "/auth/logout"];
+    const TOKEN_PATHS: [&str; 4] = [
+        "/auth/refresh",
+        "/auth/login",
+        "/auth/register",
+        "/auth/logout",
+    ];
     if !path.starts_with('/')
         || path.contains("..")
         || TOKEN_PATHS.iter().any(|p| path.starts_with(p))
     {
         return Err(failure(400, &Value::Null));
     }
-    let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;
+    let method =
+        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| failure(400, &Value::Null))?;
     let access = state.tokens.lock().await.access.clone();
-    let (mut status, mut value) = send(&state, &method, &path, body.as_ref(), access.as_deref()).await?;
+    let (mut status, mut value) =
+        send(&state, &method, &path, body.as_ref(), access.as_deref()).await?;
     if status == 401 && access.is_some() {
         let mut tokens = state.tokens.lock().await;
         // Another call may have refreshed while we waited for the lock.
@@ -179,7 +194,14 @@ async fn logout(state: State<'_, AppState>) -> Result<(), Failure> {
     let mut tokens = state.tokens.lock().await;
     if let Some(refresh) = tokens.refresh.take() {
         let body = json!({ "refreshToken": refresh });
-        let _ = send(&state, &reqwest::Method::POST, "/auth/logout", Some(&body), None).await;
+        let _ = send(
+            &state,
+            &reqwest::Method::POST,
+            "/auth/logout",
+            Some(&body),
+            None,
+        )
+        .await;
     }
     *tokens = Tokens::default();
     Ok(())

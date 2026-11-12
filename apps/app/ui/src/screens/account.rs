@@ -37,7 +37,9 @@ pub fn LoginScreen() -> impl IntoView {
         }
         let creating = register.get_untracked();
         if creating && password.get_untracked().chars().count() < 12 {
-            error.set(Some("La contraseña necesita al menos 12 caracteres.".into()));
+            error.set(Some(
+                "La contraseña necesita al menos 12 caracteres.".into(),
+            ));
             return;
         }
         busy.set(true);
@@ -77,7 +79,13 @@ pub fn LoginScreen() -> impl IntoView {
         });
     };
 
-    let title = Signal::derive(move || if register.get() { "Crear cuenta".to_string() } else { "Iniciar sesión".to_string() });
+    let title = Signal::derive(move || {
+        if register.get() {
+            "Crear cuenta".to_string()
+        } else {
+            "Iniciar sesión".to_string()
+        }
+    });
     view! {
         <Header title=title />
         <form class="stack" on:submit=submit>

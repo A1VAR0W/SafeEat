@@ -135,7 +135,10 @@ pub fn summary(p: &Product) -> Summary {
         if contains > 0 {
             return Summary {
                 tone: Tone::Danger,
-                text: format!("{} gluten", plural(contains, "usuario indica", "usuarios indican")),
+                text: format!(
+                    "{} gluten",
+                    plural(contains, "usuario indica", "usuarios indican")
+                ),
                 warning: None,
             };
         }
@@ -233,7 +236,9 @@ mod tests {
         let s = summary(&p);
         assert_eq!(s.tone, Tone::Info);
         assert!(s.text.starts_with("No verificado"));
-        assert!(s.warning.is_some_and(|w| w.contains("no es una certificación")));
+        assert!(s
+            .warning
+            .is_some_and(|w| w.contains("no es una certificación")));
     }
 
     #[test]

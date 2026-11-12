@@ -154,11 +154,15 @@ pub fn App() -> impl IntoView {
     let screen = move || {
         let route = nav.current();
         match (nav.tab.get(), route) {
-            (_, Route::Product(id)) => view! { <screens::product::ProductScreen id=id /> }.into_any(),
+            (_, Route::Product(id)) => {
+                view! { <screens::product::ProductScreen id=id /> }.into_any()
+            }
             (_, Route::Restaurant(id)) => {
                 view! { <screens::restaurant::RestaurantScreen id=id /> }.into_any()
             }
-            (_, Route::Chain(key)) => view! { <screens::restaurant::ChainScreen key=key /> }.into_any(),
+            (_, Route::Chain(key)) => {
+                view! { <screens::restaurant::ChainScreen key=key /> }.into_any()
+            }
             (_, Route::Login) => view! { <screens::account::LoginScreen /> }.into_any(),
             (_, Route::Profile) => view! { <screens::account::ProfileScreen /> }.into_any(),
             (Tab::Scan, Route::Home) => view! { <screens::scan::ScanScreen /> }.into_any(),
