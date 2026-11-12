@@ -123,4 +123,31 @@ Ver el apartado «Progreso de la app 2.0» más abajo, que se actualiza en cada 
 
 ## Progreso de la app 2.0
 
-- (se completa a continuación)
+Código en `apps/app`. Es un workspace propio: `src-tauri` es el núcleo y `ui` la interfaz en Leptos. Se ha diseñado con la skill ui-ux-pro-max:
+- colores de marca;
+- fuente del sistema, sin descargas;
+- botones de al menos 44–48 px;
+- cada estado con icono y texto, no solo color;
+- modo oscuro;
+- movimiento corto y respeto de «reducir movimiento».
+
+**Rendimiento:**
+- La interfaz pesa unos 600 KB de WebAssembly y 43 KB de JS.
+- MapLibre (940 KB) solo se carga al abrir Restaurantes, y el mapa no se destruye al cambiar de pestaña.
+- Todas las llamadas a la API pasan por Rust (reqwest). Los tokens nunca llegan al JavaScript.
+
+| Pantalla / función | Estado |
+|---|---|
+| Escanear (cámara, plugin oficial) y escribir el código a mano | ver pruebas abajo |
+| Ficha de producto, en este orden: respuesta en una línea → tu veredicto → sello → análisis → «Verificado por IA» (verde, con el aviso siempre visible), «La IA ve posible gluten» y «Comprobando con IA…» con refresco automático → ingredientes en español con «Ver original» → comunidad | ver pruebas abajo |
+| Veredicto personal (me sienta bien / no es seguro) y aviso de ingredientes cambiados | ver pruebas abajo |
+| Favoritos (corazón) y pestaña Guardados | ver pruebas abajo |
+| Búsqueda de productos, con el filtro «Solo sin gluten declarado» | ver pruebas abajo |
+| Mapa (MapLibre + OpenFreeMap) | ver pruebas abajo |
+| Funciones del mapa: agrupación de marcadores, «Buscar en esta zona», tu ubicación, filtros, lista de resultados, y sugerencias con las cadenas primero (`includeChains=true`) | ver pruebas abajo |
+| Restaurante, reseña (solo este local o toda la cadena, para cuentas de confianza) y cadena con los locales más cercanos | ver pruebas abajo |
+| Login y registro | ver pruebas abajo |
+| **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano. | ⏳ |
+| OCR de etiquetas, IA sobre una foto, colecciones, ajustes de cuenta, panel de administración, enlaces `/p/` `/r/`, actualizador | ⏳ (la app 1.0.13 lo sigue teniendo) |
+
+**Nota sobre Git:** el commit `2063029` subió por error la carpeta de compilación `apps/app/target`. Se quitó en el commit siguiente, pero sigue en el historial de esta rama. **Al fusionar con `main`, usa «Squash and merge»** para que no entre.
