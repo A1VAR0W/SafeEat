@@ -974,3 +974,10 @@ body::before {
   line-height: 1.5;
   font: inherit;
 }
+.disclosure .form-row {
+  display: grid;
+  gap: var(--space-3);
+}
+.disclosure .button {
+  width: 100%;
+}
