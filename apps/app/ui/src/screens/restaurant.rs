@@ -7,6 +7,7 @@ use crate::api::{self, Failure};
 use crate::icons;
 use crate::nav::MapCenter;
 use crate::nav::{use_nav, use_session, Route};
+use crate::screens::community::{CommunityReviews, RatingCard, ShareButton};
 use crate::screens::restaurants::{support_tone, RestaurantRow};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
 
@@ -84,6 +85,9 @@ fn RestaurantDetail(
                 </section>
             })}
             <ReviewForm item=item.clone() state=state saved=saved />
+            <CommunityReviews kind="restaurants" id=item.id.clone() />
+            <RatingCard item=item.clone() state=state />
+            <ShareButton kind="restaurants" id=item.id.clone() />
             <p class="muted small source">"Esta información la aportan otros usuarios y OpenStreetMap; SafeEat no la verifica ni garantiza cómo se prepara la comida. Pregunta siempre en el local por la contaminación cruzada."</p>
         </article>
     }

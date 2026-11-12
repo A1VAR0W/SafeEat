@@ -981,3 +981,89 @@ body::before {
 .disclosure .button {
   width: 100%;
 }
+
+/* ---------- community: reviews, label review, stars, sharing ---------- */
+.reviews {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.review {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--tone-line, var(--line));
+  border-left-width: 4px;
+  border-left-color: var(--tone, var(--line));
+  border-radius: 12px;
+}
+.review-title {
+  color: var(--tone, var(--text));
+}
+.review .trust {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--info);
+}
+.review .trust .icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.confirm-box {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: 12px;
+  background: var(--info-bg);
+}
+.choices {
+  display: grid;
+  gap: var(--space-2);
+}
+.choice {
+  min-height: 56px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+.choice.active {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+.stars {
+  display: flex;
+  gap: var(--space-1);
+}
+.star {
+  min-width: 48px;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--line);
+  font-size: 2rem;
+  line-height: 1;
+}
+.star.on,
+.star-inline {
+  color: var(--caution);
+}
+.share-row {
+  display: grid;
+  gap: var(--space-2);
+}
+.share-row > .button .icon {
+  width: 20px;
+  height: 20px;
+}
+.share-fallback .input {
+  font-size: 0.875rem;
+}

@@ -18,6 +18,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 use tauri_plugin_safeeat_secure::SecureExt;
+use tauri_plugin_safeeat_share::ShareExt;
 use tokio::sync::Mutex;
 
 /// Build-time API origin (no trailing slash). Debug builds default to preproduction;
@@ -404,6 +405,49 @@ async fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<(), Failur
     Ok(())
 }
 
+/// Creates a public link for a product or restaurant and opens the system share sheet.
+/// Returns the link and whether the sheet opened (desktop builds have none: the UI then
+/// shows the link so it can be copied).
+#[tauri::command]
+async fn share_link(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    kind: String,
+    id: String,
+) -> Result<Value, Failure> {
+    let (kind, intro) = match kind.as_str() {
+        "products" => ("products", "Mira este producto en SafeEat"),
+        "restaurants" => ("restaurants", "Mira este restaurante en SafeEat"),
+        _ => return Err(failure(400, &Value::Null)),
+    };
+    if id.is_empty() || id.len() > 200 || !id.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(failure(400, &Value::Null));
+    }
+    let path = format!("/shares/{kind}/{}", encode_segment(&id));
+    let created = authorized(&app, &state, &reqwest::Method::POST, &path, None).await?;
+    let link = created["url"]
+        .as_str()
+        .filter(|u| u.starts_with("https://") || cfg!(debug_assertions))
+        .ok_or_else(|| failure(502, &Value::Null))?
+        .to_string();
+    let text = format!("{intro}, con sus fuentes: {link}");
+    let shared = app.share().text(&text, "Compartir");
+    Ok(json!({ "url": link, "shared": shared }))
+}
+
+/// Percent-encodes one path segment (ids such as `osm_n_123` or user product UUIDs).
+fn encode_segment(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let http = reqwest::Client::builder()
@@ -418,7 +462,8 @@ pub fn run() {
             http,
             tokens: Mutex::new(Tokens::default()),
         })
-        .plugin(tauri_plugin_safeeat_secure::init());
+        .plugin(tauri_plugin_safeeat_secure::init())
+        .plugin(tauri_plugin_safeeat_share::init());
     #[cfg(mobile)]
     let builder = builder
         .plugin(tauri_plugin_barcode_scanner::init())
@@ -431,7 +476,8 @@ pub fn run() {
             restore_session,
             account_change,
             delete_account,
-            logout
+            logout,
+            share_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running SafeEat");

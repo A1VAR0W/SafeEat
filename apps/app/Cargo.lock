@@ -3502,6 +3502,7 @@ dependencies = [
  "tauri-plugin-geolocation",
  "tauri-plugin-haptics",
  "tauri-plugin-safeeat-secure",
+ "tauri-plugin-safeeat-share",
  "tokio",
 ]
 
@@ -4430,6 +4431,15 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-safeeat-secure"
+version = "2.0.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-safeeat-share"
 version = "2.0.0"
 dependencies = [
  "serde",

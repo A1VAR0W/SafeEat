@@ -1,0 +1,15 @@
+[package]
+name = "tauri-plugin-safeeat-share"
+description = "Opens the system share sheet (Android chooser / iOS activity sheet). Reachable from the Rust shell only."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+links = "tauri-plugin-safeeat-share"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+serde.workspace = true

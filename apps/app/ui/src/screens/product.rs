@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::api::{self, Failure};
 use crate::icons;
 use crate::nav::{use_nav, use_session, Route};
+use crate::screens::community::{CommunityReviews, ProductReviewForm, ShareButton};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
 use crate::verdict::{self, status_title, status_tone};
 
@@ -22,6 +23,8 @@ fn path_for(id: &str) -> String {
 #[component]
 pub fn ProductScreen(id: String) -> impl IntoView {
     let state = RwSignal::new(None::<Result<Product, Failure>>);
+    // Lives here because saving a review re-renders the whole detail.
+    let review_saved = RwSignal::new(false);
     let path = StoredValue::new(path_for(&id));
     let load = move || {
         spawn_local(async move {
@@ -69,7 +72,7 @@ pub fn ProductScreen(id: String) -> impl IntoView {
                 </div>
             }.into_any(),
             Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| { state.set(None); load(); }) /></div> }.into_any(),
-            Some(Ok(p)) => view! { <ProductDetail product=p state=state /> }.into_any(),
+            Some(Ok(p)) => view! { <ProductDetail product=p state=state review_saved=review_saved /> }.into_any(),
         }}
     }
 }
@@ -78,6 +81,7 @@ pub fn ProductScreen(id: String) -> impl IntoView {
 fn ProductDetail(
     product: Product,
     state: RwSignal<Option<Result<Product, Failure>>>,
+    review_saved: RwSignal<bool>,
 ) -> impl IntoView {
     let p = product;
     let status = p.assessment.status;
@@ -162,7 +166,17 @@ fn ProductDetail(
             {(status == GlutenStatus::Unknown).then(|| p.ai_check.clone()).flatten().map(|ai| view! { <AiCard ai=ai /> })}
 
             <Ingredients product=p.clone() />
-            <Community product=p.clone() />
+            // Public reviews only make sense for products identified by a barcode; the
+            // list replaces the bare counts there.
+            {if p.barcode.is_some() && !p.user_created {
+                view! {
+                    <ProductReviewForm product=p.clone() state=state saved=review_saved />
+                    <CommunityReviews kind="products" id=p.id.clone() />
+                }.into_any()
+            } else {
+                view! { <Community product=p.clone() /> }.into_any()
+            }}
+            <ShareButton kind="products" id=p.id.clone() />
             <p class="muted small source">
                 "Fuente: " {p.source.clone()}
                 {p.stale.then_some(" · datos sin actualizar")}
