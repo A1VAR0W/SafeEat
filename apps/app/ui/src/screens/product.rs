@@ -25,6 +25,7 @@ pub fn ProductScreen(id: String) -> impl IntoView {
     let state = RwSignal::new(None::<Result<Product, Failure>>);
     // Lives here because saving a review re-renders the whole detail.
     let review_saved = RwSignal::new(false);
+    let part = RwSignal::new(Part::Analysis);
     let path = StoredValue::new(path_for(&id));
     let load = move || {
         spawn_local(async move {
@@ -75,8 +76,36 @@ pub fn ProductScreen(id: String) -> impl IntoView {
                 </div>
             }.into_any(),
             Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| { state.set(None); load(); }) /></div> }.into_any(),
-            Some(Ok(p)) => view! { <ProductDetail product=p state=state review_saved=review_saved /> }.into_any(),
+            Some(Ok(p)) => view! { <ProductDetail product=p state=state review_saved=review_saved part=part /> }.into_any(),
         }}
+    }
+}
+
+/// The three parts of the detail below the answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Analysis,
+    Ingredients,
+    Community,
+}
+
+impl Part {
+    const ALL: [Part; 3] = [Part::Analysis, Part::Ingredients, Part::Community];
+
+    fn label(self) -> &'static str {
+        match self {
+            Part::Analysis => "Análisis",
+            Part::Ingredients => "Ingredientes",
+            Part::Community => "Opiniones",
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Part::Analysis => "analysis",
+            Part::Ingredients => "ingredients",
+            Part::Community => "community",
+        }
     }
 }
 
@@ -85,11 +114,55 @@ fn ProductDetail(
     product: Product,
     state: RwSignal<Option<Result<Product, Failure>>>,
     review_saved: RwSignal<bool>,
+    part: RwSignal<Part>,
 ) -> impl IntoView {
     let p = product;
-    let status = p.assessment.status;
-    let tone = status_tone(status);
     let summary = verdict::summary(&p);
+    let reports = p.gluten_reports.unwrap_or_default();
+    let opinions = reports.gluten_free + reports.contains_gluten;
+    // Arrow keys move between tabs, as in any tab list.
+    let on_key = move |ev: leptos::ev::KeyboardEvent| {
+        let step: i32 = match ev.key().as_str() {
+            "ArrowRight" => 1,
+            "ArrowLeft" => -1,
+            _ => return,
+        };
+        ev.prevent_default();
+        let at = Part::ALL
+            .iter()
+            .position(|x| *x == part.get_untracked())
+            .unwrap_or(0) as i32;
+        let next = Part::ALL[(at + step).rem_euclid(Part::ALL.len() as i32) as usize];
+        part.set(next);
+        if let Some(el) = document().get_element_by_id(&format!("tab-{}", next.id())) {
+            use wasm_bindgen::JsCast;
+            if let Ok(el) = el.dyn_into::<web_sys::HtmlElement>() {
+                let _ = el.focus();
+            }
+        }
+    };
+    let panel = {
+        let p = p.clone();
+        move || match part.get() {
+            Part::Analysis => view! { <AnalysisPart product=p.clone() /> }.into_any(),
+            Part::Ingredients => view! { <Ingredients product=p.clone() /> }.into_any(),
+            // Public reviews only make sense for products identified by a barcode; the
+            // list replaces the bare counts there.
+            Part::Community => {
+                if p.barcode.is_some() && !p.user_created {
+                    view! {
+                        <div class="stack">
+                            <ProductReviewForm product=p.clone() state=state saved=review_saved />
+                            <CommunityReviews kind="products" id=p.id.clone() />
+                        </div>
+                    }
+                    .into_any()
+                } else {
+                    view! { <Community product=p.clone() /> }.into_any()
+                }
+            }
+        }
+    };
     view! {
         <article class="stack">
             <div class="product-hero">
@@ -115,22 +188,7 @@ fn ProductDetail(
                 </div>
             </section>
 
-            // 2. Her own verdict.
-            <PersonalVerdictCard product=p.clone() state=state />
-            {(!p.user_created).then(|| view! { <CollectionPicker id=p.id.clone() /> })}
-
-            // 3. Certified seal / declaration, with where it comes from.
-            {p.assessment.certification.map(|c| view! {
-                <div class="notice tone-safe">
-                    <Icon svg=icons::SEAL />
-                    <div class="notice-body">
-                        <p><strong>{c.label()}</strong></p>
-                        <p class="small">"Según " {p.source.clone()} ". SafeEat no puede comprobar el certificado: confirma el sello en el envase."</p>
-                    </div>
-                </div>
-            })}
-
-            // A user's label raised the warning: the provider's own analysis stays visible.
+            // A user's label raised the warning: say so next to the answer, never in a tab.
             {p.provider_assessment.clone().map(|a| view! {
                 <div class="notice tone-caution">
                     <Icon svg=icons::USERS />
@@ -144,11 +202,65 @@ fn ProductDetail(
                 </div>
             })}
 
-            // 4. Automatic analysis.
+            // 2. Her own verdict, one row.
+            <PersonalVerdictCard product=p.clone() state=state />
+
+            // 3. The rest, one part at a time.
+            <div class="tabs" role="tablist" aria-label="Información del producto" on:keydown=on_key>
+                {Part::ALL.into_iter().map(|x| {
+                    let selected = move || part.get() == x;
+                    view! {
+                        <button type="button" role="tab" id=format!("tab-{}", x.id())
+                            aria-controls=format!("panel-{}", x.id())
+                            aria-selected=move || selected().to_string()
+                            tabindex=move || if selected() { "0" } else { "-1" }
+                            class:active=selected
+                            on:click=move |_| part.set(x)>
+                            {x.label()}
+                            {(x == Part::Community && opinions > 0).then(|| view! { <span class="tab-count">{opinions}</span> })}
+                        </button>
+                    }
+                }).collect_view()}
+            </div>
+            <div role="tabpanel" class="tab-panel"
+                id=move || format!("panel-{}", part.get().id())
+                aria-labelledby=move || format!("tab-{}", part.get().id())>
+                {panel}
+            </div>
+
+            // 4. Keep and share.
+            {(!p.user_created).then(|| view! { <CollectionPicker id=p.id.clone() /> })}
+            <ShareButton kind="products" id=p.id.clone() />
+            <p class="muted small source">
+                "Fuente: " {p.source.clone()}
+                {p.stale.then_some(" · datos sin actualizar")}
+            </p>
+        </article>
+    }
+}
+
+/// Seal, automatic analysis and the AI's second opinion.
+#[component]
+fn AnalysisPart(product: Product) -> impl IntoView {
+    let p = product;
+    let status = p.assessment.status;
+    let tone = status_tone(status);
+    view! {
+        <div class="stack">
+            // Certified seal / declaration, with where it comes from.
+            {p.assessment.certification.map(|c| view! {
+                <div class="notice tone-safe">
+                    <Icon svg=icons::SEAL />
+                    <div class="notice-body">
+                        <p><strong>{c.label()}</strong></p>
+                        <p class="small">"Según " {p.source.clone()} ". SafeEat no puede comprobar el certificado: confirma el sello en el envase."</p>
+                    </div>
+                </div>
+            })}
             <section class=format!("card analysis {}", tone.class())>
                 <h3 class="card-title">
                     <span class="icon" inner_html=tone.icon()></span>
-                    "Análisis: " {status_title(status)}
+                    {status_title(status)}
                 </h3>
                 <ul class="reasons">
                     {p.assessment.reasons.iter().map(|r| view! { <li>{r.message.clone()}</li> }).collect_view()}
@@ -165,27 +277,9 @@ fn ProductDetail(
                     "Confianza en la evidencia: " {format!("{:.0} %", p.assessment.confidence * 100.0)}
                 </p>
             </section>
-
-            // 5. On-server AI second opinion (only when the analysis found nothing).
+            // On-server AI second opinion (only when the analysis found nothing).
             {(status == GlutenStatus::Unknown).then(|| p.ai_check.clone()).flatten().map(|ai| view! { <AiCard ai=ai /> })}
-
-            <Ingredients product=p.clone() />
-            // Public reviews only make sense for products identified by a barcode; the
-            // list replaces the bare counts there.
-            {if p.barcode.is_some() && !p.user_created {
-                view! {
-                    <ProductReviewForm product=p.clone() state=state saved=review_saved />
-                    <CommunityReviews kind="products" id=p.id.clone() />
-                }.into_any()
-            } else {
-                view! { <Community product=p.clone() /> }.into_any()
-            }}
-            <ShareButton kind="products" id=p.id.clone() />
-            <p class="muted small source">
-                "Fuente: " {p.source.clone()}
-                {p.stale.then_some(" · datos sin actualizar")}
-            </p>
-        </article>
+        </div>
     }
 }
 
@@ -312,33 +406,42 @@ fn PersonalVerdictCard(
         });
     };
     view! {
-        <section class="card">
-            <h3 class="card-title">"Tu veredicto"</h3>
+        <section class="card my-verdict" aria-label="Tu veredicto">
             {match (session.0.with(Option::is_some), mine) {
                 (false, _) => view! {
-                    <p class="muted">"Inicia sesión para guardar si este producto te sienta bien."</p>
-                    <button class="button ghost" on:click=move |_| nav.push(Route::Login)>"Iniciar sesión"</button>
+                    <div class="my-verdict-row">
+                        <p class="my-verdict-q">"¿Te sienta bien?"</p>
+                        <button class="button ghost small" on:click=move |_| nav.push(Route::Login)>"Inicia sesión"</button>
+                    </div>
                 }.into_any(),
-                (true, Some(v)) => view! {
-                    {v.ingredients_changed.then(|| view! {
-                        <div class="notice tone-caution">
-                            <Icon svg=icons::ALERT />
-                            <div class="notice-body"><p><strong>"Los ingredientes han cambiado, revísalo."</strong></p></div>
+                (true, Some(v)) => {
+                    let safe = v.verdict == VerdictValue::Safe;
+                    view! {
+                        {v.ingredients_changed.then(|| view! {
+                            <div class="notice tone-caution">
+                                <Icon svg=icons::ALERT />
+                                <div class="notice-body"><p><strong>"Los ingredientes han cambiado, revísalo."</strong></p></div>
+                            </div>
+                        })}
+                        <div class="my-verdict-row">
+                            <span class=if safe { "badge tone-safe" } else { "badge tone-danger" }>
+                                <Icon svg=if safe { icons::THUMB_UP } else { icons::THUMB_DOWN } />
+                                {if safe { "Te sienta bien" } else { "No es seguro para ti" }}
+                            </span>
+                            <button class="button ghost small" disabled=move || busy.get() on:click=move |_| set(None)>"Cambiar"</button>
                         </div>
-                    })}
-                    <p>{if v.verdict == VerdictValue::Safe { "Lo marcaste como seguro para ti." } else { "Lo marcaste como no seguro para ti." }}</p>
-                    <button class="button ghost small" disabled=move || busy.get() on:click=move |_| set(None)>"Quitar mi veredicto"</button>
-                }.into_any(),
+                    }.into_any()
+                }
                 (true, None) => view! {
+                    <p class="my-verdict-q">"¿Te sienta bien? " <span class="muted small">"Solo lo ves tú"</span></p>
                     <div class="two">
-                        <button class="button safe" disabled=move || busy.get() on:click=move |_| set(Some(VerdictValue::Safe))>
+                        <button class="button safe small" disabled=move || busy.get() on:click=move |_| set(Some(VerdictValue::Safe))>
                             <Icon svg=icons::THUMB_UP />"Me sienta bien"
                         </button>
-                        <button class="button danger" disabled=move || busy.get() on:click=move |_| set(Some(VerdictValue::Unsafe))>
+                        <button class="button danger small" disabled=move || busy.get() on:click=move |_| set(Some(VerdictValue::Unsafe))>
                             <Icon svg=icons::THUMB_DOWN />"No es seguro"
                         </button>
                     </div>
-                    <p class="muted small">"Solo lo ves tú. No cambia el análisis."</p>
                 }.into_any(),
             }}
             {move || error.get().map(|m| view! { <ErrorBox message=m /> })}
@@ -498,8 +601,8 @@ fn CollectionPicker(id: String) -> impl IntoView {
     };
     view! {
         <Show when=move || collections.with(|c| !c.is_empty())>
-            <section class="card">
-                <h3 class="card-title"><span class="icon" inner_html=icons::BOOKMARK></span>"Organizar en marcadores"</h3>
+            <details class="card disclosure">
+                <summary><span class="icon" inner_html=icons::BOOKMARK></span>" Organizar en marcadores"</summary>
                 <div class="stack-tight">
                     {move || collections.get().into_iter().map(|c| {
                         let cid = c.id.clone();
@@ -522,7 +625,7 @@ fn CollectionPicker(id: String) -> impl IntoView {
                     }).collect_view()}
                 </div>
                 {move || error.get().map(|m| view! { <ErrorBox message=m /> })}
-            </section>
+            </details>
         </Show>
     }
 }

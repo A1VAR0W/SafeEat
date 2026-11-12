@@ -64,6 +64,17 @@ impl ProviderBudget {
         calls.push_back(now);
         Ok(())
     }
+
+    /// Calls still free in the current window (background work leaves room for her).
+    pub fn spare(&self) -> usize {
+        let now = Instant::now();
+        let calls = self.calls.lock().expect("budget lock");
+        let used = calls
+            .iter()
+            .filter(|t| now.duration_since(**t) < self.window)
+            .count();
+        self.limit.saturating_sub(used)
+    }
 }
 
 /// Small bounded TTL cache (insertion-ordered eviction).

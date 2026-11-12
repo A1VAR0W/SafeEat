@@ -27,7 +27,16 @@ extern "C" {
     fn map_set_places(json: &str);
     #[wasm_bindgen(js_namespace = seMap, js_name = flyTo)]
     fn map_fly_to(lat: f64, lng: f64, zoom: f64);
+    #[wasm_bindgen(js_namespace = seMap, js_name = fitPlaces)]
+    fn map_fit_places(json: &str);
+    #[wasm_bindgen(js_namespace = seMap, js_name = select)]
+    fn map_select(id: &str);
 }
+
+/// Results a typed search frames on the map.
+const FIT_NEAREST: usize = 10;
+/// What the list shows when she has not typed anything.
+const EVERYTHING: &str = "restaurantes";
 
 /// Puerta del Sol, only until the real location (or the user's pan) arrives.
 const FALLBACK: (f64, f64) = (40.4168, -3.7038);
@@ -152,7 +161,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let host = NodeRef::<leptos::html::Div>::new();
     let center = StoredValue::new(FALLBACK);
     let filter = RwSignal::new(Filter::All);
-    let query = RwSignal::new(String::from("restaurantes"));
+    let query = RwSignal::new(String::from(EVERYTHING));
+    // The search field's text lives here so «Quitar búsqueda» can empty it.
+    let text = RwSignal::new(String::new());
+    let selected = RwSignal::new(None::<Restaurant>);
     let results = RwSignal::new(None::<Result<Vec<Restaurant>, Failure>>);
     let loading = RwSignal::new(false);
     let located = RwSignal::new(None::<bool>);
@@ -163,7 +175,7 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let auto_timer = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
 
     let shared = expect_context::<MapCenter>().0;
-    let search = move || {
+    let run = move |fit: bool| {
         let (lat, lng) = center.get_value();
         shared.set_value(Some((lat, lng)));
         let q = query.get_untracked();
@@ -186,12 +198,28 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 return;
             }
             if let Ok(items) = &result {
-                map_set_places(&places_json(items, None));
+                let places = places_json(items, None);
+                map_set_places(&places);
+                // Frame the nearest few (a chain can have 50 venues across the region).
+                if fit {
+                    map_fit_places(&places_json(&items[..items.len().min(FIT_NEAREST)], None));
+                }
+                // The preview card only stays if its place is still in the list.
+                let keep = selected.with_untracked(|s| {
+                    s.as_ref()
+                        .is_some_and(|s| items.iter().any(|r| r.id == s.id))
+                });
+                if !keep {
+                    selected.set(None);
+                    map_select("");
+                }
             }
             results.set(Some(result));
             loading.set(false);
         });
     };
+    let search = move || run(false);
+    let typed_search = move || run(query.get_untracked() != EVERYTHING);
 
     // Mount the map once the host element exists.
     Effect::new(move |_| {
@@ -222,8 +250,19 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 auto_timer.set_value(handle);
             },
         );
-        let on_select =
-            Closure::<dyn FnMut(String)>::new(move |id: String| nav.push(Route::Restaurant(id)));
+        let on_select = Closure::<dyn FnMut(String)>::new(move |id: String| {
+            let found = results.with_untracked(|r| match r {
+                Some(Ok(items)) => items.iter().find(|x| x.id == id).cloned(),
+                _ => None,
+            });
+            match found {
+                Some(r) => {
+                    map_select(&r.id);
+                    selected.set(Some(r));
+                }
+                None => nav.push(Route::Restaurant(id)),
+            }
+        });
         let on_error = Closure::<dyn FnMut()>::new(move || map_failed.set(true));
         map_mount(
             &el,
@@ -257,7 +296,8 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 located.set(Some(true));
                 center.set_value((lat, lng));
                 map_fly_to(lat, lng, 14.0);
-                query.set("restaurantes".into());
+                query.set(EVERYTHING.into());
+                text.set(String::new());
                 search();
             } else {
                 located.set(Some(false));
@@ -265,45 +305,95 @@ pub fn RestaurantsScreen() -> impl IntoView {
         });
     };
 
-    let chip = move |value: Filter, label: &'static str| {
+    let segment = move |value: Filter, label: &'static str| {
         view! {
             <button
-                class="chip"
+                type="button"
+                role="radio"
                 class:active=move || filter.get() == value
-                aria-pressed=move || (filter.get() == value).to_string()
-                on:click=move |_| { filter.set(value); search(); }
+                aria-checked=move || (filter.get() == value).to_string()
+                on:click=move |_| { filter.set(value); typed_search(); }
             >
                 {label}
             </button>
         }
     };
+    let clear_query = move |_| {
+        query.set(EVERYTHING.into());
+        text.set(String::new());
+        search();
+    };
+    let close_preview = move |_| {
+        selected.set(None);
+        map_select("");
+    };
 
     view! {
         <div class="map-wrap">
             <div class="map" node_ref=host></div>
-            <SuggestBox query=query center=center on_search=Callback::new(move |_| search()) />
-            <div class="map-controls">
+            <SuggestBox query=query text=text center=center on_search=Callback::new(move |_| typed_search()) />
+            <div class="map-controls" class:lifted=move || selected.with(Option::is_some)>
                 <button class="icon-button raised" aria-label="Ir a mi ubicación" on:click=relocate>
                     <Icon svg=icons::LOCATE />
                 </button>
             </div>
-            <Show when=move || too_far.get()>
+            <Show when=move || too_far.get() && selected.with(Option::is_none)>
                 <p class="map-hint raised" role="status">"Acerca el mapa para ver restaurantes"</p>
             </Show>
+            {move || selected.get().map(|r| {
+                let id = r.id.clone();
+                view! {
+                    <div class="map-preview raised" role="dialog" aria-label=r.name.clone()>
+                        <button class="map-preview-body" on:click=move |_| nav.push(Route::Restaurant(id.clone()))>
+                            <span class="row-title">{r.name.clone()}</span>
+                            <span class="muted small">
+                                {[r.distance_m.map(distance), (!r.address.is_empty()).then(|| r.address.clone())]
+                                    .into_iter().flatten().collect::<Vec<_>>().join(" · ")}
+                            </span>
+                            <span class=format!("badge {}", support_tone(r.gluten_support))>{r.gluten_support.label()}</span>
+                            <span class="map-preview-open">"Ver ficha" <Icon svg=icons::CHEVRON /></span>
+                        </button>
+                        <button class="icon-button" aria-label="Cerrar" on:click=close_preview>
+                            <Icon svg=icons::CLOSE />
+                        </button>
+                    </div>
+                }
+            })}
         </div>
         <section class="sheet">
-            <div class="chips" role="group" aria-label="Filtro de gluten">
-                {chip(Filter::All, "Todos")}
-                {chip(Filter::Options, "Con opciones sin gluten")}
-                {chip(Filter::Dedicated, "Todo sin gluten")}
+            <div class="segmented three" role="radiogroup" aria-label="Filtro de gluten">
+                {segment(Filter::All, "Todos")}
+                {segment(Filter::Options, "Con opciones")}
+                {segment(Filter::Dedicated, "100 % sin gluten")}
             </div>
+            <ul class="legend" aria-label="Colores del mapa">
+                <li><span class="dot dedicated"></span>"100 % sin gluten"</li>
+                <li><span class="dot options"></span>"Opciones"</li>
+                <li><span class="dot none"></span>"Sin opciones"</li>
+                <li><span class="dot unknown"></span>"Sin datos"</li>
+            </ul>
             <Show when=move || map_failed.get()>
                 <ErrorBox message="No se pudo cargar el mapa. La lista sigue funcionando." />
             </Show>
             <Show when=move || located.get() == Some(false)>
                 <p class="muted small">"No tenemos tu ubicación: mueve el mapa y la lista se actualizará sola."</p>
             </Show>
-            // First load: spinner. Later updates keep the current list (no jumps) and say so.
+            <div class="sheet-head">
+                <p class="muted small" role="status">
+                    {move || match (loading.get(), results.with(|r| r.as_ref().and_then(|r| r.as_ref().ok()).map(Vec::len))) {
+                        (true, _) => "Actualizando…".to_string(),
+                        (false, Some(n)) => format!("{n} {}", if n == 1 { "restaurante" } else { "restaurantes" }),
+                        (false, None) => String::new(),
+                    }}
+                </p>
+                <Show when=move || query.with(|q| q != EVERYTHING)>
+                    <button class="chip active small" on:click=clear_query aria-label="Quitar búsqueda">
+                        {move || format!("«{}»", query.get())}
+                        <Icon svg=icons::CLOSE />
+                    </button>
+                </Show>
+            </div>
+            // First load: spinner. Later updates keep the current list (no jumps).
             <Show when=move || loading.get() && results.with(Option::is_none)>
                 <Loading label="Buscando restaurantes…" />
             </Show>
@@ -311,19 +401,13 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 None => ().into_any(),
                 Some(Err(e)) => view! { <ErrorBox message=e.message retry=Callback::new(move |_| search()) /> }.into_any(),
                 Some(Ok(items)) if items.is_empty() => view! {
-                    <Empty title="Nada por aquí" text="No encontramos restaurantes en esta zona con ese filtro." />
+                    <Empty title="Nada por aquí" text="No encontramos restaurantes en esta zona con ese filtro. Mueve el mapa o prueba «Todos»." />
                 }.into_any(),
-                Some(Ok(items)) => {
-                    let count = items.len();
-                    view! {
-                    <p class="muted small" role="status">
-                        {move || if loading.get() { "Actualizando…".to_string() } else { format!("{count} {}", if count == 1 { "restaurante" } else { "restaurantes" }) }}
-                    </p>
+                Some(Ok(items)) => view! {
                     <ul class="list">
                         {items.into_iter().map(|r| view! { <li><RestaurantRow item=r /></li> }).collect_view()}
                     </ul>
-                    }.into_any()
-                }
+                }.into_any(),
             }}
         </section>
     }
@@ -357,11 +441,11 @@ pub fn RestaurantRow(item: Restaurant) -> impl IntoView {
 #[component]
 fn SuggestBox(
     query: RwSignal<String>,
+    text: RwSignal<String>,
     center: StoredValue<(f64, f64)>,
     on_search: Callback<()>,
 ) -> impl IntoView {
     let nav = use_nav();
-    let text = RwSignal::new(String::new());
     let items = RwSignal::new(Vec::<RestaurantSuggestion>::new());
     let generation = StoredValue::new(0u32);
     let timer = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
@@ -412,7 +496,7 @@ fn SuggestBox(
                 if let (Some(lat), Some(lng)) = (s.latitude, s.longitude) {
                     center.set_value((lat, lng));
                     map_fly_to(lat, lng, 14.0);
-                    query.set("restaurantes".into());
+                    query.set(EVERYTHING.into());
                 } else {
                     query.set(s.query.clone());
                 }

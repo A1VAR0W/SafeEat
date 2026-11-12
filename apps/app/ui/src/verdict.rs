@@ -157,7 +157,7 @@ pub fn summary(p: &Product) -> Summary {
                 // Orientative only: the AI never certifies and cannot see traces.
                 AiCheckStatus::Verified => Summary {
                     tone: Tone::Info,
-                    text: "No verificado · la IA no ve gluten".into(),
+                    text: "La IA no ve gluten en los ingredientes".into(),
                     warning: Some("Análisis orientativo: no es una certificación"),
                 },
                 AiCheckStatus::Suspected => Summary {
@@ -167,11 +167,24 @@ pub fn summary(p: &Product) -> Summary {
                 },
                 AiCheckStatus::Pending => Summary {
                     tone: Tone::Unknown,
-                    text: "No verificado · IA comprobando".into(),
+                    text: "La IA está revisando los ingredientes…".into(),
                     warning: None,
                 },
             };
         }
+    }
+    // A search preview has no ingredients yet: say what to do instead of a bare "unknown".
+    if status == GlutenStatus::Unknown
+        && p.assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "SEARCH_PREVIEW")
+    {
+        return Summary {
+            tone: Tone::Unknown,
+            text: "Sin analizar todavía · ábrelo".into(),
+            warning: None,
+        };
     }
     // A declaration with the certification symbol says so in the answer itself.
     if status == GlutenStatus::GlutenFree
@@ -235,7 +248,10 @@ mod tests {
         p.ai_check = ai(AiCheckStatus::Verified);
         let s = summary(&p);
         assert_eq!(s.tone, Tone::Info);
-        assert!(s.text.starts_with("No verificado"));
+        // Says what the AI saw, never that the product is gluten-free or verified.
+        assert!(s.text.starts_with("La IA"));
+        let lower = s.text.to_lowercase();
+        assert!(!lower.contains("sin gluten") && !lower.contains("verificad"));
         assert!(s
             .warning
             .is_some_and(|w| w.contains("no es una certificación")));

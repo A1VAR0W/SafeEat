@@ -142,14 +142,32 @@ async fn chain_for_query(state: &AppState, key: &str) -> ApiResult<Option<String
     if key.len() < 3 {
         return Ok(None);
     }
-    Ok(sqlx::query_scalar::<_, String>(
+    let exact = sqlx::query_scalar::<_, String>(
         "SELECT chain_key FROM restaurant_chain_aliases WHERE alias=$1
          UNION ALL SELECT key FROM restaurant_chains WHERE alias=$1 LIMIT 1",
     )
     .bind(key)
     .fetch_optional(&state.db)
+    .await?;
+    if exact.is_some() || key.len() < 5 {
+        return Ok(exact);
+    }
+    // Typos: "burguer king" → burgerking (trigram similarity 0.64), "mcdonals" → 0.58.
+    // A typo keeps about the same length: a bare word ("burger", "pizza", both 0.5) is a
+    // name search, not one chain.
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT key FROM restaurant_chains WHERE similarity(alias,$1) >= $2
+           AND abs(length(alias)-length($1)) <= 2
+         ORDER BY similarity(alias,$1) DESC,branch_count DESC LIMIT 1",
+    )
+    .bind(key)
+    .bind(CHAIN_TYPO_SIMILARITY)
+    .fetch_optional(&state.db)
     .await?)
 }
+
+/// Minimum trigram similarity for a misspelled chain name to still count as that chain.
+const CHAIN_TYPO_SIMILARITY: f32 = 0.5;
 
 async fn search_restaurants(state: &AppState, params: SearchParams) -> ApiResult<Vec<Restaurant>> {
     let key = search_key(&params.query);
@@ -336,10 +354,14 @@ async fn chain_suggestions(
     Ok(sqlx::query_as::<_, (String, String, i64)>(
         "SELECT key,name,branch_count::bigint FROM restaurant_chains
          WHERE alias LIKE $1||'%' OR (length($1)>=4 AND alias LIKE '%'||$1||'%')
-         ORDER BY (alias LIKE $1||'%') DESC,branch_count DESC,name LIMIT $2",
+            OR (length($1)>=5 AND GREATEST(similarity(alias,$1),word_similarity($1,alias)) >= $3)
+         ORDER BY (alias LIKE $1||'%') DESC,(alias LIKE '%'||$1||'%') DESC,
+                  GREATEST(similarity(alias,$1),word_similarity($1,alias)) DESC,branch_count DESC,name LIMIT $2",
     )
     .bind(key)
     .bind(limit)
+    // While typing ("burguer k") the prefix only half-matches: a bit more tolerant.
+    .bind(CHAIN_TYPO_SIMILARITY - 0.05)
     .fetch_all(&state.db)
     .await?)
 }

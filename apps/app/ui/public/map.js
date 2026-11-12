@@ -26,17 +26,23 @@
     return loading;
   }
 
+  // Same meaning as the list badges: favourable information is orientative (blue),
+  // never a green "safe"; warnings stay red.
   const COLORS = {
-    DEDICATED_GLUTEN_FREE: '#087653',
-    GLUTEN_FREE_OPTIONS: '#2E9E6B',
+    DEDICATED_GLUTEN_FREE: '#1F4F8A',
+    GLUTEN_FREE_OPTIONS: '#4A7FC1',
     NO_GLUTEN_FREE_OPTIONS: '#A02D22',
-    UNKNOWN: '#8A6D1F',
+    UNKNOWN: '#857A5C',
   };
 
   let map = null;
   let ready = false;
   let pending = null;
   let handlers = {};
+  // A camera asked for before MapLibre finished loading (the location often arrives
+  // first): used as the starting view instead of being lost.
+  let camera = null;
+  let selected = '';
 
   function setData(fc) {
     if (!ready) {
@@ -64,14 +70,15 @@
           map = new maplibregl.Map({
             container: container,
             style: 'https://tiles.openfreemap.org/styles/liberty',
-            center: [lng, lat],
-            zoom: zoom,
+            center: camera ? [camera.lng, camera.lat] : [lng, lat],
+            zoom: camera ? camera.zoom : zoom,
             attributionControl: { compact: true },
             fadeDuration: 0,
             pitchWithRotate: false,
             dragRotate: false,
             maxPitch: 0,
           });
+          camera = null;
           map.touchZoomRotate.disableRotation();
           map.on('load', function () {
             map.addSource('places', {
@@ -128,13 +135,31 @@
                 'circle-stroke-color': '#FFFFFF',
               },
             });
+            // The tapped place, drawn on top with a ring.
+            map.addLayer({
+              id: 'place-selected',
+              type: 'circle',
+              source: 'places',
+              filter: ['==', ['get', 'id'], selected],
+              paint: {
+                'circle-color': 'rgba(0,0,0,0)',
+                'circle-radius': 15,
+                'circle-stroke-width': 3,
+                'circle-stroke-color': '#0E1A16',
+              },
+            });
             map.on('click', 'clusters', function (e) {
               const f = e.features[0];
+              const tap = e.originalEvent;
               map
                 .getSource('places')
                 .getClusterExpansionZoom(f.properties.cluster_id)
                 .then(function (z) {
-                  map.easeTo({ center: f.geometry.coordinates, zoom: z, duration: 250 });
+                  // Her tap moved the map: the list follows, as with a pan.
+                  map.easeTo(
+                    { center: f.geometry.coordinates, zoom: z, duration: 250 },
+                    { originalEvent: tap },
+                  );
                 });
             });
             map.on('click', 'place', function (e) {
@@ -165,6 +190,21 @@
     },
     flyTo: function (lat, lng, zoom) {
       if (map) map.jumpTo({ center: [lng, lat], zoom: zoom || map.getZoom() });
+      else camera = { lat: lat, lng: lng, zoom: zoom || 14 };
+    },
+    // Shows every result of a typed search (they may lie outside the current view).
+    fitPlaces: function (json) {
+      const fc = JSON.parse(json);
+      if (!map || !fc.features.length) return;
+      const b = new maplibregl.LngLatBounds();
+      fc.features.forEach(function (f) {
+        b.extend(f.geometry.coordinates);
+      });
+      map.fitBounds(b, { padding: 64, maxZoom: 15, duration: 0 });
+    },
+    select: function (id) {
+      selected = id || '';
+      if (ready) map.setFilter('place-selected', ['==', ['get', 'id'], selected]);
     },
     center: function () {
       if (!map) return null;

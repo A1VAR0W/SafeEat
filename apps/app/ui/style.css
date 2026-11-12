@@ -732,6 +732,76 @@ button {
   color: var(--on-accent);
 }
 
+/* Product detail: one part at a time below the answer. */
+.tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.tabs button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.9375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.tabs button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tab-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.75rem;
+  line-height: 20px;
+}
+.my-verdict {
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+.my-verdict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.my-verdict-q {
+  font-weight: 700;
+}
+.disclosure > summary .icon {
+  margin-right: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabs button {
+    transition: none;
+  }
+}
+
 /* ---------- lists ---------- */
 .list {
   display: flex;
@@ -917,6 +987,117 @@ li + li > .suggestion {
   white-space: nowrap;
   box-shadow: var(--shadow);
   pointer-events: none;
+}
+.map-controls.lifted {
+  bottom: 148px;
+}
+/* Tapped marker: a short card over the map, the full page one tap away. */
+.map-preview {
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: calc(var(--space-4) + 12px);
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.map-preview-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: var(--space-2);
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--text);
+}
+.map-preview-body .row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.map-preview-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.map-preview-open svg {
+  width: 18px;
+  height: 18px;
+}
+.segmented.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+.segmented.three button {
+  font-size: 0.875rem;
+  padding: 0 6px;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* Same colours as the map markers (public/map.js). */
+.legend .dedicated {
+  background: #1f4f8a;
+}
+.legend .options {
+  background: #4a7fc1;
+}
+.legend .none {
+  background: #a02d22;
+}
+.legend .unknown {
+  background: #857a5c;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 32px;
+}
+.sheet-head .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-head .chip svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 .sheet {
   position: relative;
@@ -1177,4 +1358,16 @@ body::before {
   width: 16px;
   height: 16px;
   border-width: 2px;
+}
+
+/* Qualifier under a list badge (AI or community information). */
+.badge-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.badge-note .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--caution);
 }

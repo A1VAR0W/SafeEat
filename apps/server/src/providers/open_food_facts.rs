@@ -242,6 +242,11 @@ impl OpenFoodFacts {
         }
     }
 
+    /// Product reads still free this minute.
+    pub fn spare_reads(&self) -> usize {
+        self.reads.spare()
+    }
+
     pub async fn get_by_barcode(&self, barcode: &str) -> Result<Option<ExternalProduct>, ApiError> {
         self.reads.take()?;
         let url = format!("{}/api/v3/product/{barcode}?fields={FIELDS}", self.base_url);

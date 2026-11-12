@@ -83,8 +83,11 @@ pub fn SummaryBadge(product: Product) -> impl IntoView {
         <span class=format!("badge {}", s.tone.class())>
             <span class="icon" inner_html=s.tone.icon()></span>
             {s.text}
-            {s.warning.map(|_| view! { <span class="icon badge-warn" inner_html=icons::ALERT></span> })}
         </span>
+        // The qualifier is part of the answer (AI or community): written out, not an icon.
+        {s.warning.map(|w| view! {
+            <span class="muted small badge-note"><span class="icon" inner_html=icons::ALERT></span>{w}</span>
+        })}
     }
 }
 

@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use safeeat_contracts::{Items, Product};
+use safeeat_contracts::{AiCheckStatus, GlutenStatus, Items, Product};
 use serde::{Deserialize, Serialize};
 
 use crate::api;
@@ -226,6 +226,22 @@ pub fn ScanScreen() -> impl IntoView {
     }
 }
 
+/// Quiet refreshes of a product search while the server is still completing it.
+const REFRESH_ROUNDS: u8 = 4;
+const REFRESH_SECS: u64 = 12;
+
+fn still_checking(p: &Product) -> bool {
+    p.assessment.status == GlutenStatus::Unknown
+        && (p
+            .ai_check
+            .as_ref()
+            .is_some_and(|a| a.status == AiCheckStatus::Pending)
+            || p.assessment
+                .reasons
+                .iter()
+                .any(|r| r.code == "SEARCH_PREVIEW"))
+}
+
 #[component]
 fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     let text = RwSignal::new(String::new());
@@ -241,6 +257,49 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
         }
     });
 
+    // The server completes previews and runs the AI in the background: look again a few
+    // times, quietly (no spinner), while something in the list is still being checked.
+    fn fetch_results(
+        q: String,
+        free: bool,
+        ticket: u32,
+        round: u8,
+        generation: StoredValue<u32>,
+        results: RwSignal<Option<Result<Vec<Product>, api::Failure>>>,
+        loading: RwSignal<bool>,
+    ) {
+        spawn_local(async move {
+            let path = format!(
+                "/products/search?q={}{}",
+                api::enc(&q),
+                if free { "&glutenFree=true" } else { "" }
+            );
+            let result = api::get::<Items<Product>>(&path).await.map(|r| r.items);
+            // The screen may be gone (tab switch) before the answer arrives.
+            if generation.try_get_value() != Some(ticket) {
+                return;
+            }
+            // A later round that fails keeps the list she is reading.
+            if round > 0 && result.is_err() {
+                return;
+            }
+            let waiting = result
+                .as_ref()
+                .is_ok_and(|items| items.iter().any(still_checking));
+            results.try_set(Some(result));
+            loading.try_set(false);
+            if waiting && round < REFRESH_ROUNDS {
+                set_timeout(
+                    move || fetch_results(q, free, ticket, round + 1, generation, results, loading),
+                    std::time::Duration::from_secs(REFRESH_SECS),
+                );
+            }
+        });
+    }
+    let fetch_results = move |q: String, free: bool, ticket: u32, round: u8| {
+        fetch_results(q, free, ticket, round, generation, results, loading)
+    };
+
     let run = move || {
         let q = text.get_untracked().trim().to_string();
         if q.chars().count() < 2 {
@@ -253,19 +312,7 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
         generation.set_value(ticket);
         loading.set(true);
         let free = only_free.get_untracked();
-        spawn_local(async move {
-            let path = format!(
-                "/products/search?q={}{}",
-                api::enc(&q),
-                if free { "&glutenFree=true" } else { "" }
-            );
-            let result = api::get::<Items<Product>>(&path).await.map(|r| r.items);
-            // The screen may be gone (tab switch) before the answer arrives.
-            if generation.try_get_value() == Some(ticket) {
-                results.try_set(Some(result));
-                loading.try_set(false);
-            }
-        });
+        fetch_results(q, free, ticket, 0);
     };
 
     view! {

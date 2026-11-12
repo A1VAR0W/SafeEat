@@ -411,11 +411,15 @@ fn to_json(item: &Product) -> ApiResult<Value> {
     serde_json::to_value(item).map_err(|_| ApiError::internal())
 }
 
-async fn save(state: &AppState, external: &ExternalProduct) -> ApiResult<Product> {
+async fn save(state: &AppState, external: &ExternalProduct, opened: bool) -> ApiResult<Product> {
     let translation = translate::spanish_ingredients(state, &external.language).await;
     let item = from_external(external, translation.as_ref());
     if let Some(items) = ai_check::eligible(&item, &external.language) {
-        ai_check::enqueue(state, &item, items).await;
+        if opened {
+            ai_check::enqueue(state, &item, items).await;
+        } else {
+            ai_check::enqueue_background(state, &item, items).await;
+        }
     }
     sqlx::query(
         "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,'openfoodfacts',$3,now()+interval '24 hours')
@@ -516,6 +520,46 @@ async fn from_cache(state: &AppState, code: &str) -> ApiResult<Option<Product>> 
 
 /// Product by barcode: fresh cache, else provider (one request per barcode at a time).
 pub async fn barcode(state: &AppState, code: &str) -> ApiResult<Product> {
+    load(state, code, true).await
+}
+
+/// Search results that are only previews (the search index has no ingredients): fetch
+/// the full product in the background so the next list shows the real analysis.
+const ENRICH_PER_SEARCH: usize = 5;
+/// Product reads kept free for what she opens herself.
+const ENRICH_RESERVE: usize = 6;
+
+fn enrich_previews(state: &AppState, items: &[Product]) {
+    let codes: Vec<String> = items
+        .iter()
+        .filter(|p| {
+            !p.user_created
+                && p.assessment.status == GlutenStatus::Unknown
+                && p.assessment
+                    .reasons
+                    .iter()
+                    .any(|r| r.code == "SEARCH_PREVIEW")
+        })
+        .filter_map(|p| p.barcode.clone())
+        .take(ENRICH_PER_SEARCH)
+        .collect();
+    if codes.is_empty() {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        for code in codes {
+            if state.off.spare_reads() <= ENRICH_RESERVE {
+                break;
+            }
+            if let Err(error) = load(&state, &code, false).await {
+                tracing::debug!(code, status = %error.status, "search preview not enriched");
+            }
+        }
+    });
+}
+
+async fn load(state: &AppState, code: &str, opened: bool) -> ApiResult<Product> {
     if let Some(hit) = from_cache(state, code).await? {
         return Ok(hit);
     }
@@ -530,19 +574,19 @@ pub async fn barcode(state: &AppState, code: &str) -> ApiResult<Product> {
         let _guard = lock.lock().await;
         match from_cache(state, code).await? {
             Some(hit) => Ok(hit),
-            None => fetch(state, code).await,
+            None => fetch(state, code, opened).await,
         }
     };
     state.barcode_locks.lock().await.remove(code);
     result
 }
 
-async fn fetch(state: &AppState, code: &str) -> ApiResult<Product> {
+async fn fetch(state: &AppState, code: &str, opened: bool) -> ApiResult<Product> {
     let row = cached(state, code).await?;
     let contribution = latest(state, code).await?;
     match enriched_barcode(&state.off, state.fdc.as_ref(), code).await {
         Ok(Some(external)) => {
-            let saved = save(state, &external).await?;
+            let saved = save(state, &external, opened).await?;
             Ok(contributed(
                 state,
                 saved,
@@ -637,6 +681,7 @@ async fn search(
             ..parse(data)?
         });
     }
+    enrich_previews(&state, &items);
     let mut codes: Vec<String> = items.iter().filter_map(|p| p.barcode.clone()).collect();
     let pattern = format!("%{}%", util::like_escape(&q));
     let community = sqlx::query_as::<_, (String, String, String, Uuid)>(

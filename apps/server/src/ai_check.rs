@@ -32,6 +32,9 @@ use crate::state::AppState;
 
 const MAX_ITEMS: usize = 40;
 const QUEUE: usize = 64;
+/// Room for checks nobody is waiting for (search results enriched in the background):
+/// they only run when no product she opened is queued.
+const BACKGROUND_QUEUE: usize = 24;
 
 /// Phrases that are safe on their own and would otherwise trip the blocklist
 /// ("harina de arroz", "pasta de cacao", "almidón de maíz"...). Matched on normalized text.
@@ -118,19 +121,27 @@ pub struct AiChecker {
     pub model: String,
     sender: mpsc::Sender<AiJob>,
     receiver: std::sync::Mutex<Option<mpsc::Receiver<AiJob>>>,
+    background: mpsc::Sender<AiJob>,
+    background_receiver: std::sync::Mutex<Option<mpsc::Receiver<AiJob>>>,
     pending: std::sync::Mutex<HashSet<String>>,
+    /// Pending only in the background queue: opening the product moves it ahead.
+    in_background: std::sync::Mutex<HashSet<String>>,
 }
 
 impl AiChecker {
     pub fn new(http: reqwest::Client, url: String, model: String) -> Self {
         let (sender, receiver) = mpsc::channel(QUEUE);
+        let (background, background_receiver) = mpsc::channel(BACKGROUND_QUEUE);
         Self {
             http,
             url: url.trim_end_matches('/').to_string(),
             model,
             sender,
             receiver: std::sync::Mutex::new(Some(receiver)),
+            background,
+            background_receiver: std::sync::Mutex::new(Some(background_receiver)),
             pending: std::sync::Mutex::new(HashSet::new()),
+            in_background: std::sync::Mutex::new(HashSet::new()),
         }
     }
 
@@ -194,13 +205,22 @@ pub async fn enqueue(state: &AppState, item: &Product, items: Vec<String>) {
     .fetch_one(&state.db)
     .await
     .unwrap_or(1);
-    if done > 0
-        || !ai
-            .pending
+    if done > 0 {
+        return;
+    }
+    let newly = ai
+        .pending
+        .lock()
+        .expect("pending lock")
+        .insert(item.id.clone());
+    // Already queued for her: nothing to do, unless it waits in the background queue.
+    let promoted = !newly
+        && ai
+            .in_background
             .lock()
-            .expect("pending lock")
-            .insert(item.id.clone())
-    {
+            .expect("background lock")
+            .remove(&item.id);
+    if !newly && !promoted {
         return;
     }
     let job = AiJob {
@@ -228,6 +248,52 @@ pub async fn enqueue(state: &AppState, item: &Product, items: Vec<String>) {
     if let Err(error) = stored {
         tracing::warn!(%error, "AI job not persisted; it will be lost on restart");
     }
+}
+
+/// Queue a check for a search result. Not persisted (a restart just drops it) and
+/// returns whether it was queued.
+pub async fn enqueue_background(state: &AppState, item: &Product, items: Vec<String>) -> bool {
+    let Some(ai) = state.ai_check.as_ref() else {
+        return false;
+    };
+    let hash = ingredients_hash(item);
+    if already_checked(state, &item.id, &hash).await {
+        return false;
+    }
+    if !ai
+        .pending
+        .lock()
+        .expect("pending lock")
+        .insert(item.id.clone())
+    {
+        return false;
+    }
+    let job = AiJob {
+        product_id: item.id.clone(),
+        hash,
+        items,
+        attempts: 0,
+    };
+    if ai.background.try_send(job).is_err() {
+        ai.pending.lock().expect("pending lock").remove(&item.id);
+        return false;
+    }
+    ai.in_background
+        .lock()
+        .expect("background lock")
+        .insert(item.id.clone());
+    true
+}
+
+async fn already_checked(state: &AppState, product_id: &str, hash: &str) -> bool {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM product_ai_checks WHERE product_id=$1 AND ingredients_hash=$2",
+    )
+    .bind(product_id)
+    .bind(hash)
+    .fetch_one(&state.db)
+    .await
+    .map_or(true, |n| n > 0)
 }
 
 /// Jobs left over from before a restart go back into the queue.
@@ -346,6 +412,9 @@ pub fn spawn_worker(state: AppState) {
     let Some(mut receiver) = ai.receiver.lock().expect("receiver lock").take() else {
         return;
     };
+    let Some(mut background) = ai.background_receiver.lock().expect("receiver lock").take() else {
+        return;
+    };
     tokio::spawn(async move {
         let ai = state.ai_check.as_ref().expect("checked above");
         // Warm the prompt cache so the first real product does not wait for it.
@@ -353,7 +422,26 @@ pub fn spawn_worker(state: AppState) {
             tracing::warn!(%error, "AI model not reachable yet");
         }
         restore_queue(&state, ai).await;
-        while let Some(mut job) = receiver.recv().await {
+        loop {
+            // Products she opened always go first; search results fill the gaps.
+            let mut job = tokio::select! {
+                biased;
+                Some(job) = receiver.recv() => job,
+                Some(job) = background.recv() => job,
+                else => break,
+            };
+            ai.in_background
+                .lock()
+                .expect("background lock")
+                .remove(&job.product_id);
+            // A promoted job runs twice in the queues: the second copy has nothing to do.
+            if already_checked(&state, &job.product_id, &job.hash).await {
+                ai.pending
+                    .lock()
+                    .expect("pending lock")
+                    .remove(&job.product_id);
+                continue;
+            }
             if let Err(error) = run(&state, ai, &job).await {
                 job.attempts += 1;
                 tracing::warn!(product = %job.product_id, attempts = job.attempts, %error, "AI check failed");

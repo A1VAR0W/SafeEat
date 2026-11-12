@@ -232,7 +232,49 @@ pub async fn search(
             .await?
         }
     };
+    if rows.is_empty() && !broad && key.len() >= 5 {
+        let rows = fuzzy(state, key, location, filter, 100).await?;
+        return Ok(rows.into_iter().map(restaurant).collect());
+    }
     Ok(rows.into_iter().map(restaurant).collect())
+}
+
+/// Second try for names with a typo ("burguer", "telepiza"): trigram word similarity,
+/// nearest first. Only runs when the exact substring search found nothing.
+async fn fuzzy(
+    state: &AppState,
+    key: &str,
+    location: Option<(f64, f64)>,
+    filter: &str,
+    limit: i64,
+) -> ApiResult<Vec<CatalogRow>> {
+    Ok(match location {
+        Some((lat, lng)) => {
+            sqlx::query_as::<_, CatalogRow>(&format!(
+                "SELECT {} FROM restaurant_catalog WHERE ST_DWithin(location,{POINT},25000)
+                 AND word_similarity($1,search_name) >= 0.5 {filter}
+                 ORDER BY round(word_similarity($1,search_name)::numeric,1) DESC, location <-> {POINT} LIMIT $4",
+                fields(true)
+            ))
+            .bind(key)
+            .bind(lng)
+            .bind(lat)
+            .bind(limit)
+            .fetch_all(&state.db)
+            .await?
+        }
+        None => {
+            sqlx::query_as::<_, CatalogRow>(&format!(
+                "SELECT {} FROM restaurant_catalog WHERE $1 <% search_name {filter}
+                 ORDER BY word_similarity($1,search_name) DESC,name LIMIT $2",
+                fields(false)
+            ))
+            .bind(key)
+            .bind(limit)
+            .fetch_all(&state.db)
+            .await?
+        }
+    })
 }
 
 pub async fn suggest(
@@ -243,7 +285,7 @@ pub async fn suggest(
     if key.is_empty() {
         return Ok(vec![]);
     }
-    let rows = match location {
+    let mut rows = match location {
         Some((lat, lng)) => {
             sqlx::query_as::<_, CatalogRow>(&format!(
                 "SELECT {} FROM restaurant_catalog WHERE search_name LIKE '%'||$1||'%' ORDER BY location <-> {POINT},similarity(search_name,$1) DESC LIMIT 5",
@@ -265,6 +307,9 @@ pub async fn suggest(
             .await?
         }
     };
+    if rows.is_empty() && key.len() >= 5 {
+        rows = fuzzy(state, key, location, "", 5).await?;
+    }
     Ok(rows
         .into_iter()
         .map(|row| RestaurantSuggestion {

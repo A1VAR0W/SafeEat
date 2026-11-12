@@ -63,6 +63,7 @@ pub const LANGUAGES: &str = svg!(
     r#"<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>"#
 );
 pub const CHEVRON: &str = svg!(r#"<path d="m9 18 6-6-6-6"/>"#);
+pub const CLOSE: &str = svg!(r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#);
 pub const SHARE: &str = svg!(
     r#"<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>"#
 );
