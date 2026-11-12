@@ -136,18 +136,43 @@ Código en `apps/app`. Es un workspace propio: `src-tauri` es el núcleo y `ui` 
 - MapLibre (940 KB) solo se carga al abrir Restaurantes, y el mapa no se destruye al cambiar de pestaña.
 - Todas las llamadas a la API pasan por Rust (reqwest). Los tokens nunca llegan al JavaScript.
 
-| Pantalla / función | Estado |
-|---|---|
-| Escanear (cámara, plugin oficial) y escribir el código a mano | ver pruebas abajo |
-| Ficha de producto, en este orden: respuesta en una línea → tu veredicto → sello → análisis → «Verificado por IA» (verde, con el aviso siempre visible), «La IA ve posible gluten» y «Comprobando con IA…» con refresco automático → ingredientes en español con «Ver original» → comunidad | ver pruebas abajo |
-| Veredicto personal (me sienta bien / no es seguro) y aviso de ingredientes cambiados | ver pruebas abajo |
-| Favoritos (corazón) y pestaña Guardados | ver pruebas abajo |
-| Búsqueda de productos, con el filtro «Solo sin gluten declarado» | ver pruebas abajo |
-| Mapa (MapLibre + OpenFreeMap) | ver pruebas abajo |
-| Funciones del mapa: agrupación de marcadores, «Buscar en esta zona», tu ubicación, filtros, lista de resultados, y sugerencias con las cadenas primero (`includeChains=true`) | ver pruebas abajo |
-| Restaurante, reseña (solo este local o toda la cadena, para cuentas de confianza) y cadena con los locales más cercanos | ver pruebas abajo |
-| Login y registro | ver pruebas abajo |
-| **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano. | ⏳ |
-| OCR de etiquetas, IA sobre una foto, colecciones, ajustes de cuenta, panel de administración, enlaces `/p/` `/r/`, actualizador | ⏳ (la app 1.0.13 lo sigue teniendo) |
+Leyenda de esta tabla:
+- ✅ probado en el emulador contra la preproducción
+- 🟡 hecho, probado solo en parte
+- ⏳ pendiente
+
+| Pantalla / función | Estado | Qué se probó |
+|---|---|---|
+| Escribir el código a mano | ✅ | Abre la ficha del producto |
+| Escanear con la cámara (plugin oficial, en ventana, con botón «Cancelar») | 🟡 | La cámara se abre y «Cancelar» y el botón Atrás la cierran bien. **No se ha probado que lea un código real** (la cámara del emulador muestra una escena virtual). Hay que probarlo en el móvil. |
+| Ficha de producto, en este orden: respuesta en una línea → tu veredicto → sello → análisis → «Verificado por IA» → ingredientes → comunidad | ✅ | |
+| «Verificado por IA» en verde con el aviso «La IA puede equivocarse: revisa la etiqueta» siempre visible | ✅ | |
+| «La IA ve posible gluten» y «Comprobando con IA…» (se refresca solo) | 🟡 | Están en el código y en los tests, pero no se ha encontrado ningún producto en ese estado para verlo |
+| Ingredientes en español con «Ver original» y alérgenos en negrita | ✅ | Producto francés `3017760000109` |
+| Veredicto personal (me sienta bien / no es seguro) | ✅ | Aparece «Marcado por ti como seguro» |
+| Aviso «los ingredientes han cambiado» | 🟡 | Probado en el servidor (smoke-api), no en la app |
+| Favoritos (corazón) y pestaña Guardados | ✅ | |
+| Búsqueda de productos por nombre, con cada resultado ya evaluado | ✅ | «galletas maria» |
+| Mapa (MapLibre + OpenFreeMap): agrupación de marcadores, tu ubicación, «Buscar en esta zona», filtros, lista de resultados | ✅ | |
+| Sugerencias con las cadenas primero | ✅ | «burger k» → «Cadena Burger King · 184 locales» |
+| Pantalla de cadena con los locales más cercanos | ✅ | Ordenados por distancia (130 m, 140 m, 410 m…) |
+| Ficha de restaurante: cómo llegar, llamar, cadena, en qué se basa | ✅ | |
+| Reseña de restaurante con un comentario de al menos 10 caracteres | ✅ | Con una cuenta normal: solo se ofrece «este local», como debe ser |
+| Reseña de toda la cadena (cuentas de confianza) | 🟡 | El selector solo aparece a cuentas de confianza; no hay ninguna de prueba en preproducción. El 403 para las demás está probado en smoke-api. |
+| Login | ✅ | |
+| Registro | 🟡 | Hecho; la cuenta de prueba se creó por la API, no desde la pantalla |
+| **La sesión dura mientras la app está abierta.** El almacenamiento seguro (Keystore/Keychain) es un plugin propio que falta. No se guarda nada en texto plano. | ⏳ | |
+| OCR de etiquetas, IA sobre una foto, colecciones, ajustes de cuenta, panel de administración, enlaces `/p/` `/r/`, actualizador | ⏳ | La app 1.0.13 sigue teniéndolo |
+| Compilación para móviles reales (aarch64), APK firmado de publicación, iOS | ⏳ | Solo se ha compilado el APK de depuración x86_64 para el emulador (~172 MB por ser de depuración) |
+
+**Fallos encontrados en las pruebas y ya arreglados:**
+- El mapa salía en blanco: el CSS de MapLibre pisaba el tamaño.
+- No pedía la ubicación: faltaban permisos del plugin.
+- El escáner a pantalla completa no tenía salida: ahora va en ventana con «Cancelar», y el botón Atrás también lo cierra.
+- La pantalla de cadena se quedaba en «Cargando…» por un error interno.
+- La reseña de restaurante fallaba siempre porque el servidor pide un comentario y la app no tenía dónde escribirlo.
+- La sugerencia de cadena repetía el texto («Cadena Cadena…»).
+
+**Sobre el emulador:** para instalar la 2.0 se desinstaló la app Expo del emulador (no del móvil), porque el APK de depuración va firmado con otra clave.
 
 **Nota sobre Git:** el commit `2063029` subió por error la carpeta de compilación `apps/app/target`. Se quitó en el commit siguiente, pero sigue en el historial de esta rama. **Al fusionar con `main`, usa «Squash and merge»** para que no entre.
