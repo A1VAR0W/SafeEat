@@ -193,7 +193,11 @@ fn Ingredients(product: Product) -> impl IntoView {
                     let original = StoredValue::new(original.unwrap_or_default());
                     view! {
                         <p class="ingredients" lang=move || if show_original.get() { language.clone() } else { "es".into() }>
-                            {move || if show_original.get() { original.get_value() } else { text.get_value() }}
+                            {move || if show_original.get() {
+                                allergen_marks(&original.get_value()).into_any()
+                            } else {
+                                text.get_value().into_any()
+                            }}
                         </p>
                     }.into_any()
                 }
@@ -336,4 +340,19 @@ fn FavoriteButton(id: String) -> impl IntoView {
             <Icon svg=icons::HEART />
         </button>
     }
+}
+
+/// Open Food Facts marks allergens as `_blé_`: show them in bold instead.
+fn allergen_marks(text: &str) -> impl IntoView {
+    text.split('_')
+        .enumerate()
+        .map(|(i, part)| {
+            let part = part.to_string();
+            if i % 2 == 1 {
+                view! { <strong>{part}</strong> }.into_any()
+            } else {
+                part.into_any()
+            }
+        })
+        .collect_view()
 }

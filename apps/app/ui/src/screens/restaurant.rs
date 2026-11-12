@@ -13,6 +13,8 @@ use crate::ui::{ErrorBox, Header, Icon, Loading};
 #[component]
 pub fn RestaurantScreen(id: String) -> impl IntoView {
     let state = RwSignal::new(None::<Result<Restaurant, Failure>>);
+    // Lives here because saving a review re-renders the whole detail.
+    let saved = RwSignal::new(false);
     let path = StoredValue::new(format!("/restaurants/{}", api::enc(&id)));
     let load = move || spawn_local(async move { state.set(Some(api::get(&path.get_value()).await)) });
     load();
@@ -25,13 +27,17 @@ pub fn RestaurantScreen(id: String) -> impl IntoView {
         {move || match state.get() {
             None => view! { <Loading /> }.into_any(),
             Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| load()) /></div> }.into_any(),
-            Some(Ok(r)) => view! { <RestaurantDetail item=r state=state /> }.into_any(),
+            Some(Ok(r)) => view! { <RestaurantDetail item=r state=state saved=saved /> }.into_any(),
         }}
     }
 }
 
 #[component]
-fn RestaurantDetail(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failure>>>) -> impl IntoView {
+fn RestaurantDetail(
+    item: Restaurant,
+    state: RwSignal<Option<Result<Restaurant, Failure>>>,
+    saved: RwSignal<bool>,
+) -> impl IntoView {
     let nav = use_nav();
     let support = item.gluten_support;
     let chain = item.chain.clone();
@@ -70,38 +76,54 @@ fn RestaurantDetail(item: Restaurant, state: RwSignal<Option<Result<Restaurant, 
                     <ul class="reasons">{item.evidence.iter().map(|e| view! { <li>{e.text.clone()}</li> }).collect_view()}</ul>
                 </section>
             })}
-            <ReviewForm item=item.clone() state=state />
+            <ReviewForm item=item.clone() state=state saved=saved />
             <p class="muted small source">"Las etiquetas de un restaurante no garantizan cómo se prepara la comida. Pregunta siempre."</p>
         </article>
     }
 }
 
 #[component]
-fn ReviewForm(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failure>>>) -> impl IntoView {
+fn ReviewForm(
+    item: Restaurant,
+    state: RwSignal<Option<Result<Restaurant, Failure>>>,
+    saved: RwSignal<bool>,
+) -> impl IntoView {
     let session = use_session();
     let nav = use_nav();
     let trusted = session.0.with(|u| u.as_ref().is_some_and(|u| u.is_trusted()));
+    // The server asks everyone except authorised coeliacs to say what they checked.
+    let needs_note = !session.0.with(|u| {
+        u.as_ref().is_some_and(|u| u.roles.iter().any(|r| matches!(r, safeeat_contracts::Role::AuthorizedCeliac)))
+    });
+    let note = RwSignal::new(String::new());
+    let note_short = move || needs_note && note.with(|n| n.trim().chars().count() < 10);
     let in_chain = item.chain.is_some();
     let scope = RwSignal::new("local");
     let busy = RwSignal::new(false);
-    let message = RwSignal::new(None::<Result<&'static str, String>>);
+    let error = RwSignal::new(None::<String>);
     let id = StoredValue::new(item.id.clone());
     let send = move |support: GlutenSupport| {
-        if busy.get_untracked() {
+        if busy.get_untracked() || note_short() {
             return;
         }
         busy.set(true);
+        error.set(None);
+        saved.set(false);
         spawn_local(async move {
-            let body = json!({ "support": support.as_str(), "scope": scope.get_untracked() });
+            let body = json!({
+                "support": support.as_str(),
+                "scope": scope.get_untracked(),
+                "note": note.get_untracked().trim(),
+            });
             let path = format!("/restaurants/{}/gluten-report", api::enc(&id.get_value()));
             let result = api::send::<Restaurant>("POST", &path, Some(body)).await;
             busy.set(false);
             match result {
                 Ok(r) => {
+                    saved.set(true);
                     state.set(Some(Ok(r)));
-                    message.set(Some(Ok("Gracias, tu revisión se ha guardado.")));
                 }
-                Err(e) => message.set(Some(Err(e.message))),
+                Err(e) => error.set(Some(e.message)),
             }
         });
     };
@@ -123,17 +145,31 @@ fn ReviewForm(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failur
                                 class:active=move || scope.get() == "chain" on:click=move |_| scope.set("chain")>"Toda la cadena"</button>
                         </div>
                     })}
+                    <label class="label" for="review-note">"¿Qué has comprobado?"</label>
+                    <textarea
+                        id="review-note"
+                        class="input textarea"
+                        rows="3"
+                        maxlength="500"
+                        placeholder="Ej.: carta sin gluten, cocinan aparte, preguntamos al camarero…"
+                        prop:value=move || note.get()
+                        on:input=move |ev| note.set(event_target_value(&ev))
+                        aria-describedby="review-note-hint"
+                    ></textarea>
+                    <p id="review-note-hint" class="muted small">
+                        {move || if note_short() { "Escribe al menos 10 caracteres y elige una opción." } else { "Elige una opción para guardar tu revisión." }}
+                    </p>
                     <div class="stack-tight">
-                        <button class="button safe" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::DedicatedGlutenFree)>"Todo es sin gluten"</button>
-                        <button class="button safe-soft" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::GlutenFreeOptions)>"Tiene opciones sin gluten"</button>
-                        <button class="button danger" disabled=move || busy.get() on:click=move |_| send(GlutenSupport::NoGlutenFreeOptions)>"No tiene opciones sin gluten"</button>
+                        <button class="button safe" disabled=move || busy.get() || note_short() on:click=move |_| send(GlutenSupport::DedicatedGlutenFree)>"Todo es sin gluten"</button>
+                        <button class="button safe-soft" disabled=move || busy.get() || note_short() on:click=move |_| send(GlutenSupport::GlutenFreeOptions)>"Tiene opciones sin gluten"</button>
+                        <button class="button danger" disabled=move || busy.get() || note_short() on:click=move |_| send(GlutenSupport::NoGlutenFreeOptions)>"No tiene opciones sin gluten"</button>
                     </div>
                 }.into_any()
             }}
-            {move || message.get().map(|m| match m {
-                Ok(text) => view! { <p class="field-ok" role="status">{text}</p> }.into_any(),
-                Err(text) => view! { <ErrorBox message=text /> }.into_any(),
-            })}
+            <Show when=move || saved.get()>
+                <p class="field-ok" role="status">"Gracias, tu revisión se ha guardado."</p>
+            </Show>
+            {move || error.get().map(|text| view! { <ErrorBox message=text /> })}
         </section>
     }
 }
@@ -142,10 +178,12 @@ fn ReviewForm(item: Restaurant, state: RwSignal<Option<Result<Restaurant, Failur
 pub fn ChainScreen(key: String) -> impl IntoView {
     let state = RwSignal::new(None::<Result<ChainDetail, Failure>>);
     let key = StoredValue::new(key);
+    // Read outside the task: async tasks run without the reactive owner.
+    let center = expect_context::<MapCenter>().0;
     let load = move || {
         spawn_local(async move {
             // Nearest branches first: the server sorts by distance to the map centre.
-            let near = expect_context::<MapCenter>().0.get_value()
+            let near = center.get_value()
                 .map(|(lat, lng)| format!("?latitude={lat:.5}&longitude={lng:.5}"))
                 .unwrap_or_default();
             let path = format!("/restaurants/chains/{}{near}", api::enc(&key.get_value()));

@@ -335,3 +335,16 @@ html.scanning .screen, html.scanning .tabbar { visibility: hidden; }
 .scan-cancel { min-width: 160px; background: #fff; color: #0b3b2e; border-color: #fff; }
 .scan-hint, .scan-cancel { position: relative; z-index: 1; }
 .scan-frame { position: relative; z-index: 0; }
+
+/* Status bar backdrop: content scrolling under the clock stays readable. */
+body::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+  height: env(safe-area-inset-top); background: var(--bg);
+}
+/* Inner screens: compact single-line title (the content repeats the name big). */
+.header:not(.home-header) .title {
+  font-size: 1.0625rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ingredients strong { font-weight: 750; }
+.strong { font-weight: 700; }
+.textarea { min-height: 96px; padding: var(--space-3); resize: vertical; line-height: 1.5; font: inherit; }

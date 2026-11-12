@@ -290,8 +290,11 @@ pub fn RestaurantRow(item: Restaurant) -> impl IntoView {
             <span class="row-body">
                 <span class="row-title">{item.name.clone()}</span>
                 <span class="muted small">
-                    {item.distance_m.map(|d| format!("{} · ", distance(d)))}
-                    {item.address.clone()}
+                    {[item.distance_m.map(distance), (!item.address.is_empty()).then(|| item.address.clone())]
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>()
+                        .join(" · ")}
                 </span>
                 <span class=format!("badge {}", support_tone(item.gluten_support))>{item.gluten_support.label()}</span>
                 {item.chain.clone().map(|c| view! { <span class="muted small">"Cadena: " {c.name}</span> })}
@@ -381,18 +384,14 @@ fn SuggestBox(query: RwSignal<String>, center: StoredValue<(f64, f64)>, on_searc
                 <ul class="suggestions" role="listbox">
                     <For each=move || items.get() key=|s| format!("{:?}{}{:?}", s.kind, s.label, s.id) let:s>
                         {
+                            // The server already writes "Cadena X · N locales".
                             let label = s.label.clone();
                             let chain = s.kind == SuggestionKind::Chain;
-                            let count = s.branch_count;
                             view! {
                                 <li role="option">
                                     <button type="button" class="suggestion" on:click=move |_| choose(s.clone())>
                                         <span class="icon" inner_html=if chain { icons::STORE } else { icons::PIN }></span>
-                                        <span>
-                                            {chain.then_some("Cadena ")}
-                                            <strong>{label}</strong>
-                                            {count.map(|n| format!(" · {n} locales"))}
-                                        </span>
+                                        <span class:strong=chain>{label}</span>
                                     </button>
                                 </li>
                             }
