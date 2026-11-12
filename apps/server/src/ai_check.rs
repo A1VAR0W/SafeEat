@@ -219,7 +219,9 @@ async fn ask(ai: &AiChecker, item: &str) -> anyhow::Result<bool> {
     let response: Value = ai
         .http
         .post(format!("{}/v1/chat/completions", ai.url))
-        .timeout(Duration::from_secs(45))
+        // The first request reads the whole prompt (~45 s on the home server); later
+        // ones reuse llama.cpp's prompt cache and take a few seconds.
+        .timeout(Duration::from_secs(150))
         .json(
             &json!({"messages": messages, "temperature": 0, "max_tokens": 3, "cache_prompt": true}),
         )
@@ -240,7 +242,11 @@ async fn ask(ai: &AiChecker, item: &str) -> anyhow::Result<bool> {
 async fn run(state: &AppState, ai: &AiChecker, job: &AiJob) -> anyhow::Result<()> {
     let mut flagged = Vec::new();
     for item in &job.items {
-        if !ask(ai, item).await? {
+        let safe = match ask(ai, item).await {
+            Ok(safe) => safe,
+            Err(_) => ask(ai, item).await?, // one retry (model restarting, cold cache)
+        };
+        if !safe {
             flagged.push(item.clone());
         }
     }
@@ -275,6 +281,10 @@ pub fn spawn_worker(state: AppState) {
     };
     tokio::spawn(async move {
         let ai = state.ai_check.as_ref().expect("checked above");
+        // Warm the prompt cache so the first real product does not wait for it.
+        if let Err(error) = ask(ai, "agua").await {
+            tracing::warn!(%error, "AI model not reachable yet");
+        }
         while let Some(job) = receiver.recv().await {
             if let Err(error) = run(&state, ai, &job).await {
                 tracing::warn!(product = %job.product_id, %error, "AI check failed; retried on next fetch");
