@@ -9,7 +9,7 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
 
 Esta sección manda sobre lo que diga el resto del documento donde no coincidan.
 
-**Importante:** estos cambios están en la rama y probados en local y en CI, pero **el servidor de preproducción sigue con la versión anterior** (`61360a7`). No se pudo desplegar porque Docker Desktop no arranca en este PC (ver «Bloqueado»). Producción no se ha tocado.
+**Importante:** desplegado en **preproducción** el 12-11-2026 (`bce9ee6`, compilado en el propio servidor con `scripts/deploy-remote.sh --build-on-server` porque Docker Desktop no arranca en este PC). Migración `013` aplicada. Comprobado en vivo con una cuenta temporal: el motor responde 1.1.0 y «Harina de trigo, azúcar, no contiene leche» da «contiene gluten». Producción no se ha tocado.
 
 ### Seguridad alimentaria
 
@@ -18,9 +18,9 @@ Esta sección manda sobre lo que diga el resto del documento donde no coincidan.
 | **Negaciones del motor de gluten.** «Harina de trigo, no contiene leche» daba «No verificado» porque cualquier «no/sin» de la frase anulaba el trigo. Ahora cada ingrediente se juzga por separado y una negación solo cuenta si va justo delante del cereal. | ✅ Implementado y probado                    |
 | El motor reconoce cereales con gluten en francés, italiano, alemán, neerlandés, portugués y catalán, y el trigo sarraceno en esos idiomas.                                                                                                                    | ✅ Implementado y probado                    |
 | Motor TypeScript y motor Rust idénticos: 1126 casos de referencia, 61 nuevos. Versión del motor 1.1.0.                                                                                                                                                        | ✅ Implementado y probado                    |
-| Los productos en caché analizados con el motor antiguo se vuelven a pedir al proveedor.                                                                                                                                                                       | 🟡 Implementado, sin desplegar               |
-| **Aportaciones de la comunidad.** Una etiqueta aportada por un usuario ya no sustituye los ingredientes ni el análisis del proveedor. Solo puede añadir un aviso de gluten o trazas. Nunca convierte un producto en «sin gluten».                             | ✅ Probado con tests; sin desplegar          |
-| Los datos originales se conservan: campos nuevos `communityIngredients` y `providerAssessment` (aditivos; la app 1.0.x los ignora). Misma regla en el servidor Rust y en la API de Node.                                                                      | ✅ Probado con tests; sin desplegar          |
+| Los productos en caché analizados con el motor antiguo se vuelven a pedir al proveedor.                                                                                                                                                                       | ✅ Desplegado en preproducción               |
+| **Aportaciones de la comunidad.** Una etiqueta aportada por un usuario ya no sustituye los ingredientes ni el análisis del proveedor. Solo puede añadir un aviso de gluten o trazas. Nunca convierte un producto en «sin gluten».                             | ✅ Probado con tests; en preproducción       |
+| Los datos originales se conservan: campos nuevos `communityIngredients` y `providerAssessment` (aditivos; la app 1.0.x los ignora). Misma regla en el servidor Rust y en la API de Node.                                                                      | ✅ Probado con tests; en preproducción       |
 | **La IA ya no sale en verde ni se llama «verificado».** La app muestra «Análisis orientativo por IA» en un tono azul neutro, con el aviso siempre visible. Las reseñas de confianza de la comunidad tampoco salen en verde.                                   | ✅ Probado con tests de la app               |
 | El verde queda solo para una declaración «sin gluten» de una fuente identificada o para el veredicto propio de la usuaria. El aviso del sello dice de dónde sale y que SafeEat no puede comprobar el certificado.                                             | ✅ Probado con tests de la app               |
 | Las comprobaciones de IA pendientes se guardan en la base de datos (migración aditiva `013`) y se recuperan tras un reinicio.                                                                                                                                 | 🟡 Compila y migra en CI; no probado en vivo |
@@ -80,8 +80,7 @@ Cuando se despliegue el servidor nuevo, la etiqueta que aporte un usuario dejar�
 
 ### Bloqueado
 
-- **Desplegar en preproducción.** El script construye la imagen con Docker en este PC y Docker Desktop no arranca (se quedó con un fichero de socket bloqueado; se quitó, pero el motor sigue sin responder). No se ha usado «restablecer de fábrica». Cuando Docker funcione: `scripts/deploy-remote.ps1 --env preproduction`.
-- Hasta entonces, en preproducción **el motor de gluten sigue siendo el 1.0.0** y una etiqueta de la comunidad todavía puede sustituir el análisis.
+- ~~Desplegar en preproducción.~~ Hecho el 12-11-2026 compilando en el servidor (`--build-on-server`). Docker Desktop en este PC sigue sin arrancar.
 
 ### Pendiente (no implementado)
 
