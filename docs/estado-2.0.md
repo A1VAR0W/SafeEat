@@ -5,6 +5,68 @@ Rama: `claude/safeeat-2.0-rust` (subida a GitHub, sin fusionar con `main`).
 Tampoco se ha publicado `latest.json` ni los manifiestos de SideStore.
 HallowFest ha devuelto 200 antes y después de cada despliegue.
 
+## Auditoría y correcciones (12-11-2026, segunda tanda)
+
+Esta sección manda sobre lo que diga el resto del documento donde no coincidan.
+
+**Importante:** estos cambios están en la rama y probados en local y en CI, pero **el servidor de preproducción sigue con la versión anterior** (`61360a7`). No se pudo desplegar porque Docker Desktop no arranca en este PC (ver «Bloqueado»). Producción no se ha tocado.
+
+### Seguridad alimentaria
+
+| Cambio                                                                                                                                                                                                                                                        | Estado                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Negaciones del motor de gluten.** «Harina de trigo, no contiene leche» daba «No verificado» porque cualquier «no/sin» de la frase anulaba el trigo. Ahora cada ingrediente se juzga por separado y una negación solo cuenta si va justo delante del cereal. | ✅ Implementado y probado                    |
+| El motor reconoce cereales con gluten en francés, italiano, alemán, neerlandés, portugués y catalán, y el trigo sarraceno en esos idiomas.                                                                                                                    | ✅ Implementado y probado                    |
+| Motor TypeScript y motor Rust idénticos: 1126 casos de referencia, 61 nuevos. Versión del motor 1.1.0.                                                                                                                                                        | ✅ Implementado y probado                    |
+| Los productos en caché analizados con el motor antiguo se vuelven a pedir al proveedor.                                                                                                                                                                       | 🟡 Implementado, sin desplegar               |
+| **Aportaciones de la comunidad.** Una etiqueta aportada por un usuario ya no sustituye los ingredientes ni el análisis del proveedor. Solo puede añadir un aviso de gluten o trazas. Nunca convierte un producto en «sin gluten».                             | ✅ Probado con tests; sin desplegar          |
+| Los datos originales se conservan: campos nuevos `communityIngredients` y `providerAssessment` (aditivos; la app 1.0.x los ignora). Misma regla en el servidor Rust y en la API de Node.                                                                      | ✅ Probado con tests; sin desplegar          |
+| **La IA ya no sale en verde ni se llama «verificado».** La app muestra «Análisis orientativo por IA» en un tono azul neutro, con el aviso siempre visible. Las reseñas de confianza de la comunidad tampoco salen en verde.                                   | ✅ Probado con tests de la app               |
+| El verde queda solo para una declaración «sin gluten» de una fuente identificada o para el veredicto propio de la usuaria. El aviso del sello dice de dónde sale y que SafeEat no puede comprobar el certificado.                                             | ✅ Probado con tests de la app               |
+| Las comprobaciones de IA pendientes se guardan en la base de datos (migración aditiva `013`) y se recuperan tras un reinicio.                                                                                                                                 | 🟡 Compila y migra en CI; no probado en vivo |
+| Reintentos de la IA tras un fallo.                                                                                                                                                                                                                            | 🟡 Sigue sin poder provocarse el fallo       |
+
+Casos que cambian de resultado con el motor 1.1.0 (de 678 casos antiguos, 7): «no contiene trigo ni cebada» pasa de «contiene gluten» a «no verificado», y el campo de trazas con «sin trigo» pasa a «puede contener trazas». Ninguno pasa a «sin gluten».
+
+**No existe la categoría «certificación comprobada».** SafeEat no tiene forma de verificar un certificado contra el registro del certificador; solo sabe que Open Food Facts indica el sello. Por eso se muestra como declaración con su fuente.
+
+### CI (GitHub Actions)
+
+La ejecución del commit `52b5c1e` pasó entera, con tres trabajos:
+
+- **verify** (TypeScript/Expo): lint, formato, tipos, 208 tests, tests de integración con PostgreSQL, compilación y comprobación de Expo.
+- **rust**: `cargo fmt`, `clippy` con avisos como errores, tests, migraciones sobre una base con datos de la 1.0.x y luego la batería `smoke-api` (41 comprobaciones) contra esa base aislada.
+- **app**: `cargo fmt`, `clippy`, tests de la interfaz, compilación a WebAssembly y compilación del núcleo Tauri.
+
+Fallos reales que tapaba el CI anterior y se han arreglado:
+
+- ESLint y Prettier analizaban la salida de compilación de Rust y el MapLibre de terceros.
+- Los tests de integración de Node buscaban las migraciones en la carpeta antigua.
+- Dos tests del importador antiguo esperaban las reglas de cadenas de la 1.0; ahora siguen las de la 2.0.
+- Tres paquetes de Expo iban un parche por detrás.
+
+### Sesión
+
+- La sesión ya **no se pierde al cerrar la app**. El token de refresco y el perfil se guardan cifrados con una clave del Android Keystore (en iOS, Keychain). Plugin propio `tauri-plugin-safeeat-secure`, sin ningún comando accesible desde JavaScript.
+- Probado en el emulador: iniciar sesión, cerrar la app a la fuerza y reabrir → sigue dentro. En disco solo hay texto cifrado. Cerrar sesión deja el almacén vacío. Una sesión guardada de una cuenta ya borrada se rechaza y se olvida sola.
+- **iOS: código escrito, sin compilar ni probar.**
+- Sin probar: caducidad del token de acceso a los 10 minutos con la app abierta, y arrancar sin conexión.
+
+### Funciones nuevas de la app 2.0
+
+- Ajustes de cuenta: completar perfil, cambiar correo, cambiar contraseña y borrar cuenta. **Borrar cuenta está probado en el emulador**; cambiar correo y contraseña y completar perfil compilan pero no se han probado en pantalla.
+
+### Bloqueado
+
+- **Desplegar en preproducción.** El script construye la imagen con Docker en este PC y Docker Desktop no arranca (se quedó con un fichero de socket bloqueado; se quitó, pero el motor sigue sin responder). No se ha usado «restablecer de fábrica». Cuando Docker funcione: `scripts/deploy-remote.ps1 --env preproduction`.
+- Hasta entonces, en preproducción **el motor de gluten sigue siendo el 1.0.0** y una etiqueta de la comunidad todavía puede sustituir el análisis.
+
+### Pendiente (no implementado)
+
+OCR de etiquetas, análisis de fotos con Claude, reseñar o confirmar reseñas de productos, compartir, valoración con estrellas, añadir restaurante, colecciones, «Mis productos seguros», historial, caché sin conexión, panel de administración, enlaces profundos, ajustes de apariencia, escaneo continuo, actualizador del APK. También la compilación para móvil real, el APK firmado e iOS.
+
+La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
+
 ## Qué hay desplegado en preproducción
 
 ### Servidor en Rust (axum)
@@ -25,7 +87,7 @@ HallowFest ha devuelto 200 antes y después de cada despliegue.
   - La traducción solo puede hacer el resultado **más prudente**. Ejemplo: «Farine de blé» sola es DESCONOCIDO y traducida pasa a CONTIENE GLUTEN.
   - Nunca puede convertir un producto en «sin gluten».
 
-### «Verificado por IA» (verde con aviso)
+### Segunda opinión de la IA (antes «Verificado por IA»; ya no se muestra en verde)
 
 - **Modelo:** Qwen2.5 1.5B (Q4_K_M) con llama.cpp, en un contenedor `ai` del propio servidor.
 - **Límites del contenedor:**
