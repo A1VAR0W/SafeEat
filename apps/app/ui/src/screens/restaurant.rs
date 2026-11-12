@@ -84,7 +84,7 @@ fn RestaurantDetail(
                 </section>
             })}
             <ReviewForm item=item.clone() state=state saved=saved />
-            <p class="muted small source">"Las etiquetas de un restaurante no garantizan cómo se prepara la comida. Pregunta siempre."</p>
+            <p class="muted small source">"Esta información la aportan otros usuarios y OpenStreetMap; SafeEat no la verifica ni garantiza cómo se prepara la comida. Pregunta siempre en el local por la contaminación cruzada."</p>
         </article>
     }
 }

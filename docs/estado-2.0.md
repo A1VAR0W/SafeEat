@@ -32,7 +32,7 @@ Casos que cambian de resultado con el motor 1.1.0 (de 678 casos antiguos, 7): «
 
 ### CI (GitHub Actions)
 
-La ejecución del commit `52b5c1e` pasó entera, con tres trabajos:
+La ejecución del commit `52b5c1e` y las de los commits posteriores hasta `1088338` pasaron enteras, con tres trabajos:
 
 - **verify** (TypeScript/Expo): lint, formato, tipos, 208 tests, tests de integración con PostgreSQL, compilación y comprobación de Expo.
 - **rust**: `cargo fmt`, `clippy` con avisos como errores, tests, migraciones sobre una base con datos de la 1.0.x y luego la batería `smoke-api` (41 comprobaciones) contra esa base aislada.
@@ -49,12 +49,34 @@ Fallos reales que tapaba el CI anterior y se han arreglado:
 
 - La sesión ya **no se pierde al cerrar la app**. El token de refresco y el perfil se guardan cifrados con una clave del Android Keystore (en iOS, Keychain). Plugin propio `tauri-plugin-safeeat-secure`, sin ningún comando accesible desde JavaScript.
 - Probado en el emulador: iniciar sesión, cerrar la app a la fuerza y reabrir → sigue dentro. En disco solo hay texto cifrado. Cerrar sesión deja el almacén vacío. Una sesión guardada de una cuenta ya borrada se rechaza y se olvida sola.
+- Probado también: siete reinicios seguidos (el token rota en cada uno), arrancar en modo avión (sigue con la sesión) y volver a tener red (las llamadas autenticadas funcionan).
 - **iOS: código escrito, sin compilar ni probar.**
-- Sin probar: caducidad del token de acceso a los 10 minutos con la app abierta, y arrancar sin conexión.
+- Sin probar: caducidad del token de acceso a los 10 minutos con la app abierta.
 
 ### Funciones nuevas de la app 2.0
 
 - Ajustes de cuenta: completar perfil, cambiar correo, cambiar contraseña y borrar cuenta. **Borrar cuenta está probado en el emulador**; cambiar correo y contraseña y completar perfil compilan pero no se han probado en pantalla.
+
+### Restaurantes
+
+- En la app 2.0 la información favorable de un restaurante («opciones sin gluten», «todo sin gluten») se muestra en azul orientativo y no en verde: viene de otros usuarios o de OpenStreetMap, y una sola reseña bastaba para pintarlo de verde. Los avisos conservan su color. El servidor no cambia, así que la app 1.0.x lo sigue mostrando como antes.
+- No hay datos verificables sobre freidoras exclusivas ni protocolos de cocina; no se ha añadido nada que lo aparente.
+
+### Infraestructura y claves
+
+- **Claves:** se ha buscado en el árbol y en todo el historial de Git (claves privadas, claves de Anthropic, tokens de GitHub, ficheros `.env`, keystores): no aparece ninguna.
+- **Compilaciones de publicación:** una compilación de publicación de la app sin `SAFEEAT_API_URL` ya no compila. Antes usaba preproducción sin avisar.
+- **Sin auditar en esta tanda:** copias de seguridad cifradas externas y su restauración, estado de salud de los contenedores, contenido de los logs y consumo real de recursos en el servidor. Los límites de memoria y CPU del contenedor de IA ya estaban puestos.
+- El workflow `android-builder.yml` sigue siendo el de la app Expo; no compila todavía la app 2.0.
+
+### Efecto en la app Expo 1.0.x
+
+Cuando se despliegue el servidor nuevo, la etiqueta que aporte un usuario dejará de sustituir los ingredientes del proveedor. La 1.0.x no muestra el campo nuevo `communityIngredients`, así que ahí la aportación solo se verá si el proveedor no tenía ingredientes o si añade un aviso.
+
+### Sin ver en pantalla
+
+- La tarjeta «Análisis orientativo por IA» y la etiqueta de la comunidad solo están cubiertas por tests; no se encontró en preproducción un producto con resultado de IA para verla.
+- Cambiar correo, cambiar contraseña y completar perfil.
 
 ### Bloqueado
 

@@ -118,9 +118,12 @@ pub fn distance(m: f64) -> String {
     }
 }
 
+/// Favourable restaurant information always comes from other users or OpenStreetMap
+/// tags, never from a verified source, so it is shown as orientative (blue), not as a
+/// green safety badge. Warnings keep their colour.
 pub fn support_tone(s: GlutenSupport) -> &'static str {
     match s {
-        GlutenSupport::DedicatedGlutenFree | GlutenSupport::GlutenFreeOptions => "tone-safe",
+        GlutenSupport::DedicatedGlutenFree | GlutenSupport::GlutenFreeOptions => "tone-info",
         GlutenSupport::NoGlutenFreeOptions => "tone-danger",
         GlutenSupport::Unknown => "tone-unknown",
     }
