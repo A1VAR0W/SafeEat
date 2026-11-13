@@ -24,7 +24,7 @@ fn has_role(role: Role) -> impl Fn() -> bool + Copy {
     }
 }
 
-fn review_label(status: &str) -> &'static str {
+pub(crate) fn review_label(status: &str) -> &'static str {
     match status {
         "GLUTEN_FREE" => "Dice que es sin gluten",
         "CONTAINS_GLUTEN" => "Dice que contiene gluten",

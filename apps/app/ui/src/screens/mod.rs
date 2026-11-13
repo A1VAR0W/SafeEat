@@ -1,4 +1,5 @@
 pub mod account;
+pub mod admin;
 pub mod community;
 pub mod label_photo;
 pub mod product;

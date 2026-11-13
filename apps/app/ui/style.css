@@ -1981,3 +1981,14 @@ body::before {
 .manufacturer-link .button {
   align-self: flex-start;
 }
+.admin-list .admin-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.admin-reason {
+  min-height: 96px;
+}

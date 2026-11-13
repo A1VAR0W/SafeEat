@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::api::{self, Failure};
 use crate::icons;
-use crate::nav::{use_nav, use_session};
+use crate::nav::{use_nav, use_session, Route};
 use crate::screens::settings::initials;
 use crate::ui::{ErrorBox, Header, Icon};
 
@@ -183,6 +183,16 @@ pub fn ProfileScreen() -> impl IntoView {
             })}
             <Show when=move || session.0.with(Option::is_some)>
                 <crate::screens::settings::AccountSettings />
+            </Show>
+            <Show when=move || session.0.with(|u| u.as_ref().is_some_and(|u| u.is_admin()))>
+                <h2 class="group-label">"Administración"</h2>
+                <div class="settings-group">
+                    <button class="settings-row" on:click=move |_| nav.push(Route::Admin)>
+                        <Icon svg=icons::USERS />
+                        <span class="settings-label">"Panel de administración"</span>
+                        <Icon svg=icons::CHEVRON class="chevron" />
+                    </button>
+                </div>
             </Show>
             <h2 class="group-label">"Aplicación"</h2>
             <crate::update::UpdateCard />

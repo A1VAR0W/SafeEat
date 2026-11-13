@@ -28,6 +28,8 @@ pub enum Route {
     AccountAdvanced,
     /// Photo of an ingredient list, read on the phone (no barcode or no data).
     LabelPhoto,
+    /// Administration panel (the server checks the role on every call).
+    Admin,
 }
 
 #[derive(Clone, Copy)]
@@ -191,6 +193,7 @@ pub fn App() -> impl IntoView {
             (_, Route::AccountAdvanced) => {
                 view! { <screens::settings::AdvancedScreen /> }.into_any()
             }
+            (_, Route::Admin) => view! { <screens::admin::AdminScreen /> }.into_any(),
             (_, Route::LabelPhoto) => {
                 view! { <screens::label_photo::LabelPhotoScreen /> }.into_any()
             }
