@@ -119,11 +119,15 @@ Autorizado por el propietario. Las pruebas en los móviles físicos **no** se ha
 1. **Vuelta atrás protegida:** `safeeat-api:rollback-1x-20261113` y `safeeat-web:rollback-1x-20261113` (las imágenes 1.x que estaban en marcha). El compose de la 1.x queda en `infrastructure/production/docker-compose.ts.yml`.
 2. **Copia verificada:** `/opt/safeeat/backups/postgres/safeeat-20261113T162148Z.dump`.
 3. **Despliegue** de `safeeat-server:0f343c846e97`:
-   - Migraciones 010–018 aplicadas. La 010 tardó 99 s con los datos reales (10 s en la base aislada); la API 1.x siguió sirviendo mientras tanto.
+   - Migraciones 010–018 aplicadas. La 010 tardó 99 s con los datos reales (10 s en la base aislada). Los contenedores no se recrearon hasta terminar las migraciones; no medí si la API 1.x respondió con normalidad durante esos 99 s.
    - `meta` por el Funnel: `{"environment":"production","status":"ok","version":"2.0.0"}`.
 4. **Comprobado después:**
-   - Producto por código (Kimbo 8410044005008), búsqueda de productos, búsqueda de restaurantes en Madrid (Rodilla, como cadena) y el visor web: correctos.
-   - Usuarios, roles, favoritos y reseñas: mismos recuentos que antes (2, 2, 2 y 6). Ninguna reseña de cadena tuvo que pasar a local.
+   - Producto por código (Kimbo 8410044005008), búsqueda de productos, búsqueda de restaurantes en Madrid (Rodilla, como cadena), mapa por zona (Valencia, Las Palmas; Lisboa «sin datos») y el visor web: correctos.
+   - Inicio de sesión con credenciales falsas y rutas protegidas sin sesión: 401 con su mensaje, sin errores 500.
+   - **Datos intactos:** la copia previa, restaurada en un contenedor desechable, coincide fila a fila (huella por tabla, mismas columnas) con producción en usuarios (contraseñas incluidas), roles, sesiones, favoritos, colecciones, reseñas de productos y restaurantes, valoraciones, confirmaciones, compartidos y auditoría. Solo cambian, como se esperaba, la caché de productos (256 → 277), el catálogo de restaurantes y `schema_migrations`. Ninguna reseña de cadena tuvo que pasar a local.
+   - `/.well-known/assetlinks.json` y `apple-app-site-association` responden vacíos porque `ANDROID_SHA256_FINGERPRINTS` y `APPLE_TEAM_ID` están vacíos en el `.env` de producción, igual que con la 1.x.
+   - La nueva `backup-postgres.sh` hace una copia verificada; el temporizador nocturno `safeeat-backup.timer` sigue activo.
+   - La segunda opinión local por IA (llama.cpp) **no** está activada en producción (`AI_LOCAL_URL` no está en su `.env`), a diferencia de preproducción. La app funciona sin ella.
    - HallowFest: 502 antes y después, como ya estaba.
 5. **Restaurantes:** `spain` (153 698) y `canarias` (9 726) importados, con su límite. Cubiertas las mismas ciudades que en preproducción, Lisboa no. Mismos recuentos que preproducción (143 451 + 9 299 locales distintos).
 6. **Apps:** APK y IPA de producción subidos como descargas directas (ver [release-2.0.5.md](release-2.0.5.md)). **No** se han publicado `latest.json`, `production.json`, `safeeat.json` ni `SafeEat-latest.apk`: hace falta otra autorización.
