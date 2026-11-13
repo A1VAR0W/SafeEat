@@ -6,7 +6,7 @@
 
 - La app de producción (Expo 1.0.12) sigue funcionando contra el servidor en Rust; no se ha publicado ninguna actualización automática.
 - Catálogo `spain` + `canarias` importado en producción.
-- APK (versionCode 2000045) e IPA (2.0.5.53) de producción subidos como descargas directas. `latest.json` y los manifiestos de SideStore **no** se han tocado.
+- APK (versionCode 2000045) e IPA (2.0.5.53) de producción publicados: fuentes de SideStore y `SafeEat-latest.*`. El aviso de Android (`latest.json`) sigue en la 1.0.12 hasta que exista el release `v2.0.5` de GitHub.
 - Las pruebas en los móviles físicos siguen pendientes.
   Detalles: [release-2.0.5.md](release-2.0.5.md) y [go-no-go-2.0.5.md](go-no-go-2.0.5.md).
 
