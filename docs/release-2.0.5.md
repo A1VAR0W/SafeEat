@@ -1,6 +1,20 @@
-# SafeEat 2.0.5 (candidata, preproducción)
+# SafeEat 2.0.5
 
-Rama `claude/safeeat-2.0.5`. **Producción no se ha tocado** y `releases/latest.json` no se ha publicado.
+Rama `claude/safeeat-2.0.5`. **Servidor desplegado en producción el 13-11-2026** (ver [go-no-go-2.0.5.md](go-no-go-2.0.5.md)). `releases/latest.json` y los manifiestos de SideStore **no** se han publicado: nadie recibe la 2.0.5 como actualización automática.
+
+## Descargas de producción
+
+Compiladas del commit `0f343c8` (mismo código de la app que `bd303d9`), apuntando a `https://chat-ink.tail552c89.ts.net:10000`.
+
+- **Android:** `https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-2.0.5-production.apk`
+  - 14.058.476 bytes, versionCode 2000045, run 43461878512.
+  - SHA-256 `27b4e4e6f8f2b025a826fcc0d16cfc93a46139a0d6f15ffcab7f232502cfcfd1`.
+  - Firmado con el certificado de siempre (`fac61745…3b9c`): se instala encima de la 1.0.12 y de la 2.0.5 de preproducción.
+  - Ojo: la 2.0.5 de preproducción y la de producción comparten identificador, así que en un mismo móvil solo puede haber una de las dos.
+- **iPhone:** `https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-2.0.5-production.ipa`
+  - 7.824.011 bytes, `CFBundleVersion` 2.0.5.53, run 43461884042.
+  - SHA-256 `811994494e62bd00890c50783d704f34b0f1f97e9cdbcd90264d669d26ee2449`.
+  - Sin firmar: se instala con SideStore (importando el IPA). La fuente `production.json` sigue anunciando la 1.0.12.
 
 ## Descargas de preproducción
 

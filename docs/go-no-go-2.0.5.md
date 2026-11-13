@@ -7,10 +7,7 @@
 
 **Fecha:** 13-11-2026.
 
-**Estado de producción:** sin tocar.
-
-- Sigue la API 1.x de Node, con el esquema en la migración 009.
-- `releases/latest.json`, `production.json` y `safeeat.json` siguen con fecha del 6 de octubre.
+**Estado de producción:** servidor 2.0.5 desplegado el 13-11-2026 por autorización expresa del propietario («Despliega a PRO»), **sin** sus resultados de las pruebas en móviles físicos. Ver «Despliegue en producción» al final.
 
 ## Recomendación
 
@@ -114,3 +111,25 @@
 1. Los resultados de la lista de pruebas en Android e iPhone.
 2. Una autorización expresa para el despliegue en producción, por ejemplo: «Autorizo desplegar 2.0.5 en PRO».
 3. Después, otra autorización aparte para publicar el APK y el IPA de producción.
+
+## Despliegue en producción (13-11-2026)
+
+Autorizado por el propietario. Las pruebas en los móviles físicos **no** se habían recibido; siguen pendientes.
+
+1. **Vuelta atrás protegida:** `safeeat-api:rollback-1x-20261113` y `safeeat-web:rollback-1x-20261113` (las imágenes 1.x que estaban en marcha). El compose de la 1.x queda en `infrastructure/production/docker-compose.ts.yml`.
+2. **Copia verificada:** `/opt/safeeat/backups/postgres/safeeat-20261113T162148Z.dump`.
+3. **Despliegue** de `safeeat-server:0f343c846e97`:
+   - Migraciones 010–018 aplicadas. La 010 tardó 99 s con los datos reales (10 s en la base aislada); la API 1.x siguió sirviendo mientras tanto.
+   - `meta` por el Funnel: `{"environment":"production","status":"ok","version":"2.0.0"}`.
+4. **Comprobado después:**
+   - Producto por código (Kimbo 8410044005008), búsqueda de productos, búsqueda de restaurantes en Madrid (Rodilla, como cadena) y el visor web: correctos.
+   - Usuarios, roles, favoritos y reseñas: mismos recuentos que antes (2, 2, 2 y 6). Ninguna reseña de cadena tuvo que pasar a local.
+   - HallowFest: 502 antes y después, como ya estaba.
+5. **Restaurantes:** `spain` (153 698) y `canarias` (9 726) importados, con su límite. Cubiertas las mismas ciudades que en preproducción, Lisboa no. Mismos recuentos que preproducción (143 451 + 9 299 locales distintos).
+6. **Apps:** APK y IPA de producción subidos como descargas directas (ver [release-2.0.5.md](release-2.0.5.md)). **No** se han publicado `latest.json`, `production.json`, `safeeat.json` ni `SafeEat-latest.apk`: hace falta otra autorización.
+
+**Sin probar todavía en producción:** inicio de sesión con una cuenta real, escaneo con la cámara y la app 2.0.5 de producción en un móvil.
+
+### Cómo volver a la 1.x si hiciera falta
+
+En `/opt/safeeat/infrastructure/production`: etiquetar `safeeat-api:rollback-1x-20261113` y `safeeat-web:rollback-1x-20261113` como `:local` y arrancar `api` y `web` con `docker-compose.ts.yml` y el `.env` de producción. El esquema migrado es compatible con la 1.x (comprobado). No hace falta restaurar la base.

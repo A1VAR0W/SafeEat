@@ -1,19 +1,17 @@
 # SafeEat 2.0: estado (13-11-2026)
 
-## 2.0.5 candidata (13-11-2026, rama `claude/safeeat-2.0.5`)
+## 2.0.5 en producción (13-11-2026, rama `claude/safeeat-2.0.5`)
 
-Desplegada en **preproducción** (`b93bbc2f57bd`, migraciones 015–018). Producción sin tocar.
+**Servidor desplegado en producción** (`0f343c846e97`, migraciones 010–018) con autorización expresa, después de una copia verificada (`safeeat-20261113T162148Z.dump`).
 
-- APK 2.0.5 (versionCode 2000044) e IPA publicados en el canal de preproducción, con el lector de fotos corregido (`bd303d9`) y comprobado en el emulador.
-- Catálogo `spain` + `canarias` importado en preproducción.
-- Pendiente: tus pruebas en los móviles y la autorización para producción.
-  Novedades, pruebas hechas y lista de pruebas en móvil: [release-2.0.5.md](release-2.0.5.md).
-  Informe para decidir el paso a producción: [go-no-go-2.0.5.md](go-no-go-2.0.5.md).
+- La app de producción (Expo 1.0.12) sigue funcionando contra el servidor en Rust; no se ha publicado ninguna actualización automática.
+- Catálogo `spain` + `canarias` importado en producción.
+- APK (versionCode 2000045) e IPA (2.0.5.53) de producción subidos como descargas directas. `latest.json` y los manifiestos de SideStore **no** se han tocado.
+- Las pruebas en los móviles físicos siguen pendientes.
+  Detalles: [release-2.0.5.md](release-2.0.5.md) y [go-no-go-2.0.5.md](go-no-go-2.0.5.md).
 
 Rama: `claude/safeeat-2.0-rust` (subida a GitHub, sin fusionar con `main`).
-**Producción no se ha tocado.** Solo está desplegada la **preproducción** (`:10000/preproduction`).
-Tampoco se ha publicado `latest.json` ni los manifiestos de SideStore.
-HallowFest ha devuelto 200 antes y después de cada despliegue.
+Estado previo a la 2.0.5 (histórico): producción seguía con la API 1.x de Node.
 
 ## Auditoría correctiva (13-11-2026, rama `claude/safeeat-2.0-audit`, sin subir)
 
