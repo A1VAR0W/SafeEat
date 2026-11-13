@@ -193,6 +193,17 @@ pub fn ScanScreen() -> impl IntoView {
                     <strong>"Buscar por nombre"</strong>
                     <span>"Galletas, pan, cerveza…"</span>
                 </button>
+                <button
+                    type="button"
+                    class="action-tile wide"
+                    on:click=move |_| nav.push(Route::LabelPhoto)
+                >
+                    <span class="action-tile-icon" inner_html=icons::CAMERA></span>
+                    <span class="action-tile-text">
+                        <strong>"Foto de los ingredientes"</strong>
+                        <span>"Sin código o sin datos: se lee en tu móvil"</span>
+                    </span>
+                </button>
             </div>
 
             <Show when=move || mode.get() == Some(Mode::Code)>

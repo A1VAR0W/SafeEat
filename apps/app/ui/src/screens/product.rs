@@ -71,6 +71,10 @@ pub fn ProductScreen(id: String) -> impl IntoView {
                             <p>"Ni Open Food Facts ni la comunidad lo tienen todavía. Revisa la etiqueta del envase."</p>
                         </div>
                     </div>
+                    <button class="button" on:click=move |_| use_nav().push(Route::LabelPhoto)>
+                        <Icon svg=icons::CAMERA />
+                        "Leer los ingredientes con una foto"
+                    </button>
                 </div>
             }.into_any(),
             Some(Err(e)) => view! { <div class="stack"><ErrorBox message=e.message retry=Callback::new(move |_| { state.set(None); load(); }) /></div> }.into_any(),

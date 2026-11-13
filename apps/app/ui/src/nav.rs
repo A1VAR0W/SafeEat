@@ -26,6 +26,8 @@ pub enum Route {
     Profile,
     /// Configuración → Cuenta → Opciones avanzadas (account deletion).
     AccountAdvanced,
+    /// Photo of an ingredient list, read on the phone (no barcode or no data).
+    LabelPhoto,
 }
 
 #[derive(Clone, Copy)]
@@ -188,6 +190,9 @@ pub fn App() -> impl IntoView {
             (_, Route::Profile) => view! { <screens::account::ProfileScreen /> }.into_any(),
             (_, Route::AccountAdvanced) => {
                 view! { <screens::settings::AdvancedScreen /> }.into_any()
+            }
+            (_, Route::LabelPhoto) => {
+                view! { <screens::label_photo::LabelPhotoScreen /> }.into_any()
             }
             (Tab::Scan, Route::Home) => view! { <screens::scan::ScanScreen /> }.into_any(),
             (Tab::Saved, Route::Home) => view! { <screens::saved::SavedScreen /> }.into_any(),

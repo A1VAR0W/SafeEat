@@ -1,0 +1,11 @@
+On-device text recognition for ingredient photos. Everything here runs inside the
+app; no file is downloaded at run time and no photo leaves the phone.
+
+- tesseract.min.js, worker.min.js: tesseract.js 5.1.1 (npm), Apache-2.0
+  (LICENSE-tesseract.js.txt; bundled third-party notices in LICENSE-bundled.txt).
+- core/tesseract-core-*-lstm.wasm.js: tesseract.js-core 5.1.1 (npm), Apache-2.0
+  (LICENSE-tesseract.js-core.txt). Tesseract OCR itself is Apache-2.0.
+- lang/spa.traineddata.gz: @tesseract.js-data/spa 1.0.0 (npm, MIT), folder
+  4.0.0_best_int: the Spanish LSTM model from tesseract-ocr/tessdata (Apache-2.0).
+
+Source maps were removed from the two .min.js files (the maps are not shipped).

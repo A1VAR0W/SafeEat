@@ -39,7 +39,7 @@ use crate::{assess_gluten, normalize, GlutenInput};
 
 /// Version of the analysis served by the API: engine layer + rule catalog. Cached
 /// analyses with any other version are recomputed.
-pub const ENGINE_VERSION: &str = "1.2.2+rules.2026.11.13.2";
+pub const ENGINE_VERSION: &str = "1.2.3+rules.2026.11.13.2";
 
 /// Labelling regime of the source. Under EU law (1169/2011 art. 21) any ingredient made
 /// from a gluten cereal must name it, which changes how vague words are read.
@@ -353,6 +353,11 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
         })
     });
 
+    // Text read from a photo that she has not checked against the label: OCR can drop
+    // a whole line ("trigo" included), so recognising every word read reassures nothing.
+    let unreviewed_ocr =
+        input.origin == Some(crate::Origin::Ocr) && !input.reviewed.unwrap_or(false);
+
     // The case the product falls in if it is (or ends up) UNKNOWN.
     let unknown_finding = if contradictory {
         GlutenFinding::Contradictory
@@ -362,7 +367,8 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
         || worst.is_some_and(|c| severity(c) >= severity(IngredientClass::NeedsOrigin))
     {
         GlutenFinding::AmbiguousIngredient
-    } else if !unrecognized.is_empty() || parsed.incomplete() || mixed_with_table {
+    } else if !unrecognized.is_empty() || parsed.incomplete() || mixed_with_table || unreviewed_ocr
+    {
         // Ingredients that were never classified one by one leave nothing to reassure.
         GlutenFinding::InsufficientInformation
     } else {
@@ -917,6 +923,58 @@ mod tests {
         assert_eq!(a.status, GlutenStatus::Unknown);
         assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
         assert!(a.reasons.iter().any(|r| r.code == "MIXED_TEXT"));
+    }
+
+    #[test]
+    fn an_unchecked_photo_reading_never_reassures() {
+        let text = "Arroz, aceite de girasol, sal.";
+        let read = |reviewed| {
+            analyze(
+                &GlutenInput {
+                    ingredients: Some(text.into()),
+                    source: "Foto".into(),
+                    origin: Some(Origin::Ocr),
+                    reviewed: Some(reviewed),
+                    ..Default::default()
+                },
+                Context::default(),
+            )
+            .assessment
+        };
+        let unchecked = read(false);
+        assert_eq!(unchecked.status, GlutenStatus::Unknown);
+        assert_eq!(
+            unchecked.finding,
+            Some(GlutenFinding::InsufficientInformation)
+        );
+        assert!(unchecked.reasons.iter().any(|r| r.code == "OCR_LIMITATION"));
+        // Checked by her against the label, it reads like a typed list.
+        assert_eq!(read(true).finding, Some(GlutenFinding::NoGlutenIdentified));
+        // A "sin gluten" read from a photo never turns green unchecked.
+        let claim = analyze(
+            &GlutenInput {
+                ingredients: Some("Arroz, sal. Sin gluten.".into()),
+                source: "Foto".into(),
+                origin: Some(Origin::Ocr),
+                reviewed: Some(false),
+                ..Default::default()
+            },
+            Context::default(),
+        )
+        .assessment;
+        assert_ne!(claim.status, GlutenStatus::GlutenFree);
+        // Gluten read from a photo is still gluten.
+        let wheat = analyze(
+            &GlutenInput {
+                ingredients: Some("Harina de trigo, sal.".into()),
+                source: "Foto".into(),
+                origin: Some(Origin::Ocr),
+                ..Default::default()
+            },
+            Context::default(),
+        )
+        .assessment;
+        assert_eq!(wheat.status, GlutenStatus::ContainsGluten);
     }
 
     #[test]

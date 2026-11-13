@@ -1,5 +1,6 @@
 pub mod account;
 pub mod community;
+pub mod label_photo;
 pub mod product;
 pub mod restaurant;
 pub mod restaurants;
