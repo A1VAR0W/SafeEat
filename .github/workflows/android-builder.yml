@@ -174,9 +174,11 @@ jobs:
           "$tools/apksigner" sign --ks "$ks" --ks-key-alias "$ANDROID_KEY_ALIAS"             --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD             --out "$out" "$RUNNER_TEMP/aligned.apk"
           "$tools/apksigner" verify --print-certs "$out" | grep -m1 -E 'SHA-256' | tee "$RUNNER_TEMP/new-cert.txt"
           # Same certificate as the 1.x APK already installed, or Android refuses the update.
-          curl -sfL --max-time 300 -o "$RUNNER_TEMP/current.apk"             https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-latest.apk
-          "$tools/apksigner" verify --print-certs "$RUNNER_TEMP/current.apk" | grep -m1 -E 'SHA-256' > "$RUNNER_TEMP/old-cert.txt"
-          diff <(sed 's/^Signer #1 //' "$RUNNER_TEMP/old-cert.txt") <(sed 's/^Signer #1 //' "$RUNNER_TEMP/new-cert.txt")
+          # Pinned: the SHA-256 of the certificate of the published SafeEat-latest.apk (checked
+          # on 13-11-2026). Downloading that 129 MB APK through the Funnel on every build timed out.
+          expected='fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c'
+          grep -qxF "Signer #1 certificate SHA-256 digest: $expected" "$RUNNER_TEMP/new-cert.txt" ||
+            { echo "APK signed with a different certificate than the installed SafeEat" >&2; exit 1; }
           badging="$RUNNER_TEMP/badging.txt"
           "$tools/aapt" dump badging "$out" > "$badging"
           grep -Fq "package: name='com.a1var0w.safeeat' versionCode='$VERSION_CODE' versionName='$version'" "$badging"

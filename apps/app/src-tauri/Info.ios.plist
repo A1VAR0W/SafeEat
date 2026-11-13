@@ -5,7 +5,7 @@
 <plist version="1.0">
 <dict>
   <key>NSCameraUsageDescription</key>
-  <string>SafeEat usa la cámara para leer el código de barras de los productos.</string>
+  <string>SafeEat usa la cámara para leer el código de barras y, si tú lo pides, hacer una foto de los ingredientes. La foto se lee en el propio móvil.</string>
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>SafeEat usa tu ubicación para mostrarte los restaurantes cercanos.</string>
   <key>CFBundleDevelopmentRegion</key>
