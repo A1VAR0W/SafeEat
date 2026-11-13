@@ -333,3 +333,34 @@ pub async fn suggest(
         })
         .collect())
 }
+
+/// Every catalog venue inside a map area (`west,south,east,north`), for the map's
+/// pins. Favourable places first so a crowded area never leaves them out, then the
+/// nearest to the centre. `$1..$4` = bbox, `$5,$6` = centre (lng, lat), `$7` = limit.
+pub async fn area(
+    state: &AppState,
+    bbox: (f64, f64, f64, f64),
+    limit: i64,
+) -> ApiResult<Vec<Restaurant>> {
+    let (west, south, east, north) = bbox;
+    let rows = sqlx::query_as::<_, CatalogRow>(&format!(
+        "SELECT {} FROM restaurant_catalog
+         WHERE location && ST_MakeEnvelope($1,$2,$3,$4,4326)::geography
+         ORDER BY (gluten_tag IN ('only','yes') OR EXISTS(SELECT 1 FROM restaurant_gluten_reports r WHERE r.revoked_at IS NULL
+                   AND (r.restaurant_id=restaurant_catalog.id OR r.chain_key=restaurant_catalog.chain_key
+                        OR r.chain_key='name:'||restaurant_catalog.search_name))) DESC,
+                  location <-> ST_SetSRID(ST_MakePoint($5,$6),4326)::geography
+         LIMIT $7",
+        fields(false)
+    ))
+    .bind(west)
+    .bind(south)
+    .bind(east)
+    .bind(north)
+    .bind((west + east) / 2.0)
+    .bind((south + north) / 2.0)
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(rows.into_iter().map(restaurant).collect())
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Lets SafeEat ask Android to install its own update; it never installs silently. -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <application>
+    <!-- Own subclass and authority: the app already has the template's FileProvider. -->
+    <provider
+      android:name="com.a1var0w.safeeat.updater.UpdateFileProvider"
+      android:authorities="${applicationId}.updates"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/safeeat_update_paths" />
+    </provider>
+  </application>
+</manifest>

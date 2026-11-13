@@ -146,6 +146,7 @@ pub fn App() -> impl IntoView {
         }
     });
     provide_context(MapCenter(StoredValue::new(None)));
+    crate::update::provide_updates();
     let scanning = Scanning(RwSignal::new(false), StoredValue::new(false));
     provide_context(scanning);
     // Back while scanning closes the camera instead of leaving the screen.
@@ -204,6 +205,7 @@ pub fn App() -> impl IntoView {
             </main>
             <TabBar />
         </div>
+        <crate::update::UpdateSheet />
         <Show when=move || scanning.0.get()>
             <div class="scan-overlay" role="dialog" aria-label="Escáner">
                 <p class="scan-hint">"Apunta al código de barras"</p>

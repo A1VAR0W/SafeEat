@@ -3503,6 +3503,7 @@ dependencies = [
  "tauri-plugin-haptics",
  "tauri-plugin-safeeat-secure",
  "tauri-plugin-safeeat-share",
+ "tauri-plugin-safeeat-updater",
  "tokio",
 ]
 
@@ -4443,6 +4444,16 @@ name = "tauri-plugin-safeeat-share"
 version = "2.0.2"
 dependencies = [
  "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
+name = "tauri-plugin-safeeat-updater"
+version = "2.0.2"
+dependencies = [
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-plugin",
 ]

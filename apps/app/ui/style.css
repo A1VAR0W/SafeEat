@@ -965,6 +965,47 @@ button {
 li + li > .suggestion {
   border-top: 1px solid var(--line);
 }
+/* Thin bar along the map's bottom edge while more places load: the map never empties. */
+.map-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 3px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.map-progress.on {
+  opacity: 1;
+}
+.map-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: var(--accent);
+  animation: map-progress 1.1s ease-in-out infinite;
+}
+@keyframes map-progress {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-progress::after {
+    animation: none;
+    left: 0;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
 .map-controls {
   position: absolute;
   right: var(--space-3);
@@ -1078,10 +1119,10 @@ li + li > .suggestion {
   background: #1f4f8a;
 }
 .legend .options {
-  background: #4a7fc1;
+  background: #3f78bf;
 }
 .legend .none {
-  background: #a02d22;
+  background: #b3261e;
 }
 .legend .unknown {
   background: #857a5c;
@@ -1379,4 +1420,72 @@ body::before {
   width: 14px;
   height: 14px;
   color: var(--caution);
+}
+
+/* ---------- app updates (Android) ---------- */
+.update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(8, 20, 16, 0.45);
+}
+.update-sheet {
+  width: 100%;
+  max-height: 85dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-4) calc(var(--safe-bottom) + var(--space-4));
+  border-radius: 20px 20px 0 0;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.update-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+.update-title .icon {
+  color: var(--accent);
+}
+.update-notes {
+  white-space: pre-line;
+}
+.update-steps {
+  padding-left: 1.25rem;
+  list-style: decimal;
+  display: grid;
+  gap: var(--space-1);
+}
+.update-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.update-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.update-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.update-login {
+  margin-top: var(--space-5);
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-bar span {
+    transition: none;
+  }
 }

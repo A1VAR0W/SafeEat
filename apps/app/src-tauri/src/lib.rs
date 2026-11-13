@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 use tauri_plugin_safeeat_secure::SecureExt;
 use tauri_plugin_safeeat_share::ShareExt;
+use tauri_plugin_safeeat_updater::{DownloadArgs, UpdaterExt};
 use tokio::sync::Mutex;
 
 /// Build-time API origin (no trailing slash). Debug builds default to preproduction;
@@ -50,6 +51,8 @@ struct Tokens {
 
 struct AppState {
     http: reqwest::Client,
+    /// The newer APK the last `update_check` found (what `update_download` fetches).
+    update: Mutex<Option<UpdateOffer>>,
     /// Held across a refresh, a login and a logout, so they never interleave and
     /// concurrent 401s refresh only once.
     tokens: Mutex<Tokens>,
@@ -435,6 +438,170 @@ async fn share_link(
     Ok(json!({ "url": link, "shared": shared }))
 }
 
+/// Where updates are announced: the same file the 1.x app reads for production, and its
+/// preproduction twin for test builds. Development builds (other servers) have none.
+const DOWNLOADS: &str = "https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads";
+
+fn update_manifest() -> Option<String> {
+    if !API_URL.starts_with("https://chat-ink.tail552c89.ts.net:10000") {
+        return None;
+    }
+    Some(if API_URL.ends_with("/preproduction") {
+        format!("{DOWNLOADS}/preproduction-android.json")
+    } else {
+        format!("{DOWNLOADS}/releases/latest.json")
+    })
+}
+
+#[derive(Clone)]
+struct UpdateOffer {
+    url: String,
+    sha256: String,
+    size: i64,
+    version_code: i64,
+}
+
+fn offline_update() -> Failure {
+    Failure {
+        status: 0,
+        code: "UPDATE_UNAVAILABLE".into(),
+        message: "No se ha podido comprobar si hay una versión nueva. Inténtalo más tarde.".into(),
+    }
+}
+
+/// Is there a newer APK than the one installed? Compares version codes only (the name
+/// is just shown). The download data stay here; the webview only gets what it shows.
+#[tauri::command]
+async fn update_check(app: AppHandle, state: State<'_, AppState>) -> Result<Value, Failure> {
+    let updater = app.updater();
+    let (Some(manifest), Some(installed)) = (update_manifest(), updater.installed()) else {
+        return Ok(json!({ "supported": false }));
+    };
+    let current = json!({ "supported": true, "installed": installed.version, "available": false });
+    // The time defeats any cache between here and the file.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let response = state
+        .http
+        .get(format!("{manifest}?t={stamp}"))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|_| offline_update())?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(current);
+    }
+    let data: Value = response
+        .error_for_status()
+        .map_err(|_| offline_update())?
+        .json()
+        .await
+        .map_err(|_| offline_update())?;
+    let android = &data["android"];
+    let offer = UpdateOffer {
+        url: android["url"].as_str().unwrap_or_default().to_string(),
+        sha256: android["sha256"].as_str().unwrap_or_default().to_string(),
+        size: android["size"].as_i64().unwrap_or(0),
+        version_code: android["versionCode"].as_i64().unwrap_or(0),
+    };
+    let version = data["release"]["tag_name"]
+        .as_str()
+        .unwrap_or_default()
+        .trim_start_matches('v')
+        .to_string();
+    let valid = offer.url.starts_with(&format!("{DOWNLOADS}/"))
+        && offer.sha256.len() == 64
+        && offer.size > 0
+        && !version.is_empty()
+        && version.len() <= 20
+        && version.bytes().all(|b| b.is_ascii_digit() || b == b'.');
+    if !valid || offer.version_code <= installed.version_code {
+        *state.update.lock().await = None;
+        return Ok(current);
+    }
+    // Release notes as plain text: no links or markdown from GitHub's generated body.
+    let notes: String = data["release"]["body"]
+        .as_str()
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.contains("Full Changelog") && !l.contains("http"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(600)
+        .collect();
+    let size = offer.size;
+    *state.update.lock().await = Some(offer);
+    Ok(json!({
+        "supported": true,
+        "installed": installed.version,
+        "available": true,
+        "version": version,
+        "notes": notes,
+        "size": size,
+    }))
+}
+
+/// Starts downloading the update found by `update_check` (follow it with `update_progress`).
+#[tauri::command]
+async fn update_download(app: AppHandle, state: State<'_, AppState>) -> Result<(), Failure> {
+    let offer = state
+        .update
+        .lock()
+        .await
+        .clone()
+        .ok_or_else(offline_update)?;
+    app.updater()
+        .download(DownloadArgs {
+            url: &offer.url,
+            sha256: &offer.sha256,
+            size: offer.size,
+            version_code: offer.version_code,
+        })
+        .map_err(|message| Failure {
+            status: 0,
+            code: "UPDATE_FAILED".into(),
+            message,
+        })
+}
+
+#[tauri::command]
+fn update_progress(app: AppHandle) -> Value {
+    match app.updater().progress() {
+        Some(p) => serde_json::to_value(p).unwrap_or(Value::Null),
+        None => Value::Null,
+    }
+}
+
+#[tauri::command]
+fn update_cancel(app: AppHandle) {
+    app.updater().cancel();
+}
+
+/// Opens the Android installer (Android asks her to confirm), or reports that SafeEat
+/// still needs her permission to install apps.
+#[tauri::command]
+async fn update_install(app: AppHandle) -> Result<Value, Failure> {
+    let result = tauri::async_runtime::spawn_blocking(move || app.updater().install())
+        .await
+        .map_err(|_| offline_update())?;
+    result
+        .map(|r| json!({ "opened": r.opened, "needsPermission": r.needs_permission }))
+        .map_err(|message| Failure {
+            status: 0,
+            code: "UPDATE_FAILED".into(),
+            message,
+        })
+}
+
+#[tauri::command]
+fn update_settings(app: AppHandle) {
+    app.updater().open_settings();
+}
+
 /// Percent-encodes one path segment (ids such as `osm_n_123` or user product UUIDs).
 fn encode_segment(value: &str) -> String {
     value
@@ -460,10 +627,12 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .manage(AppState {
             http,
+            update: Mutex::new(None),
             tokens: Mutex::new(Tokens::default()),
         })
         .plugin(tauri_plugin_safeeat_secure::init())
-        .plugin(tauri_plugin_safeeat_share::init());
+        .plugin(tauri_plugin_safeeat_share::init())
+        .plugin(tauri_plugin_safeeat_updater::init());
     #[cfg(mobile)]
     let builder = builder
         .plugin(tauri_plugin_barcode_scanner::init())
@@ -477,7 +646,13 @@ pub fn run() {
             account_change,
             delete_account,
             logout,
-            share_link
+            share_link,
+            update_check,
+            update_download,
+            update_progress,
+            update_cancel,
+            update_install,
+            update_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running SafeEat");

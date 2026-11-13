@@ -133,6 +133,7 @@ pub fn LoginScreen() -> impl IntoView {
             </button>
             <p class="muted small">"Tu sesión se guarda cifrada en este móvil hasta que la cierres."</p>
         </form>
+        <div class="stack update-login"><crate::update::UpdateCard /></div>
     }
 }
 
@@ -166,6 +167,7 @@ pub fn ProfileScreen() -> impl IntoView {
             <Show when=move || session.0.with(Option::is_some)>
                 <crate::screens::settings::AccountSettings />
             </Show>
+            <crate::update::UpdateCard />
             <button class="button ghost" on:click=logout>"Cerrar sesión"</button>
             <p class="muted small">"SafeEat " {env!("CARGO_PKG_VERSION")} {move || meta.get().map(|m| format!(" · {m}"))}</p>
         </section>

@@ -37,6 +37,12 @@ const SUGGEST_LIMIT: Limit = per_minute("restaurant-suggest", 60);
 const CREATE_LIMIT: Limit = per_day("restaurant-create", 4);
 const REPORT_LIMIT: Limit = per_hour("restaurant-report", 8);
 const RATING_LIMIT: Limit = per_hour("restaurant-rating", 30);
+/// The map asks for a wide area at once and only again when she leaves it.
+const AREA_LIMIT: Limit = per_minute("restaurant-area", 40);
+/// Pins per area request (favourable places come first, so they are never cut).
+const AREA_MAX_PLACES: i64 = 2500;
+/// Largest area side in degrees (about 65 km): wider views show clusters already loaded.
+const AREA_MAX_SPAN: f64 = 0.6;
 
 static CHAIN_KEY: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(Q[0-9]{1,12}|brand:[a-z0-9]{1,120})$").unwrap());
@@ -338,6 +344,87 @@ async fn search(
     )
     .await?;
     Ok(Json(Items { items }))
+}
+
+// ---------- map area ----------
+
+/// Every restaurant inside the map area, compact, for the pins: the map loads a much
+/// wider area than it shows and keeps what it has, so panning never empties it.
+/// Community reports apply as everywhere else (the pin colour matches the list).
+async fn area(State(state): State<AppState>, QueryMap(query): QueryMap) -> ApiResult<Json<Value>> {
+    let side = |key: &str, min: f64, max: f64| {
+        util::query_number(query.get(key), min, max)?.ok_or_else(ApiError::invalid_input)
+    };
+    let south = side("south", -90.0, 90.0)?;
+    let north = side("north", -90.0, 90.0)?;
+    let west = side("west", -180.0, 180.0)?;
+    let east = side("east", -180.0, 180.0)?;
+    if north <= south
+        || east <= west
+        || north - south > AREA_MAX_SPAN
+        || east - west > AREA_MAX_SPAN
+    {
+        return Err(ApiError::invalid_input());
+    }
+    let (lat, lng) = ((south + north) / 2.0, (west + east) / 2.0);
+    let covered = catalog::ready(&state).await? && catalog::covers(&state, lat, lng).await?;
+    let catalog_items = if covered {
+        catalog::area(&state, (west, south, east, north), AREA_MAX_PLACES).await?
+    } else {
+        vec![]
+    };
+    let truncated = catalog_items.len() as i64 >= AREA_MAX_PLACES;
+    let community_items: Vec<Restaurant> = sqlx::query_as::<_, CommunityRow>(&format!(
+        "SELECT {} FROM community_restaurants WHERE latitude BETWEEN $1 AND $2 AND longitude BETWEEN $3 AND $4 LIMIT 200",
+        community_fields()
+    ))
+    .bind(south)
+    .bind(north)
+    .bind(west)
+    .bind(east)
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .map(community)
+    .collect();
+
+    // Only places someone reported on (directly, through their chain or their name
+    // group) need the full report merge; the rest keep their OpenStreetMap tag.
+    let reported = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT DISTINCT restaurant_id,chain_key FROM restaurant_gluten_reports WHERE revoked_at IS NULL",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let ids: HashSet<String> = reported.iter().map(|(id, _)| id.clone()).collect();
+    let keys: HashSet<String> = reported.into_iter().filter_map(|(_, key)| key).collect();
+    let needs_reports = |item: &Restaurant| {
+        item.community_created == Some(true)
+            || ids.contains(&item.id)
+            || item.chain.as_ref().is_some_and(|c| keys.contains(&c.key))
+            || keys.contains(&format!("name:{}", search_key(&item.name)))
+    };
+    let (merge, plain): (Vec<Restaurant>, Vec<Restaurant>) = catalog_items
+        .into_iter()
+        .chain(community_items)
+        .partition(|item| needs_reports(item));
+    let merged = reports::with_reports(&state, merge).await?;
+
+    let items: Vec<Value> = merged
+        .into_iter()
+        .chain(plain)
+        .filter_map(|r| {
+            Some(json!({
+                "id": r.id,
+                "name": r.name,
+                "lat": (r.latitude? * 1e5).round() / 1e5,
+                "lng": (r.longitude? * 1e5).round() / 1e5,
+                "support": r.gluten_support.as_str(),
+            }))
+        })
+        .collect();
+    Ok(Json(
+        json!({ "items": items, "covered": covered, "truncated": truncated }),
+    ))
 }
 
 // ---------- suggestions ----------
@@ -845,6 +932,10 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         .route(
             "/api/v1/restaurants/search",
             get(search).route_layer(limit(state, SEARCH_LIMIT)),
+        )
+        .route(
+            "/api/v1/restaurants/area",
+            get(area).route_layer(limit(state, AREA_LIMIT)),
         )
         .route(
             "/api/v1/restaurants/chains",

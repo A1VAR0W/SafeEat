@@ -4,6 +4,7 @@ mod icons;
 mod nav;
 mod screens;
 mod ui;
+mod update;
 mod verdict;
 
 fn main() {

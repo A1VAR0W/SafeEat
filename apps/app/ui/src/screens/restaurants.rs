@@ -20,11 +20,20 @@ extern "C" {
         lng: f64,
         zoom: f64,
         on_move: &JsValue,
+        on_view: &JsValue,
         on_select: &JsValue,
         on_error: &JsValue,
     );
-    #[wasm_bindgen(js_namespace = seMap, js_name = setPlaces)]
-    fn map_set_places(json: &str);
+    #[wasm_bindgen(js_namespace = seMap, js_name = addArea)]
+    fn map_add_area(json: &str);
+    #[wasm_bindgen(js_namespace = seMap, js_name = setResults)]
+    fn map_set_results(json: &str);
+    #[wasm_bindgen(js_namespace = seMap, js_name = useResults)]
+    fn map_use_results(on: bool);
+    #[wasm_bindgen(js_namespace = seMap, js_name = setFilter)]
+    fn map_set_filter(value: &str);
+    #[wasm_bindgen(js_namespace = seMap, js_name = place)]
+    fn map_place(id: &str) -> String;
     #[wasm_bindgen(js_namespace = seMap, js_name = flyTo)]
     fn map_fly_to(lat: f64, lng: f64, zoom: f64);
     #[wasm_bindgen(js_namespace = seMap, js_name = fitPlaces)]
@@ -44,6 +53,79 @@ const FALLBACK: (f64, f64) = (40.4168, -3.7038);
 const MIN_AUTO_ZOOM: f64 = 11.0;
 /// Quiet time after the map stops before searching again (one request per gesture).
 const AUTO_DELAY_MS: u64 = 600;
+
+/// The map's pins come from areas this much wider and taller than the screen on each
+/// side (3 × 3 screens), loaded again only when the view nears the edge of what it has.
+const AREA_GROW: f64 = 1.0;
+/// Loads the next area once the view is within half a screen of the loaded edge.
+const AREA_MARGIN: f64 = 0.5;
+/// Below this zoom the map shows the clusters it already has and loads nothing.
+const AREA_MIN_ZOOM: f64 = 11.5;
+/// The server's limit for one area side, in degrees.
+const AREA_MAX_SPAN: f64 = 0.59;
+
+/// `[south, west, north, east]`.
+type Bounds = [f64; 4];
+
+fn grow(b: Bounds, k: f64) -> Bounds {
+    let h = (b[2] - b[0]) * k;
+    let w = (b[3] - b[1]) * k;
+    [b[0] - h, b[1] - w, b[2] + h, b[3] + w]
+}
+
+/// Keeps an area inside the server's limit (around its centre) and the world.
+fn cap(b: Bounds) -> Bounds {
+    let (lat, lng) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
+    let h = ((b[2] - b[0]) / 2.0).min(AREA_MAX_SPAN / 2.0);
+    let w = ((b[3] - b[1]) / 2.0).min(AREA_MAX_SPAN / 2.0);
+    [
+        (lat - h).max(-85.0),
+        (lng - w).max(-180.0),
+        (lat + h).min(85.0),
+        (lng + w).min(180.0),
+    ]
+}
+
+fn contains(outer: Bounds, inner: Bounds) -> bool {
+    outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3]
+}
+
+/// A pin the map loaded with its area (not necessarily in the list).
+#[derive(Deserialize)]
+struct AreaPlace {
+    id: String,
+    name: String,
+    lat: f64,
+    lng: f64,
+    support: GlutenSupport,
+}
+
+/// What the card over the map shows for the tapped pin.
+#[derive(Clone)]
+struct Preview {
+    id: String,
+    name: String,
+    support: GlutenSupport,
+    detail: String,
+}
+
+impl Preview {
+    fn from_restaurant(r: &Restaurant) -> Self {
+        Preview {
+            id: r.id.clone(),
+            name: r.name.clone(),
+            support: r.gluten_support,
+            detail: [
+                r.distance_m.map(distance),
+                (!r.address.is_empty()).then(|| r.address.clone()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
+        }
+    }
+}
 
 /// Approximate distance in metres (equirectangular; plenty for "has the view moved?").
 fn metres_between(a: (f64, f64), b: (f64, f64)) -> f64 {
@@ -126,20 +208,21 @@ async fn locate() -> Option<(f64, f64)> {
     None
 }
 
-fn places_json(items: &[Restaurant], highlight: Option<&str>) -> String {
-    let features: Vec<serde_json::Value> = items
+/// The list's restaurants as map pins (the same shape as the area's).
+fn places_json(items: &[Restaurant]) -> String {
+    let places: Vec<serde_json::Value> = items
         .iter()
         .filter_map(|r| {
-            let (lat, lng) = (r.latitude?, r.longitude?);
-            let in_chain = highlight.is_some() && r.chain.as_ref().map(|c| c.key.as_str()) == highlight;
             Some(serde_json::json!({
-                "type": "Feature",
-                "geometry": { "type": "Point", "coordinates": [lng, lat] },
-                "properties": { "id": r.id, "support": r.gluten_support.as_str(), "highlight": in_chain }
+                "id": r.id,
+                "name": r.name,
+                "lat": r.latitude?,
+                "lng": r.longitude?,
+                "support": r.gluten_support.as_str(),
             }))
         })
         .collect();
-    serde_json::json!({ "type": "FeatureCollection", "features": features }).to_string()
+    serde_json::Value::Array(places).to_string()
 }
 
 pub fn distance(m: f64) -> String {
@@ -170,7 +253,7 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let query = RwSignal::new(String::from(EVERYTHING));
     // The search field's text lives here so «Quitar búsqueda» can empty it.
     let text = RwSignal::new(String::new());
-    let selected = RwSignal::new(None::<Restaurant>);
+    let selected = RwSignal::new(None::<Preview>);
     let results = RwSignal::new(None::<Result<Vec<Restaurant>, Failure>>);
     let loading = RwSignal::new(false);
     let located = RwSignal::new(None::<bool>);
@@ -179,6 +262,57 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let searched_at = StoredValue::new(None::<(f64, f64)>);
     let too_far = RwSignal::new(false);
     let auto_timer = StoredValue::new(None::<leptos::prelude::TimeoutHandle>);
+    // Her position, for the distance on the card of a pin outside the list.
+    let me = StoredValue::new(None::<(f64, f64)>);
+    // Areas already on the map, the one on its way and whether the catalog covers it
+    // (outside it the pins are the list's results).
+    let loaded = StoredValue::new(Vec::<Bounds>::new());
+    let in_flight = StoredValue::new(None::<Bounds>);
+    let covered = RwSignal::new(None::<bool>);
+    let area_loading = RwSignal::new(false);
+
+    let load_area = move |view: Bounds, zoom: f64| {
+        if zoom < AREA_MIN_ZOOM {
+            return;
+        }
+        let need = cap(grow(view, AREA_MARGIN));
+        let have = loaded.with_value(|l| l.iter().any(|b| contains(*b, need)))
+            || in_flight.get_value().is_some_and(|b| contains(b, need));
+        if have {
+            return;
+        }
+        let want = cap(grow(view, AREA_GROW));
+        in_flight.set_value(Some(want));
+        area_loading.set(true);
+        spawn_local(async move {
+            let path = format!(
+                "/restaurants/area?south={:.4}&west={:.4}&north={:.4}&east={:.4}",
+                want[0], want[1], want[2], want[3]
+            );
+            let result = api::get::<serde_json::Value>(&path).await;
+            if in_flight.get_value() == Some(want) {
+                in_flight.set_value(None);
+                area_loading.set(false);
+            }
+            // A failure loads nothing: the next move asks again.
+            if let Ok(found) = result {
+                map_add_area(&found["items"].to_string());
+                loaded.update_value(|l| {
+                    l.push(want);
+                    let extra = l.len().saturating_sub(24);
+                    l.drain(..extra);
+                });
+                covered.set(found["covered"].as_bool());
+            }
+        });
+    };
+
+    // A typed search shows its results; browsing shows the whole area (or the list's
+    // places where the catalog has no data).
+    Effect::new(move |_| {
+        let typed = query.with(|q| q != EVERYTHING);
+        map_use_results(typed || covered.get() == Some(false));
+    });
 
     let shared = expect_context::<MapCenter>().0;
     let run = move |fit: bool| {
@@ -204,20 +338,19 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 return;
             }
             if let Ok(items) = &result {
-                let places = places_json(items, None);
-                map_set_places(&places);
-                // Frame the nearest few (a chain can have 50 venues across the region).
+                map_set_results(&places_json(items));
+                // A typed search: frame the nearest few (a chain can have 50 venues
+                // across the region); the card only stays if its place is a result.
                 if fit {
-                    map_fit_places(&places_json(&items[..items.len().min(FIT_NEAREST)], None));
-                }
-                // The preview card only stays if its place is still in the list.
-                let keep = selected.with_untracked(|s| {
-                    s.as_ref()
-                        .is_some_and(|s| items.iter().any(|r| r.id == s.id))
-                });
-                if !keep {
-                    selected.set(None);
-                    map_select("");
+                    map_fit_places(&places_json(&items[..items.len().min(FIT_NEAREST)]));
+                    let keep = selected.with_untracked(|s| {
+                        s.as_ref()
+                            .is_some_and(|s| items.iter().any(|r| r.id == s.id))
+                    });
+                    if !keep {
+                        selected.set(None);
+                        map_select("");
+                    }
                 }
             }
             results.set(Some(result));
@@ -256,15 +389,34 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 auto_timer.set_value(handle);
             },
         );
+        let on_view = Closure::<dyn FnMut(f64, f64, f64, f64, f64)>::new(
+            move |south, west, north, east, zoom: f64| load_area([south, west, north, east], zoom),
+        );
         let on_select = Closure::<dyn FnMut(String)>::new(move |id: String| {
             let found = results.with_untracked(|r| match r {
-                Some(Ok(items)) => items.iter().find(|x| x.id == id).cloned(),
+                Some(Ok(items)) => items
+                    .iter()
+                    .find(|x| x.id == id)
+                    .map(Preview::from_restaurant),
                 _ => None,
             });
+            // A pin of the area outside the list: what the map knows is enough.
+            let found = found.or_else(|| {
+                let place: AreaPlace = serde_json::from_str(&map_place(&id)).ok()?;
+                Some(Preview {
+                    detail: me
+                        .get_value()
+                        .map(|here| distance(metres_between(here, (place.lat, place.lng))))
+                        .unwrap_or_default(),
+                    id: place.id,
+                    name: place.name,
+                    support: place.support,
+                })
+            });
             match found {
-                Some(r) => {
-                    map_select(&r.id);
-                    selected.set(Some(r));
+                Some(p) => {
+                    map_select(&p.id);
+                    selected.set(Some(p));
                 }
                 None => nav.push(Route::Restaurant(id)),
             }
@@ -276,17 +428,20 @@ pub fn RestaurantsScreen() -> impl IntoView {
             FALLBACK.1,
             12.0,
             on_move.as_ref(),
+            on_view.as_ref(),
             on_select.as_ref(),
             on_error.as_ref(),
         );
         // The map lives for the whole app session.
         on_move.forget();
+        on_view.forget();
         on_select.forget();
         on_error.forget();
         spawn_local(async move {
             match locate().await {
                 Some((lat, lng)) => {
                     located.set(Some(true));
+                    me.set_value(Some((lat, lng)));
                     center.set_value((lat, lng));
                     map_fly_to(lat, lng, 14.0);
                 }
@@ -300,6 +455,7 @@ pub fn RestaurantsScreen() -> impl IntoView {
         spawn_local(async move {
             if let Some((lat, lng)) = locate().await {
                 located.set(Some(true));
+                me.set_value(Some((lat, lng)));
                 center.set_value((lat, lng));
                 map_fly_to(lat, lng, 14.0);
                 query.set(EVERYTHING.into());
@@ -318,7 +474,16 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 role="radio"
                 class:active=move || filter.get() == value
                 aria-checked=move || (filter.get() == value).to_string()
-                on:click=move |_| { filter.set(value); typed_search(); }
+                on:click=move |_| {
+                    filter.set(value);
+                    // The pins change at once; the list follows.
+                    map_set_filter(match value {
+                        Filter::All => "all",
+                        Filter::Options => "options",
+                        Filter::Dedicated => "dedicated",
+                    });
+                    typed_search();
+                }
             >
                 {label}
             </button>
@@ -337,6 +502,7 @@ pub fn RestaurantsScreen() -> impl IntoView {
     view! {
         <div class="map-wrap">
             <div class="map" node_ref=host></div>
+            <div class="map-progress" class:on=move || area_loading.get() || loading.get() aria-hidden="true"></div>
             <SuggestBox query=query text=text center=center on_search=Callback::new(move |_| typed_search()) />
             <div class="map-controls" class:lifted=move || selected.with(Option::is_some)>
                 <button class="icon-button raised" aria-label="Ir a mi ubicación" on:click=relocate>
@@ -352,12 +518,9 @@ pub fn RestaurantsScreen() -> impl IntoView {
                     <div class="map-preview raised" role="dialog" aria-label=r.name.clone()>
                         <button class="map-preview-body" on:click=move |_| nav.push(Route::Restaurant(id.clone()))>
                             <span class="row-title">{r.name.clone()}</span>
-                            <span class="muted small">
-                                {[r.distance_m.map(distance), (!r.address.is_empty()).then(|| r.address.clone())]
-                                    .into_iter().flatten().collect::<Vec<_>>().join(" · ")}
-                            </span>
+                            {(!r.detail.is_empty()).then(|| view! { <span class="muted small">{r.detail.clone()}</span> })}
                             <span class="map-preview-foot">
-                                <span class=format!("badge {}", support_tone(r.gluten_support))>{r.gluten_support.label()}</span>
+                                <span class=format!("badge {}", support_tone(r.support))>{r.support.label()}</span>
                                 <span class="map-preview-open">"Ver ficha" <Icon svg=icons::CHEVRON /></span>
                             </span>
                         </button>
@@ -388,10 +551,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
             </Show>
             <div class="sheet-head">
                 <p class="muted small" role="status">
-                    {move || match (loading.get(), results.with(|r| r.as_ref().and_then(|r| r.as_ref().ok()).map(Vec::len))) {
-                        (true, _) => "Actualizando…".to_string(),
-                        (false, Some(n)) => format!("{n} {}", if n == 1 { "restaurante" } else { "restaurantes" }),
-                        (false, None) => String::new(),
+                    // The previous count stays while the list refreshes (no flicker).
+                    {move || match results.with(|r| r.as_ref().and_then(|r| r.as_ref().ok()).map(Vec::len)) {
+                        Some(n) => format!("{n} {} cerca", if n == 1 { "restaurante" } else { "restaurantes" }),
+                        None => String::new(),
                     }}
                 </p>
                 <Show when=move || query.with(|q| q != EVERYTHING)>
