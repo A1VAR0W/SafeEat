@@ -85,12 +85,13 @@ while IFS='|' read -r table constraint; do
   fi
 done < <(psql -c "SELECT conrelid::regclass, conname FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace")
 # VALIDATE only re-checks NOT VALID constraints; force a real check on the rest.
-orphans="$(psql -c "
-  SELECT count(*) FROM (
-    SELECT 1 FROM refresh_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE u.id IS NULL
-    UNION ALL SELECT 1 FROM user_product_verdicts v LEFT JOIN users u ON u.id=v.user_id WHERE u.id IS NULL
-    UNION ALL SELECT 1 FROM favorite_products f LEFT JOIN users u ON u.id=f.user_id WHERE u.id IS NULL
-  ) o")"
+# Only tables present in this backup (one taken before migration 011 has no verdicts).
+orphans=0
+for table in refresh_sessions user_product_verdicts favorite_products; do
+  [[ "$(psql -c "SELECT to_regclass('public.$table') IS NOT NULL")" == t ]] || continue
+  n="$(psql -c "SELECT count(*) FROM $table x LEFT JOIN users u ON u.id=x.user_id WHERE u.id IS NULL")"
+  orphans=$((orphans + n))
+done
 if [[ "$invalid" == 0 && "$orphans" == 0 ]]; then
   check "Integrity" "OK"
 else
