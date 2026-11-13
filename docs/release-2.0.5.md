@@ -4,16 +4,21 @@ Rama `claude/safeeat-2.0.5`. **Producción no se ha tocado** y `releases/latest.
 
 ## Descargas de preproducción
 
-- **iPhone (SideStore):** fuente `https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/preproduction.json`, que anuncia la 2.0.5.
-  - IPA `SafeEat-2.0.5-preproduction.ipa`: 7.823.050 bytes, `CFBundleVersion` 2.0.5.51, run 43441182427.
-  - SHA-256 `3e6926fa2dd9f7d6e75f8542eeb353cda0219796515bdab31faaf2e20fd3287b`.
-  - La copia del manifiesto anterior está en `preproduction.json.bak-2.0.4`.
+Compiladas del commit `bd303d9`, con el arreglo del lector de fotos. Sustituyen a las primeras compilaciones 2.0.5 de hoy, en las que la foto no se leía dentro de la app.
+
 - **Android:** `https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/SafeEat-2.0.5-preproduction.apk`
-  - 14.042.092 bytes, versionCode 2000043, run 43448179909 (commit `0af0b81`; solo cambia el flujo de CI y un texto de iOS respecto a `b93bbc2`).
-  - SHA-256 `0b8f3f1c08619225141edd73861804cc69d1e0aa423ebc29fb7e37c8a5e721ff`. Firmado con el mismo certificado que la app instalada.
-  - `preproduction-android.json` anuncia la 2.0.5, así que la 2.0.4 de preproducción la ofrece como actualización.
-- **CI:** run 43441153696 en verde.
-- **Corregido en el compilador de Android:** el paso que comprueba el certificado descargaba el APK de producción (129 MB) por el Funnel y falló dos veces por tiempo (unos 76 kB/s en ese momento). Ahora compara con la huella fijada, que he comprobado contra ese mismo APK.
+  - 14.058.476 bytes, versionCode 2000044, run 43452840377.
+  - SHA-256 `d92698bb8a3504f5dd3533d799d060a7e9a25fdcccd449bedc38623cc12ef2d6`.
+  - Firmado con el mismo certificado que la app instalada.
+  - `preproduction-android.json` la anuncia, así que una 2.0.4 de preproducción la ofrece como actualización.
+- **iPhone (SideStore):** fuente `https://chat-ink.tail552c89.ts.net:10000/safeeat-downloads/preproduction.json`.
+  - IPA `SafeEat-2.0.5-preproduction.ipa`: 7.824.029 bytes, `CFBundleVersion` 2.0.5.52, run 43452845920.
+  - SHA-256 `b2e0ec5cfaf5323a01a5b57fefda2c0f4bb30eebde717763ee866bf6ab3b412b`.
+  - La copia del manifiesto anterior está en `preproduction.json.bak-2.0.4`.
+- **CI:** run 43452847727 en verde.
+- **Corregido en el compilador de Android:**
+  - El paso que comprueba el certificado descargaba el APK de producción (129 MB) por el Funnel. Falló dos veces por tiempo (unos 76 kB/s en ese momento).
+  - Ahora compara con la huella fijada, que he comprobado contra ese mismo APK.
 
 ## Novedades
 
@@ -63,6 +68,15 @@ Rama `claude/safeeat-2.0.5`. **Producción no se ha tocado** y `releases/latest.
 - **Restaurantes en preproducción:**
   - Importados `spain` (153 698 locales) y `canarias` (9 726) en unos 10 minutos, con descarga incluida (1,4 GB).
   - Cubiertas en el mapa: Madrid, Getafe, Barcelona, Valencia, Sevilla, Málaga, Bilbao, Zaragoza, Toledo, Molina de Aragón, Riaza, Las Palmas, Santa Cruz de Tenerife y Palma. Lisboa, no.
+- **Emulador Android (APK versionCode 2000044 instalado encima de la 2.0.4):**
+  - Foto de una etiqueta elegida de la galería: texto leído sin errores, editable y con el aviso.
+  - Sin sesión pide iniciarla antes de analizar.
+  - Los chicles 8480000651471 salen en azul, como «sin gluten» según datos de la comunidad, sin verificar.
+  - Con el APK anterior (2000043) la misma foto daba «No se ha podido leer la foto». Ese fallo es el que corrige `bd303d9`.
+- **La app de producción (Expo 1.0.12) contra el servidor 2.0.5 de preproducción, en el emulador** (copia con la URL de preproducción y firmada con una clave de prueba):
+  - Búsqueda por nombre, ficha de producto, mapa de restaurantes, sugerencias, inicio de sesión y guardar un favorito funcionan. El favorito quedó en el servidor.
+  - La cuenta de prueba se borró al terminar.
+  - No probé la cámara del escáner (el emulador no tiene).
 - **Arnés de la UI en el navegador:**
   - OCR real de una etiqueta: leída sin errores en unos 3 s y sin ninguna petición externa. Una foto de ruido sale marcada como ilegible y no se puede confirmar.
   - Panel de administración.
@@ -96,8 +110,9 @@ Repetir los puntos 2, 5, 6, 8 y 9. En iOS, la cámara se abre desde el selector 
 
 ## Limitaciones conocidas
 
-- **Primer uso del OCR:** el lector ocupa unos 10 MB dentro de la app y la primera lectura carga el modelo de español. No lo he medido en un móvil real.
+- **Primer uso del OCR:** el lector ocupa unos 10 MB dentro de la app y la primera lectura carga el modelo de español. En el emulador tardó menos de 20 s; no lo he medido en un móvil real.
+- **OCR en iPhone:** nunca se ha ejecutado dentro de la app de iOS. Es el punto 2 de la lista del iPhone y el que más riesgo tiene.
 - **OCR:** solo modelo de español. Las etiquetas en otros idiomas se leen peor; el texto siempre se puede corregir.
 - **Enlace al fabricante:** solo para unas 35 marcas con web oficial conocida. Para el resto no aparece enlace.
-- **iOS, texto del permiso de cámara:** sigue diciendo que la cámara es para leer el código de barras. Ahora también se usa para la foto de los ingredientes. El texto ya está corregido en el código (`Info.ios.plist`), pero no entra en este IPA, sino en la próxima compilación.
+- **iOS, texto del permiso de cámara:** ahora explica también la foto de los ingredientes.
 - **La API 1.x** sigue teniendo los avisos de `npm audit` ya conocidos; es la que se usa para volver atrás.

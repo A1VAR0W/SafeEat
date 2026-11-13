@@ -4,7 +4,7 @@
 
 Desplegada en **preproducción** (`b93bbc2f57bd`, migraciones 015–018). Producción sin tocar.
 
-- APK 2.0.5 (versionCode 2000043) e IPA publicados en el canal de preproducción.
+- APK 2.0.5 (versionCode 2000044) e IPA publicados en el canal de preproducción, con el lector de fotos corregido (`bd303d9`) y comprobado en el emulador.
 - Catálogo `spain` + `canarias` importado en preproducción.
 - Pendiente: tus pruebas en los móviles y la autorización para producción.
   Novedades, pruebas hechas y lista de pruebas en móvil: [release-2.0.5.md](release-2.0.5.md).
