@@ -1,4 +1,4 @@
-# Análisis de gluten (motor 1.2.0, reglas 2026.11.13)
+# Análisis de gluten (motor 1.2.1, reglas 2026.11.13)
 
 Este documento explica cómo decide SafeEat 2.0 si un producto tiene gluten: el orden de
 las pruebas, el catálogo de reglas, el papel de la IA, la evaluación y sus límites.
@@ -201,9 +201,79 @@ Está en `apps/server/src/ai_check.rs`.
   - Su «sin gluten» nunca sustituye a una lista de Open Food Facts. Se anota como
     `OTHER_SOURCE_CLAIM`.
 
+## 5 bis. Varias listas del mismo producto (motor 1.2.1)
+
+Un registro puede traer la lista en varios idiomas, y SafeEat puede traducirla al español.
+Hasta la 1.2.0 se combinaban comparando la gravedad de los estados: un «sin gluten» se
+mantenía aunque otra lista del mismo producto no permitiera confirmarlo. Desde la 1.2.1 se
+reconcilian según la **procedencia** de cada texto (`Analysis::with_alternatives`):
+
+| Lista mostrada                  | Otra lista           | ¿La otra es evidencia?¹ | Resultado                                                                                               |
+| ------------------------------- | -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| contiene gluten                 | cualquiera           | —                       | contiene gluten                                                                                         |
+| sin gluten / sin datos / trazas | aviso más grave      | sí                      | el aviso (`TEXTS_DISAGREE`, contradictorio)                                                             |
+| sin gluten / sin datos          | aviso                | no (traducción)         | UNKNOWN contradictorio (`TRANSLATION_DISAGREES`): puede ser un error de traducción, pero nunca es verde |
+| trazas                          | gluten               | no (traducción)         | trazas + nota                                                                                           |
+| sin gluten                      | UNKNOWN              | sí                      | UNKNOWN contradictorio                                                                                  |
+| sin gluten                      | UNKNOWN              | no (traducción)         | sin gluten + nota (`TRANSLATION_NOT_DECISIVE`): decide el original                                      |
+| sin datos                       | UNKNOWN más prudente | cualquiera              | ese caso                                                                                                |
+| sin datos / trazas              | sin gluten           | cualquiera              | sin cambios (nunca más favorable)                                                                       |
+
+¹ Otra lista del mismo registro es texto de etiqueta. Una traducción automática solo es
+evidencia cuando el motor no lee el idioma original (todo salvo español e inglés), y
+entonces se anota `TRANSLATION_EVIDENCE`. La matriz completa está en los tests
+(`reconciliation_matrix`).
+
+### Listas incompletas
+
+El separador de ingredientes tiene límites para seguir siendo rápido y determinista: 200
+ingredientes, 16 KiB de texto y 3 niveles de ingredientes compuestos. Antes, lo que
+superaba el límite se perdía sin aviso. Ahora el resultado indica si la lista se ha
+truncado o tiene paréntesis sin cerrar:
+
+- **Truncada:** nunca se muestra el texto tranquilizador «no se han identificado
+  ingredientes con gluten», sino `INSUFFICIENT_INFORMATION` con `INCOMPLETE_LIST`. El
+  motor básico sigue leyendo el texto entero, así que un «trigo» más allá del límite se
+  sigue detectando.
+- **Paréntesis sin cerrar:** se avisa con `UNBALANCED_LIST`.
+
+### Procedencia y antigüedad
+
+- `assessment.provenance` dice quién respalda el estado:
+  - `MANUFACTURER`: fabricante.
+  - `EXTERNAL_DECLARATION`: base de datos alimentada por las marcas (USDA).
+  - `COMMUNITY`: colaboradores de Open Food Facts o usuarios.
+  - `AUTOMATIC`: lectura de SafeEat sin declaración.
+  - `INSUFFICIENT`: no hay información suficiente.
+
+  Un «sin gluten» de la comunidad se muestra como «según datos de la comunidad · sin
+  verificar», en color neutro y nunca en verde.
+
+- `product.freshness` es independiente del estado:
+  - `CURRENT`: datos actuales.
+  - `CACHED`: la fuente no responde y los datos guardados tienen menos de 7 días.
+  - `OUTDATED`: más de 7 días.
+  - `OLD_RULES`: analizado con reglas anteriores.
+
+  Con `OUTDATED` u `OLD_RULES`, un «sin gluten» no se presenta como confirmación actual
+  y sale del filtro «Solo sin gluten declarado». Un fallo de red nunca convierte nada en
+  aviso.
+
+- `product.dataUpdatedAt` es la fecha del dato en la fuente. `fetchedAt` es cuándo lo
+  consultó SafeEat.
+- **Veredictos personales:** guardan dos identidades. La de la formulación
+  (`ingredients_hash`) y la de la evidencia (`evidence_hash`: formulación, alérgenos,
+  trazas, declaraciones, procedencia y conclusión). Si cambia la evidencia, el veredicto
+  se conserva como historial, pero queda «pendiente de revisión» y deja de decidir el
+  color.
+- **Filtro «Solo sin gluten declarado»:** depende solo del análisis. Excluye los
+  productos con avisos de gluten de usuarios y los datos antiguos. Los productos
+  marcados como seguros por la usuaria tienen un filtro aparte, «Solo los que marqué
+  como seguros» (`mySafe=true`).
+
 ## 6. Versiones y caché
 
-- `assessment.engineVersion` es ahora `1.2.0+rules.2026.11.13`.
+- `assessment.engineVersion` es ahora `1.2.1+rules.2026.11.13`.
 - Un producto guardado con otra versión se trata así:
   - En lectura directa se vuelve a descargar.
   - En una búsqueda se muestra la vista previa nueva y se completa en segundo plano.
