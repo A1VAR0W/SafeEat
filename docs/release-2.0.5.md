@@ -1,6 +1,6 @@
 # SafeEat 2.0.5
 
-Rama `claude/safeeat-2.0.5`. **Servidor desplegado en producción el 13-11-2026** (ver [go-no-go-2.0.5.md](go-no-go-2.0.5.md)). Publicada el mismo día en las fuentes de SideStore y en los enlaces `SafeEat-latest.*`. `releases/latest.json` (el aviso de actualización en Android) sigue en la 1.0.12: falta el release `v2.0.5` de GitHub, ver más abajo.
+Rama `claude/safeeat-2.0.5`. **Servidor desplegado en producción el 13-11-2026** (ver [go-no-go-2.0.5.md](go-no-go-2.0.5.md)). Publicada el mismo día: aviso de actualización en Android (`releases/latest.json`), fuentes de SideStore y enlaces `SafeEat-latest.*`.
 
 ## Descargas de producción
 
@@ -20,7 +20,9 @@ Compiladas del commit `0f343c8` (mismo código de la app que `bd303d9`), apuntan
 
 - **iPhone:** `production.json`, `safeeat.json` y `SafeEat-latest.ipa` pasan a la 2.0.5. SideStore la ofrecerá como actualización.
 - **Android, descarga manual:** `SafeEat-latest.apk` → `releases/SafeEat-2.0.5.apk` (mismo APK).
-- **Android, aviso dentro de la app: pendiente.** La app 1.0.12 solo acepta un `latest.json` con el `id` y la dirección de un release de GitHub `v2.0.5` publicado. Crear ese release público no estaba permitido desde aquí. Hasta entonces, `latest.json` sigue anunciando la 1.0.12 y nadie recibe el aviso.
+- **Android, aviso dentro de la app:** release de GitHub [`v2.0.5`](https://github.com/A1VAR0W/SafeEat/releases/tag/v2.0.5) (id 444553219, sobre `0f343c8`, con `SafeEat-2.0.5.apk`; el resumen de GitHub coincide con el SHA-256). `releases/latest.json` lo anuncia con versionCode 2000045.
+  - Comprobado con el código real de la 1.0.12 (`availableUpdate` de `apps/mobile/src/updates/model.ts`): ofrece la 2.0.5, no obligatoria. La 2.0.5 no se ofrece a sí misma.
+  - La etiqueta lanzó el job `build` de `android-builder.yml` (run 43477111816). Falló, como se esperaba, en «Validate release tag» (la app Expo es la 1.0.13) y no publicó nada.
 - **Copias de lo anterior:** `*.bak-1.0.12-20261113` junto a cada fichero (`releases/latest.json`, `production.json`, `safeeat.json`, `SafeEat-latest.ipa`). El enlace `releases/latest.apk` apuntaba a `SafeEat-1.0.12.apk`.
 
 ## Descargas de preproducción

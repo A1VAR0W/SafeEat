@@ -130,7 +130,7 @@ Autorizado por el propietario. Las pruebas en los móviles físicos **no** se ha
    - La segunda opinión local por IA (llama.cpp) **no** está activada en producción (`AI_LOCAL_URL` no está en su `.env`), a diferencia de preproducción. La app funciona sin ella.
    - HallowFest: 502 antes y después, como ya estaba.
 5. **Restaurantes:** `spain` (153 698) y `canarias` (9 726) importados, con su límite. Cubiertas las mismas ciudades que en preproducción, Lisboa no. Mismos recuentos que preproducción (143 451 + 9 299 locales distintos).
-6. **Apps:** APK y IPA de producción subidos como descargas directas. Con una segunda autorización («Publica todo») se publicaron las fuentes de SideStore y los enlaces `SafeEat-latest.*`. El aviso de actualización de Android (`latest.json`) sigue pendiente del release de GitHub. Detalles en [release-2.0.5.md](release-2.0.5.md).
+6. **Apps:** APK y IPA de producción subidos como descargas directas. Con una segunda autorización («Publica todo») se publicaron las fuentes de SideStore y los enlaces `SafeEat-latest.*`. Con el permiso del propietario se creó el release `v2.0.5` de GitHub y se publicó `latest.json`, así que la app 1.0.12 de Android ofrece la 2.0.5. Detalles en [release-2.0.5.md](release-2.0.5.md).
 
 **Sin probar todavía en producción:** inicio de sesión con una cuenta real, escaneo con la cámara y la app 2.0.5 de producción en un móvil.
 
