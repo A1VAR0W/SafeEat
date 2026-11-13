@@ -11,19 +11,19 @@ La rama sale de `claude/safeeat-2.0-rust` (2.0.4) y tiene commits locales sin su
 
 ### Corregido, con test que reproduce el fallo
 
-| Id  | Problema comprobado                                                                                                      | Corrección                                                                                                                                             |
-| --- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2.1 | `is_gluten_free_choice` aceptaba cualquier producto con veredicto personal SAFE, también los que tienen gluten declarado | El filtro solo depende del análisis. Nuevo filtro `mySafe` («Solo los que marqué como seguros»). Test de todas las combinaciones de estado y veredicto |
-| 2.2 | `with_alternatives` mantenía `GLUTEN_FREE` aunque otra lista del registro diera `UNKNOWN`                                | Reconciliación por procedencia (motor 1.2.1). Tabla en GLUTEN-ANALYSIS §5 bis y test de matriz completa                                                |
-| 2.3 | Un «sin gluten» de la comunidad de Open Food Facts salía en verde                                                        | `assessment.provenance`. Si es de la comunidad se muestra «sin verificar» en color neutro                                                              |
-| 2.4 | El veredicto personal solo detectaba cambios en la lista, no en alérgenos, trazas o declaraciones                        | `evidence_hash` (migración 015, aditiva) y `evidenceChanged`. Aviso `EVIDENCE_CHANGED` entre descargas                                                 |
-| 2.5 | Los datos de caché servidos durante una caída del proveedor seguían en verde                                             | `product.freshness` y `dataUpdatedAt`. Aviso visible y sin verde si los datos son antiguos                                                             |
-| 2.6 | `MAX_ITEMS` y la profundidad cortaban la lista sin avisar                                                                | El separador indica truncado y paréntesis sin cerrar. Nunca se muestra el texto tranquilizador con lista incompleta                                    |
-| 4   | Un trabajo de IA de fondo (hasta 12 ingredientes × 300 s) retrasaba los productos abiertos                               | Cede el turno entre ingredientes, descarta trabajos obsoletos y reintenta en su propia cola. Métricas por cola                                         |
-| 5.1 | La cobertura se deducía de que hubiera un local a menos de 15 km del centro                                              | Celdas de 0,25° por región importada (migración 016) y porcentaje del área cubierta. Aviso «no tenemos datos» distinto de «no hay restaurantes»        |
-| 5.2 | Las etiquetas de restaurantes no decían quién las respalda                                                               | `supportSource` y la línea «Según …». La fusión de reseñas es una función pura con tests de contradicciones                                            |
-| 8   | `pg_restore --list` no demuestra que una copia se pueda restaurar                                                        | `scripts/verify-backup-restore.sh` (restauración aislada) y `docs/backup-recovery.md`                                                                  |
-| 9   | CI en rojo: `cargo fmt` en la app y Prettier en 2 ficheros                                                               | Corregido y comprobado en local                                                                                                                        |
+| Id  | Problema comprobado                                                                                                      | Corrección                                                                                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1 | `is_gluten_free_choice` aceptaba cualquier producto con veredicto personal SAFE, también los que tienen gluten declarado | El filtro solo depende del análisis. Nuevo filtro `mySafe` («Solo los que marqué como seguros»). Test de todas las combinaciones de estado y veredicto                 |
+| 2.2 | `with_alternatives` mantenía `GLUTEN_FREE` aunque otra lista del registro diera `UNKNOWN`                                | Reconciliación por procedencia (motor 1.2.1). Tabla en GLUTEN-ANALYSIS §5 bis y test de matriz completa                                                                |
+| 2.3 | Un «sin gluten» de la comunidad de Open Food Facts salía en verde                                                        | `assessment.provenance`. Si es de la comunidad se muestra «sin verificar» en color neutro (resumen y tarjeta del análisis)                                             |
+| 2.4 | El veredicto personal solo detectaba cambios en la lista, no en alérgenos, trazas o declaraciones                        | `evidence_hash` (migración 015, aditiva) y `evidenceChanged`. Aviso `EVIDENCE_CHANGED` entre descargas                                                                 |
+| 2.5 | Los datos de caché servidos durante una caída del proveedor seguían en verde                                             | `product.freshness` (solo cuando el proveedor falla, por antigüedad) y `dataUpdatedAt`. Aviso junto al veredicto y sin verde, también en la tarjeta del análisis       |
+| 2.6 | `MAX_ITEMS` y la profundidad cortaban la lista sin avisar                                                                | El separador indica truncado y paréntesis sin cerrar. Nunca se muestra el texto tranquilizador con lista incompleta                                                    |
+| 4   | Un trabajo de IA de fondo (hasta 12 ingredientes × 300 s) retrasaba los productos abiertos                               | Cede el turno entre ingredientes, descarta trabajos obsoletos y reintenta en su propia cola. Métricas por cola                                                         |
+| 5.1 | La cobertura se deducía de que hubiera un local a menos de 15 km del centro                                              | Celdas de 0,1° con al menos un local, por región importada (migración 016), y porcentaje del área cubierta. Aviso «no tenemos datos» distinto de «no hay restaurantes» |
+| 5.2 | Las etiquetas de restaurantes no decían quién las respalda                                                               | `supportSource` y la línea «Según …». La fusión de reseñas es una función pura con tests de contradicciones                                                            |
+| 8   | `pg_restore --list` no demuestra que una copia se pueda restaurar                                                        | `scripts/verify-backup-restore.sh` (restauración aislada) y `docs/backup-recovery.md`                                                                                  |
+| 9   | CI en rojo: `cargo fmt` en la app y Prettier en 2 ficheros                                                               | Corregido y comprobado en local                                                                                                                                        |
 
 ### Validación (en este PC)
 
@@ -31,11 +31,11 @@ Todo lo siguiente ha pasado sin errores ni avisos:
 
 - Rust: `cargo fmt --check` y `cargo clippy -D warnings` en los dos workspaces.
 - `cargo test --workspace`: contratos 3, motor 42, golden 1, propiedades 8 (miles de casos generados con semilla fija), servidor 53, normalización 4.
-- `cargo test -p safeeat-ui`: 14.
+- `cargo test -p safeeat-ui`: 15.
 - `trunk build --release` y `clippy` de la shell de Tauri.
 - Node: `npm run format:check`, `lint`, `typecheck` y `npm test` (208 tests).
 - `check-workflows` y los tests del publicador de versiones.
-- Migraciones 015 y 016: aplicadas en PRE dentro de `BEGIN … ROLLBACK`. Madrid sale cubierto al 100 %, la costa de Málaga y el mar al 0 % (PRE solo tiene importada la región de Madrid), y la consulta por punto usa el índice GiST en 0,5 ms.
+- Migraciones 015 y 016: aplicadas en PRE dentro de `BEGIN … ROLLBACK` (PRE solo tiene importada la región de Madrid, 94 celdas). Madrid, Aranjuez y la Sierra Norte salen cubiertos al 100 %; Toledo, Guadalajara, Segovia, Málaga y el mar al 0 %. Una primera versión con celdas de 0,25° y un anillo de vecinas daba Toledo, Guadalajara y Segovia al 100 % sin ningún local: se descartó. Las consultas nuevas del código (`coverage`, `evidence_hash`, `trusted`) se ejecutaron tal cual en PRE, también con `ROLLBACK`.
 - Evaluación del motor 1.2.1, sin regresión frente a la 1.2.0:
   - 0/83 falsos negativos peligrosos y 0/60 falsos positivos.
   - 58 % de UNKNOWN.
@@ -47,6 +47,7 @@ Todo lo siguiente ha pasado sin errores ni avisos:
 - Ninguna prueba en un teléfono real (Android ni iPhone).
 - `verify-backup-restore.sh` no se ha ejecutado contra una copia real.
 - La IA de extremo a extremo en el servidor.
+- No hice las fases 6 (paridad con Expo), 10 (validación con un conjunto independiente de productos reales) y 11 (arquitectura). La fase 7 (seguridad) fue una revisión de código con búsquedas, no una auditoría con herramientas: `cargo audit` no está instalado.
 
 ### Riesgos y pendientes
 
@@ -54,6 +55,10 @@ Todo lo siguiente ha pasado sin errores ni avisos:
 - **`npm audit`:** vulnerabilidades en dependencias de la API TypeScript 1.x (fast-jwt, fast-uri, decode-uri-component, deepmerge). No se han tocado; revisar si producción sigue usando esa API.
 - **Copia externa cifrada:** preparada pero no activada. Necesita una clave y un destino que solo puede elegir el propietario.
 - **Restaurantes en zonas sin catálogo:** la parte sin datos se avisa, pero no se rellena con un proveedor externo (se evita cargar Overpass).
+- **Clientes antiguos:** la app 2.0.4 y la Expo 1.x ignoran `provenance` y `freshness`. Siguen mostrando en verde un «sin gluten» de la comunidad, y su filtro «sin gluten declarado» lo incluye. Solo se corrige al instalar una versión nueva.
+- **Cola de IA:** un trabajo de fondo cede el turno entre ingredientes, pero un trabajo prioritario sigue esperando a que termine la petición que ya está en curso (hasta 300 s).
+- **CI remoto:** sigue en rojo en GitHub hasta que se suba esta rama; las correcciones solo están comprobadas en local.
+- **Actualizador Android:** el `latest.json` no va firmado; se confía en TLS y en el host fijo. Lo que limita el riesgo es que el APK descargado debe tener el mismo certificado de firma, un `versionCode` mayor y el SHA-256 anunciado.
 - **Funciones de paridad con Expo pendientes:** OCR, fotos con IA, panel de administración, modo sin conexión, enlaces profundos y escaneo continuo.
 
 ## App 2.0.4 (13-11-2026, publicada en preproducción)

@@ -27,6 +27,29 @@ pub fn not_current(p: &Product) -> bool {
     matches!(p.freshness, Some(Freshness::Outdated | Freshness::OldRules))
 }
 
+/// Tone of the analysis card: never green for a community claim or old information
+/// (the same rule as the one-line summary).
+pub fn analysis_tone(p: &Product) -> Tone {
+    if p.assessment.status == GlutenStatus::GlutenFree
+        && (community_claim(&p.assessment) || not_current(p))
+    {
+        Tone::Info
+    } else {
+        status_tone(p.assessment.status)
+    }
+}
+
+/// Title of the analysis card, saying who stands behind a "sin gluten".
+pub fn analysis_heading(p: &Product) -> &'static str {
+    if community_claim(&p.assessment) {
+        "«Sin gluten» según datos de la comunidad, sin verificar"
+    } else if p.assessment.status == GlutenStatus::GlutenFree && not_current(p) {
+        "Sin gluten declarado en datos antiguos, sin actualizar"
+    } else {
+        analysis_title(&p.assessment)
+    }
+}
+
 /// Banner text when the information shown is not current, independent of the status.
 pub fn freshness_notice(p: &Product) -> Option<&'static str> {
     match p.freshness {
@@ -674,6 +697,23 @@ mod tests {
             p.assessment.provenance = Some(source);
             assert_eq!(summary(&p).tone, Tone::Safe, "{source:?}");
         }
+    }
+
+    #[test]
+    fn the_analysis_card_follows_the_same_rules() {
+        let mut p = product("GLUTEN_FREE");
+        assert_eq!(analysis_tone(&p), Tone::Safe);
+        p.assessment.provenance = Some(EvidenceSource::Community);
+        assert_eq!(analysis_tone(&p), Tone::Info);
+        assert!(analysis_heading(&p).contains("sin verificar"));
+        p.assessment.provenance = Some(EvidenceSource::Manufacturer);
+        p.freshness = Some(Freshness::Outdated);
+        assert_eq!(analysis_tone(&p), Tone::Info);
+        assert!(analysis_heading(&p).contains("antiguos"));
+        // Warnings keep their colour whatever the freshness.
+        let mut p = product("CONTAINS_GLUTEN");
+        p.freshness = Some(Freshness::Outdated);
+        assert_eq!(analysis_tone(&p), Tone::Danger);
     }
 
     /// Regression (audit 2.5): a cached product kept a plain green badge while the

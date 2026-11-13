@@ -389,30 +389,36 @@ pub fn evidence_hash(product: &Product) -> String {
 /// Cache older than this, served because the source failed, is not current.
 const CACHED_DAYS: i64 = 7;
 
-/// How current a product's information is, independent of its gluten status.
-fn freshness(item: &Product) -> Freshness {
-    if item.user_created
-        || item
-            .assessment
-            .reasons
-            .iter()
-            .any(|r| r.code == "SEARCH_PREVIEW")
-    {
-        return Freshness::Current;
-    }
-    if outdated(item) {
-        return Freshness::OldRules;
-    }
-    if !item.stale {
-        return Freshness::Current;
-    }
-    let age = chrono::DateTime::parse_from_rfc3339(&item.fetched_at)
+/// Freshness of data served because the source could not be reached, by its age.
+fn cache_freshness(fetched_at: &str) -> Freshness {
+    let age = chrono::DateTime::parse_from_rfc3339(fetched_at)
         .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_days())
         .unwrap_or(i64::MAX);
     if age > CACHED_DAYS {
         Freshness::Outdated
     } else {
         Freshness::Cached
+    }
+}
+
+/// How current a product's information is, independent of its gluten status.
+///
+/// `Cached`/`Outdated` come only from `fetch` when the provider failed (`stale` alone
+/// also means "the 24 h cache period expired", which says nothing about the source:
+/// opening the product refreshes it). Older rules are `OldRules`.
+fn freshness(item: &Product) -> Freshness {
+    if let Some(f @ (Freshness::Cached | Freshness::Outdated)) = item.freshness {
+        return f;
+    }
+    let preview = item
+        .assessment
+        .reasons
+        .iter()
+        .any(|r| r.code == "SEARCH_PREVIEW");
+    if !item.user_created && !preview && outdated(item) {
+        Freshness::OldRules
+    } else {
+        Freshness::Current
     }
 }
 
@@ -859,9 +865,11 @@ async fn fetch(state: &AppState, code: &str, opened: bool) -> ApiResult<Product>
         },
         Err(error) if error.is_provider_unavailable() => {
             if let Some(row) = row.filter(|r| r.provider != "community" || contribution.is_some()) {
+                let stored = parse(row.data)?;
                 let item = Product {
                     stale: true,
-                    ..parse(row.data)?
+                    freshness: Some(cache_freshness(&stored.fetched_at)),
+                    ..stored
                 };
                 return Ok(contributed(state, item, contribution.as_ref()));
             }
@@ -1842,17 +1850,24 @@ mod tests {
     fn freshness_is_independent_of_the_status() {
         let mut item = with_status("Riz, sucre.", Some("sin gluten"));
         assert_eq!(freshness(&item), Freshness::Current);
-        item.stale = true;
         let days_ago = |d: i64| {
             (chrono::Utc::now() - chrono::Duration::days(d))
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
         };
-        item.fetched_at = days_ago(2);
-        assert_eq!(freshness(&item), Freshness::Cached);
-        item.fetched_at = days_ago(10);
+        // An expired 24 h cache period alone (favourites, search) is not old data.
+        item.stale = true;
+        item.fetched_at = days_ago(30);
+        item.freshness = Some(Freshness::Current);
+        assert_eq!(freshness(&item), Freshness::Current);
+        // Served because the provider failed: by age.
+        assert_eq!(cache_freshness(&days_ago(2)), Freshness::Cached);
+        assert_eq!(cache_freshness(&days_ago(10)), Freshness::Outdated);
+        assert_eq!(cache_freshness("not a date"), Freshness::Outdated);
+        item.freshness = Some(cache_freshness(&days_ago(10)));
         assert_eq!(freshness(&item), Freshness::Outdated);
         // Still GLUTEN_FREE: an old cache never turns into a warning by itself.
         assert_eq!(item.assessment.status, GlutenStatus::GlutenFree);
+        item.freshness = Some(Freshness::Current);
         item.assessment.engine_version = "1.1.0".into();
         assert_eq!(freshness(&item), Freshness::OldRules);
     }

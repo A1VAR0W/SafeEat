@@ -8,7 +8,7 @@ use crate::icons;
 use crate::nav::{use_nav, use_session, Route};
 use crate::screens::community::{short_date, CommunityReviews, ProductReviewForm, ShareButton};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
-use crate::verdict::{self, status_title, status_tone, AiNote};
+use crate::verdict::{self, status_title, AiNote};
 
 fn path_for(id: &str) -> String {
     if id.bytes().all(|b| b.is_ascii_digit()) {
@@ -186,6 +186,14 @@ fn ProductDetail(
                 </div>
             </section>
 
+            // Old information is said next to the answer, never only inside a tab.
+            {verdict::freshness_notice(&p).map(|text| view! {
+                <div class="notice tone-caution" role="status">
+                    <Icon svg=icons::ALERT />
+                    <div class="notice-body"><p><strong>{text}</strong></p></div>
+                </div>
+            })}
+
             // A user's label raised the warning: say so next to the answer, never in a tab.
             {p.provider_assessment.clone().map(|a| view! {
                 <div class="notice tone-caution">
@@ -242,19 +250,12 @@ fn ProductDetail(
 #[component]
 fn AnalysisPart(product: Product) -> impl IntoView {
     let p = product;
-    let status = p.assessment.status;
-    let tone = status_tone(status);
+    let tone = verdict::analysis_tone(&p);
     let (level, level_why) = verdict::evidence_level(&p.assessment);
     let items = p.assessment.items.clone();
     view! {
         <div class="stack">
             // Certified seal / declaration, with where it comes from.
-            {verdict::freshness_notice(&p).map(|text| view! {
-                <div class="notice tone-caution" role="status">
-                    <Icon svg=icons::ALERT />
-                    <div class="notice-body"><p><strong>{text}</strong></p></div>
-                </div>
-            })}
             {p.assessment.certification.map(|c| view! {
                 <div class=if verdict::community_claim(&p.assessment) || verdict::not_current(&p) { "notice tone-info" } else { "notice tone-safe" }>
                     <Icon svg=icons::SEAL />
@@ -267,7 +268,7 @@ fn AnalysisPart(product: Product) -> impl IntoView {
             <section class=format!("card analysis {}", tone.class())>
                 <h3 class="card-title">
                     <span class="icon" inner_html=tone.icon()></span>
-                    {verdict::analysis_title(&p.assessment)}
+                    {verdict::analysis_heading(&p)}
                 </h3>
                 <ul class="reasons">
                     {p.assessment.reasons.iter().map(|r| view! { <li>{r.message.clone()}</li> }).collect_view()}

@@ -34,11 +34,12 @@ docker run -d --name "$name" --network "$network" \
   -e POSTGRES_DB=restorecheck \
   "$image" > /dev/null
 
+# Over TCP: the image's init phase only listens on the unix socket, then restarts.
 for _ in $(seq 1 60); do
-  docker exec "$name" pg_isready -U restorecheck -d restorecheck > /dev/null 2>&1 && break
+  docker exec "$name" pg_isready -h 127.0.0.1 -U restorecheck -d restorecheck > /dev/null 2>&1 && break
   sleep 1
 done
-docker exec "$name" pg_isready -U restorecheck -d restorecheck > /dev/null
+docker exec "$name" pg_isready -h 127.0.0.1 -U restorecheck -d restorecheck > /dev/null
 
 psql() { docker exec -i "$name" psql -v ON_ERROR_STOP=1 -qtA -U restorecheck -d restorecheck "$@"; }
 

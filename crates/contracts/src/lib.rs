@@ -873,10 +873,13 @@ mod tests {
             fetched_at: "t".into(),
             distance_m: None,
             has_local_review: None,
+            support_source: None,
         }));
         let json = serde_json::to_value(&share).unwrap();
         assert_eq!(json["type"], "restaurant");
         assert!(json["item"].get("latitude").is_none());
+        // Added in 2.0.5: omitted when unknown, so older clients see the same shape.
+        assert!(json["item"].get("supportSource").is_none());
     }
 
     /// Installed apps must keep reading products when the server adds new cases.
