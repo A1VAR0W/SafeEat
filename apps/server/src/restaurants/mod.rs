@@ -2,6 +2,7 @@
 //! chain suggestions first, nearest branches, chain pages and trusted-only chain reviews.
 
 pub mod catalog;
+pub mod details;
 pub mod reports;
 
 use std::collections::{HashMap, HashSet};
@@ -72,6 +73,9 @@ fn community(row: CommunityRow) -> Restaurant {
         phone: None,
         gluten_support: GlutenSupport::Unknown,
         support_source: Some(SupportSource::Insufficient),
+        category: None,
+        cuisine: None,
+        photo: None,
         community_created: Some(true),
         chain: None,
         review_group: None,

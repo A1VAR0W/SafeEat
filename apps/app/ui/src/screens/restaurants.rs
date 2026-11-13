@@ -1055,7 +1055,23 @@ pub fn RestaurantRow(item: Restaurant) -> impl IntoView {
     let id = item.id.clone();
     view! {
         <button class="row" on:click=move |_| nav.push(Route::Restaurant(id.clone()))>
-            <span class="thumb icon-thumb" inner_html=icons::STORE></span>
+            {match item.photo.clone() {
+                // Small Commons thumbnail when the venue has one; the icon otherwise or
+                // if it fails to load.
+                Some(p) => {
+                    let broken = RwSignal::new(false);
+                    view! {
+                        <span class="thumb photo-thumb" class:icon-thumb=move || broken.get()>
+                            {move || if broken.get() {
+                                view! { <span class="icon" inner_html=icons::UTENSILS></span> }.into_any()
+                            } else {
+                                view! { <img src=p.url.replace("width=640", "width=160") alt="" loading="lazy" decoding="async" on:error=move |_| broken.set(true) /> }.into_any()
+                            }}
+                        </span>
+                    }.into_any()
+                }
+                None => view! { <span class="thumb icon-thumb" inner_html=icons::UTENSILS></span> }.into_any(),
+            }}
             <span class="row-body">
                 <span class="row-title">{item.name.clone()}</span>
                 <span class="muted small">

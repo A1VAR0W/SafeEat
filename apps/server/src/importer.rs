@@ -10,6 +10,8 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tokio::io::AsyncBufReadExt;
 
+use crate::restaurants::details;
+
 static REGION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-z][a-z0-9_-]{1,40}$").unwrap());
 static WIKIDATA: Lazy<Regex> = Lazy::new(|| Regex::new(r"^Q\d+$").unwrap());
 const AMENITIES: &[&str] = &[
@@ -36,6 +38,9 @@ pub struct Record {
     pub gluten_tag: Option<String>,
     pub brand_wikidata: Option<String>,
     pub brand: Option<String>,
+    pub cuisine: Option<String>,
+    /// Wikimedia Commons file named by the venue's tags.
+    pub photo: Option<String>,
 }
 
 fn collect(value: &Value, pairs: &mut Vec<(f64, f64)>) {
@@ -143,6 +148,8 @@ pub fn record(feature: &Value) -> Option<Record> {
             .filter(|v| WIKIDATA.is_match(v))
             .map(str::to_string),
         brand: tag("brand").map(str::to_string),
+        cuisine: details::cuisine(tag("cuisine")),
+        photo: details::photo_file(tag("wikimedia_commons"), tag("image")),
     })
 }
 
@@ -156,10 +163,10 @@ async fn flush(
     }
     let col = |f: fn(&Record) -> Option<String>| batch.iter().map(f).collect::<Vec<_>>();
     sqlx::query(
-        "INSERT INTO incoming_restaurants(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata)
-         SELECT id,$1,name,address,category,ST_SetSRID(ST_MakePoint(lng,lat),4326)::geography,website,phone,gluten_tag,wikidata,brand,brand,wikidata
-         FROM UNNEST($2::text[],$3::text[],$4::text[],$5::text[],$6::float8[],$7::float8[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[])
-           AS t(id,name,address,category,lng,lat,website,phone,gluten_tag,wikidata,brand)
+        "INSERT INTO incoming_restaurants(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata,cuisine,photo)
+         SELECT id,$1,name,address,category,ST_SetSRID(ST_MakePoint(lng,lat),4326)::geography,website,phone,gluten_tag,wikidata,brand,brand,wikidata,cuisine,photo
+         FROM UNNEST($2::text[],$3::text[],$4::text[],$5::text[],$6::float8[],$7::float8[],$8::text[],$9::text[],$10::text[],$11::text[],$12::text[],$13::text[],$14::text[])
+           AS t(id,name,address,category,lng,lat,website,phone,gluten_tag,wikidata,brand,cuisine,photo)
          ON CONFLICT(id) DO NOTHING",
     )
     .bind(region)
@@ -174,6 +181,8 @@ async fn flush(
     .bind(col(|r| r.gluten_tag.clone()))
     .bind(col(|r| r.brand_wikidata.clone()))
     .bind(col(|r| r.brand.clone()))
+    .bind(col(|r| r.cuisine.clone()))
+    .bind(col(|r| r.photo.clone()))
     .execute(&mut **tx)
     .await?;
     batch.clear();
@@ -229,11 +238,12 @@ pub async fn import(db: &PgPool, region: &str, file: &Path) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     sqlx::query(
-        "INSERT INTO restaurant_catalog(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata)
-         SELECT id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata FROM incoming_restaurants
+        "INSERT INTO restaurant_catalog(id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata,cuisine,photo)
+         SELECT id,region,name,address,category,location,website,phone,gluten_tag,chain_key,chain_name,brand,brand_wikidata,cuisine,photo FROM incoming_restaurants
          ON CONFLICT(id) DO UPDATE SET region=EXCLUDED.region,name=EXCLUDED.name,address=EXCLUDED.address,category=EXCLUDED.category,
            location=EXCLUDED.location,website=EXCLUDED.website,phone=EXCLUDED.phone,gluten_tag=EXCLUDED.gluten_tag,chain_key=EXCLUDED.chain_key,
-           chain_name=EXCLUDED.chain_name,brand=EXCLUDED.brand,brand_wikidata=EXCLUDED.brand_wikidata,imported_at=now()",
+           chain_name=EXCLUDED.chain_name,brand=EXCLUDED.brand,brand_wikidata=EXCLUDED.brand_wikidata,cuisine=EXCLUDED.cuisine,
+           photo=EXCLUDED.photo,imported_at=now()",
     )
     .execute(&mut *tx)
     .await?;

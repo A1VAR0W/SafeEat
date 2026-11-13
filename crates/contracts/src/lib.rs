@@ -554,6 +554,27 @@ pub struct Restaurant {
     /// Who stands behind `gluten_support`. None of these is an audit of the kitchen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub support_source: Option<SupportSource>,
+    /// Kind of venue as tagged in OpenStreetMap (`restaurant`, `cafe`, `bar`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// First OpenStreetMap cuisine (`pizza`, `spanish`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cuisine: Option<String>,
+    /// A freely licensed photo named by the venue's own map data, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub photo: Option<RestaurantPhoto>,
+}
+
+/// A restaurant photo with where it comes from. Never a stock or invented picture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestaurantPhoto {
+    /// Scaled image to show.
+    pub url: String,
+    /// Page with the author and the licence.
+    pub page_url: String,
+    /// Short credit line ("Wikimedia Commons").
+    pub credit: String,
 }
 
 /// Provenance of a restaurant's gluten information. New variants read as `Other`.
@@ -881,6 +902,9 @@ mod tests {
             distance_m: None,
             has_local_review: None,
             support_source: None,
+            category: None,
+            cuisine: None,
+            photo: None,
         }));
         let json = serde_json::to_value(&share).unwrap();
         assert_eq!(json["type"], "restaurant");

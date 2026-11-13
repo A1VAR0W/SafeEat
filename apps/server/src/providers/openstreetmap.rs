@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use super::http::{provider_json, ProviderBudget, TtlCache};
 use crate::error::ApiError;
+use crate::restaurants::details;
 use crate::util::{now_iso, safe_http_url};
 
 const FOOD_TYPES: &str = "restaurant|cafe|fast_food|bar|pub|food_court|biergarten";
@@ -212,6 +213,10 @@ fn restaurant(input: Input) -> Restaurant {
         fetched_at: now_iso(),
         distance_m: None,
         has_local_review: None,
+        category: tag("amenity").or_else(|| tag("shop")).map(str::to_string),
+        cuisine: details::cuisine(tag("cuisine")),
+        photo: details::photo_file(tag("wikimedia_commons"), tag("image"))
+            .and_then(|f| details::photo(&f)),
     }
 }
 

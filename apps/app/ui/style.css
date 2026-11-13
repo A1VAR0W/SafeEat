@@ -1599,3 +1599,165 @@ body::before {
     transition: none;
   }
 }
+
+/* ---------- restaurant page ---------- */
+.place {
+  padding: 0;
+  overflow: hidden;
+  gap: 0;
+}
+.place-photo {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 16 / 9;
+  max-height: 200px;
+  width: 100%;
+  background: var(--line);
+}
+.place-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.place-photo figcaption {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 0.75rem;
+}
+.place-photo figcaption a {
+  color: #fff;
+}
+.place-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+}
+.place-icon {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  padding: 13px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.place-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.place-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.place-name {
+  font-size: 1.25rem;
+  line-height: 1.25;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+.place-address {
+  color: var(--text);
+}
+.verdict.compact {
+  padding: var(--space-3) var(--space-4);
+}
+.verdict.compact .verdict-icon {
+  width: 32px;
+  height: 32px;
+}
+.verdict.compact .verdict-text {
+  font-size: 1.125rem;
+}
+.verdict-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.verdict-note .icon,
+.verdict-note svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+/* Directions, call, web: one row of equal buttons, only the ones that exist. */
+.actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-2);
+}
+.action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 60px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+.action .icon,
+.action svg {
+  width: 22px;
+  height: 22px;
+}
+.action:active {
+  background: var(--accent-soft);
+}
+/* A card that starts folded (the restaurant review form). */
+.fold > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 28px;
+}
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+.fold > summary::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+.fold[open] > summary::after {
+  transform: rotate(-135deg);
+}
+.photo-thumb {
+  padding: 0;
+  overflow: hidden;
+  background: var(--line);
+}
+.photo-thumb img {
+  object-fit: cover;
+}
+.photo-thumb .icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

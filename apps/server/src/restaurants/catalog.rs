@@ -25,6 +25,9 @@ pub struct CatalogRow {
     pub chain_name: Option<String>,
     pub imported_at: String,
     pub distance_m: Option<f64>,
+    pub category: String,
+    pub cuisine: Option<String>,
+    pub photo: Option<String>,
 }
 
 /// `$2,$3` are longitude, latitude.
@@ -32,7 +35,7 @@ pub const POINT: &str = "ST_SetSRID(ST_MakePoint($2,$3),4326)::geography";
 
 pub fn fields(nearby: bool) -> String {
     format!(
-        "id,name,address,ST_Y(location::geometry) AS latitude,ST_X(location::geometry) AS longitude,website,phone,gluten_tag,chain_key,chain_name,{} AS imported_at,{} AS distance_m",
+        "id,name,address,ST_Y(location::geometry) AS latitude,ST_X(location::geometry) AS longitude,website,phone,gluten_tag,chain_key,chain_name,{} AS imported_at,{} AS distance_m,category,cuisine,photo",
         sql_iso("imported_at"),
         if nearby { format!("ST_Distance(location,{POINT})") } else { "NULL::float8".into() }
     )
@@ -96,6 +99,9 @@ pub fn restaurant(row: CatalogRow) -> Restaurant {
         fetched_at: row.imported_at,
         distance_m: row.distance_m.map(|d| d.round()),
         has_local_review: None,
+        category: Some(row.category).filter(|c| !c.is_empty()),
+        cuisine: row.cuisine.filter(|c| !c.is_empty()),
+        photo: row.photo.as_deref().and_then(super::details::photo),
     }
 }
 
