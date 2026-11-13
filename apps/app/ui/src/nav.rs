@@ -146,7 +146,10 @@ pub fn App() -> impl IntoView {
     provide_context(session);
     // The session survives closing the app: the shell keeps it in the device's
     // secure storage and gives back the signed-in user (never a token).
-    crate::api::on_session_expired(move || session.0.set(None));
+    crate::api::on_session_expired(move || {
+        crate::offline::clear();
+        session.0.set(None);
+    });
     leptos::task::spawn_local(async move {
         #[derive(serde::Serialize)]
         struct NoArgs {}

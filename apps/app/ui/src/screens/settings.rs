@@ -347,6 +347,7 @@ fn DeleteAccount() -> impl IntoView {
                 Ok(()) => {
                     // Session, cached favourites and history go with the account.
                     crate::history::clear();
+                    crate::offline::clear();
                     session.0.set(None);
                     nav.home();
                 }

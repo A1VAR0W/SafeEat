@@ -3,6 +3,7 @@ mod history;
 mod icons;
 mod manufacturer;
 mod nav;
+mod offline;
 mod screens;
 mod ui;
 mod update;

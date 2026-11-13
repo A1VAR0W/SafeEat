@@ -21,6 +21,9 @@ fn path_for(id: &str) -> String {
 #[component]
 pub fn ProductScreen(id: String) -> impl IntoView {
     let state = RwSignal::new(None::<Result<Product, Failure>>);
+    let session = use_session();
+    let copy_of = RwSignal::new(None::<f64>);
+    let wanted = StoredValue::new(id.clone());
     // Lives here because saving a review re-renders the whole detail.
     let review_saved = RwSignal::new(false);
     let part = RwSignal::new(Part::Analysis);
@@ -35,6 +38,23 @@ pub fn ProductScreen(id: String) -> impl IntoView {
             if let Ok(p) = &result {
                 crate::history::remember_product(p);
             }
+            // Offline: her saved copy, if this product is in «Guardados».
+            if let Err(e) = &result {
+                let user = session
+                    .0
+                    .try_with_untracked(|u| u.as_ref().map(|u| u.id.clone()))
+                    .flatten();
+                let copy = (e.status == 0)
+                    .then_some(user)
+                    .flatten()
+                    .and_then(|u| crate::offline::find(&u, &wanted.get_value()));
+                if let Some((at, p)) = copy {
+                    copy_of.try_set(Some(at));
+                    state.try_set(Some(Ok(p)));
+                    return;
+                }
+            }
+            copy_of.try_set(None);
             state.try_set(Some(result));
         });
     };
@@ -60,6 +80,17 @@ pub fn ProductScreen(id: String) -> impl IntoView {
     });
     view! {
         <Header title=title />
+        {move || copy_of.get().map(|at| view! {
+            <div class="stack">
+                <div class="notice tone-caution" role="status">
+                    <Icon svg=icons::ALERT />
+                    <div class="notice-body">
+                        <p>{crate::offline::notice(at)}</p>
+                        <button class="button ghost small" on:click=move |_| load()>"Reintentar"</button>
+                    </div>
+                </div>
+            </div>
+        })}
         {move || match state.get() {
             None => view! { <Loading label="Buscando el producto…" /> }.into_any(),
             Some(Err(e)) if e.status == 404 => view! {

@@ -152,6 +152,7 @@ pub fn ProfileScreen() -> impl IntoView {
     let logout = move |_| {
         spawn_local(async move {
             let _: Result<(), Failure> = api::invoke("logout", NoArgs {}).await;
+            crate::offline::clear();
             session.0.set(None);
             nav.back();
         });

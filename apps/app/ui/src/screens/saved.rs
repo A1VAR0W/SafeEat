@@ -95,6 +95,8 @@ fn SavedProducts() -> impl IntoView {
             }}
         </div>
         {move || match collections.get() {
+            // Offline: the list below explains it once, with its saved copy.
+            Some(Err(e)) if e.status == 0 => ().into_any(),
             Some(Err(e)) => view! { <ErrorBox message=e.message retry=Callback::new(move |_| load_collections()) /> }.into_any(),
             _ => ().into_any(),
         }}
@@ -128,6 +130,16 @@ fn SavedProducts() -> impl IntoView {
 #[component]
 fn ProductShelf(shelf: Shelf) -> impl IntoView {
     let state = RwSignal::new(None::<Result<Vec<Product>, Failure>>);
+    let session = use_session();
+    // Set when the list is the offline copy (when it was saved).
+    let copy_of = RwSignal::new(None::<f64>);
+    let list_name = match &shelf {
+        Shelf::Favorites => "favorites".to_string(),
+        Shelf::Safe => "safe".to_string(),
+        Shelf::Unsafe => "unsafe".to_string(),
+        Shelf::Collection(id) => format!("collection-{id}"),
+    };
+    let list_name = StoredValue::new(list_name);
     let cursor = RwSignal::new(None::<String>);
     let more_busy = RwSignal::new(false);
     let shelf = StoredValue::new(shelf);
@@ -172,8 +184,15 @@ fn ProductShelf(shelf: Shelf) -> impl IntoView {
                 }
             };
             more_busy.try_set(false);
+            let user = session
+                .0
+                .with_untracked(|u| u.as_ref().map(|u| u.id.clone()));
             match result {
                 Ok((items, next_cursor)) => {
+                    if let (None, Some(user)) = (&next, &user) {
+                        crate::offline::save(user, &list_name.get_value(), &items);
+                    }
+                    copy_of.try_set(None);
                     cursor.try_set(next_cursor);
                     if next.is_some() {
                         state.try_update(|s| {
@@ -186,7 +205,20 @@ fn ProductShelf(shelf: Shelf) -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    state.try_set(Some(Err(e)));
+                    let copy = (e.status == 0 && next.is_none())
+                        .then_some(user)
+                        .flatten()
+                        .and_then(|u| crate::offline::load(&u, &list_name.get_value()));
+                    match copy {
+                        Some(c) => {
+                            copy_of.try_set(Some(c.saved_at));
+                            cursor.try_set(None);
+                            state.try_set(Some(Ok(c.items)));
+                        }
+                        None => {
+                            state.try_set(Some(Err(e)));
+                        }
+                    }
                 }
             }
         });
@@ -215,6 +247,15 @@ fn ProductShelf(shelf: Shelf) -> impl IntoView {
     });
     view! {
         {note}
+        {move || copy_of.get().map(|at| view! {
+            <div class="notice tone-caution" role="status">
+                <Icon svg=icons::ALERT />
+                <div class="notice-body">
+                    <p>{crate::offline::notice(at)}</p>
+                    <button class="button ghost small" on:click=move |_| load(None)>"Reintentar"</button>
+                </div>
+            </div>
+        })}
         {move || match state.get() {
             None => view! { <Loading /> }.into_any(),
             Some(Err(e)) => view! { <ErrorBox message=e.message retry=Callback::new(move |_| load(None)) /> }.into_any(),
