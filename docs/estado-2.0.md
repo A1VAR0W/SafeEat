@@ -1,11 +1,36 @@
-# SafeEat 2.0: estado (noche del 12-11-2026)
+# SafeEat 2.0: estado (13-11-2026)
 
 Rama: `claude/safeeat-2.0-rust` (subida a GitHub, sin fusionar con `main`).
 **Producción no se ha tocado.** Solo está desplegada la **preproducción** (`:10000/preproduction`).
 Tampoco se ha publicado `latest.json` ni los manifiestos de SideStore.
 HallowFest ha devuelto 200 antes y después de cada despliegue.
 
-## Análisis de gluten 1.2.0 (13-11-2026, en la rama; sin desplegar)
+## App 2.0.4 (13-11-2026, publicada en preproducción)
+
+Incluye el análisis de gluten 1.2.0 (sección siguiente), el mapa nuevo y el actualizador de Android.
+
+- **Actualizaciones de Android desde la app:**
+  - Al abrir la app, y con «Buscar actualizaciones» en Tu cuenta y en el inicio de sesión, se comprueba si hay versión nueva.
+  - Descarga verificada (tamaño, SHA-256, paquete, versionCode y firma) e instalador de Android. La primera vez se explica el permiso de instalar.
+  - Detalles en [android-updates-2.0.md](android-updates-2.0.md). Para publicar: `scripts/publish-preproduction-android.sh`.
+  - La 2.0.2 no trae actualizador: **la 2.0.4 se instala a mano una vez**.
+- **Mapa de restaurantes:**
+  - `GET /api/v1/restaurants/area` devuelve todos los locales de una zona de unas 3×3 pantallas, con los favorables primero y comprimidos con gzip (unos 50 kB en el centro de Madrid).
+  - El mapa acumula los puntos y vuelve a pedir datos antes de llegar al borde; el filtro se aplica al instante.
+  - Los sitios con opciones sin gluten se dibujan como chinchetas azules con nombre y nunca se agrupan. Los sitios sin datos aparecen como puntos que se convierten en chinchetas pequeñas al acercarse.
+  - Cualquier punto abre su tarjeta. Se ocultan los puntos de interés del mapa base para que no salgan repetidos.
+- **Comprobado en PRE:**
+  - La migración 014 se aplica (1 nueva).
+  - Kimbo sale como UNKNOWN / `NO_GLUTEN_IDENTIFIED` con los dos textos pedidos.
+  - El llama.cpp desplegado acepta el esquema JSON nuevo: «goma xantana» da `KNOWN_SAFE_INGREDIENT` en unos 12 s.
+- **Corregido:** el trabajo de IA se encola después de guardar el producto. Antes, la fila de la cola podía fallar por la clave foránea.
+- **Publicado en preproducción:**
+  - APK `SafeEat-2.0.4-preproduction.apk`: 9.225.196 bytes, versionCode 2000041, run 43341048587. `preproduction-android.json` anuncia la 2.0.4.
+  - IPA `SafeEat-2.0.4-preproduction.ipa`: 3.003.024 bytes, run 43341052160. `preproduction.json` (SideStore) apunta a la 2.0.4; copia del anterior en `.bak-2.0.2`.
+- **Probado en el emulador:** con el APK 2.0.3 de CI la hoja aparece sola; se descarga y verifica, se pide el permiso de la primera vez, se instala y la app abre la 2.0.4 sin volver a ofrecerla.
+- **Sin probar:** un móvil real; el iPhone con SideStore.
+
+## Análisis de gluten 1.2.0 (13-11-2026, incluido en la 2.0.4)
 
 - **Error corregido:** Kimbo «Patatas fritas sabor a Toreras» (8410044005008) salía en
   ámbar con «La IA ve posible gluten». Ahora sale como **No verificado**, en gris, y explica
