@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde.workspace = true
 serde_json.workspace = true
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 tokio = { version = "1", features = ["sync"] }
 tauri-plugin-safeeat-secure = { path = "../plugins/secure" }
 tauri-plugin-safeeat-share = { path = "../plugins/share" }
