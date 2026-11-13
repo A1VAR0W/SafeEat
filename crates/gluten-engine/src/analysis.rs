@@ -196,7 +196,9 @@ fn classify_items(items: &[Item], eu: bool) -> Vec<ClassifiedItem> {
                         class: own.class,
                         rule: own.rule,
                         claims_gluten_free: own.claims_gluten_free,
-                        span: item.span,
+                        // The name only: masking an exempt name must not mask the
+                        // ingredients in its parenthesis.
+                        span: item.name_span,
                         children: Vec::new(),
                     },
                 );
@@ -344,9 +346,12 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
     let real_items = all_leaves
         .iter()
         .any(|i| i.class != IngredientClass::NotIngredient);
-    let mixed_with_table = all_leaves
-        .iter()
-        .any(|i| i.rule.is_some_and(|r| r.id == catalog::NUTRITION_TABLE.id));
+    // Also a warning with words of its own: what else it says is unknown.
+    let mixed_with_table = all_leaves.iter().any(|i| {
+        i.rule.is_some_and(|r| {
+            r.id == catalog::NUTRITION_TABLE.id || r.id == catalog::UNCLEAR_WARNING.id
+        })
+    });
 
     // The case the product falls in if it is (or ends up) UNKNOWN.
     let unknown_finding = if contradictory {
@@ -894,6 +899,33 @@ mod tests {
         // A real composition still decides ("galleta (harina de arroz, azúcar)").
         let a = run("Galleta (harina de arroz, azúcar), sal.");
         assert!(a.items.iter().all(|i| !i.text.starts_with("Galleta")));
+    }
+
+    #[test]
+    fn an_exempt_name_does_not_mask_its_parenthesis() {
+        let a = run("Jarabe de glucosa de trigo (con harina de cebada), sal.");
+        assert_eq!(a.status, GlutenStatus::ContainsGluten);
+        // The exemption still works on its own.
+        let a = run("Jarabe de glucosa de trigo, sal.");
+        assert_ne!(a.status, GlutenStatus::ContainsGluten);
+    }
+
+    #[test]
+    fn a_warning_with_unknown_words_never_reassures() {
+        let a =
+            run("Edulcorantes: maltitol, sorbitol. Contiene una fuente de fenilalanina zorvex.");
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        assert!(a.reasons.iter().any(|r| r.code == "MIXED_TEXT"));
+    }
+
+    #[test]
+    fn a_flavouring_is_still_listed() {
+        let a = run("Agua, aromatizantes.");
+        assert!(a
+            .items
+            .iter()
+            .any(|i| i.text == "aromatizantes" && i.rule.as_deref() == Some("flavouring")));
     }
 
     #[test]

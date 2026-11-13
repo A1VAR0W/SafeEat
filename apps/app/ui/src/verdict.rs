@@ -71,7 +71,13 @@ pub fn ingredient_groups(items: &[IngredientFinding]) -> Vec<IngredientGroup> {
         let at = match i.class {
             C::GlutenSource | C::LikelyGluten | C::Oats | C::NeedsOrigin => 0,
             C::Unrecognized | C::Other => 1,
-            C::NotIngredient if i.rule.as_deref() == Some("consumer-warning") => 3,
+            C::NotIngredient
+                if i.rule
+                    .as_deref()
+                    .is_some_and(|r| r.starts_with("consumer-warning")) =>
+            {
+                3
+            }
             C::NotIngredient => 4,
             _ => 2,
         };

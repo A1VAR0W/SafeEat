@@ -768,8 +768,8 @@ static DESCRIPTORS: Lazy<Regex> = Lazy::new(|| {
         r"antioxydants?|stabilisants?|edulcorants?|conservanti|emulsionanti|addensanti|coloranti|antiossidanti|",
         r"stabilizzanti|edulcoranti|correttori|acidita|konservierungsstoffe?|emulgatoren?|verdickungsmittel|",
         r"farbstoffe?|antioxidationsmittel|sauerungsmittel|sussungsmittel|stabilisatoren?|backtriebmittel|",
-        r"espessantes?|corantes?|acidificantes?|humidificantes?|revestimento|contem|aromatizantes?|",
-        r"edulcorante|ingredientes?|ingredients?|mono)\b",
+        r"espessantes?|corantes?|acidificantes?|humidificantes?|revestimento|contem|",
+        r"ingredientes?|ingredients?|mono)\b",
     ))
     .expect("valid regex")
 });
@@ -851,6 +851,16 @@ pub static CONSUMER_WARNING: Rule = Rule {
     class: NotIngredient,
     terms: &[],
     origins: "advertencia obligatoria de consumo (Reglamento (UE) 1169/2011, anexo III)",
+    sources: &[Eu1169],
+    ..BASE
+};
+
+/// A consumer warning with words that are not part of it: never reassuring.
+pub static UNCLEAR_WARNING: Rule = Rule {
+    id: "consumer-warning-unclear",
+    class: NotIngredient,
+    terms: &[],
+    origins: "advertencia de consumo mezclada con otro texto",
     sources: &[Eu1169],
     ..BASE
 };
@@ -1005,8 +1015,16 @@ pub fn set_aside(matcher: &str, classified: &Classification) -> Option<&'static 
         .iter()
         .filter(|w| !WARNING_WORDS.contains(&w.as_str()))
         .count();
-    (anchored && total <= 14 && foreign <= 2 && classified.matched.is_empty())
-        .then_some(&CONSUMER_WARNING)
+    if !(anchored && total <= 14 && foreign <= 2 && classified.matched.is_empty()) {
+        return None;
+    }
+    // Words outside the warning ("excessi", OCR noise or an ingredient): set apart
+    // but never reassuring.
+    Some(if foreign == 0 {
+        &CONSUMER_WARNING
+    } else {
+        &UNCLEAR_WARNING
+    })
 }
 
 /// Optimal string alignment distance: a swap of two letters ("espleta") counts as one.

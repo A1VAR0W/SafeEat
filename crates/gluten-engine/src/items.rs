@@ -71,6 +71,8 @@ pub(crate) struct Item {
     /// The parenthesis names only something added ("goma base (con antioxidante: ...)"),
     /// not the whole composition: the item's own name still counts.
     pub partial: bool,
+    /// Byte range of the item's name alone (before its first parenthesis).
+    pub name_span: (usize, usize),
 }
 
 static PERCENT: Lazy<Regex> = Lazy::new(|| {
@@ -466,12 +468,15 @@ fn build_item(
     }
     budget.left -= 1;
     let (span_start, span_end) = folded.original_range(start, end);
+    let name_end = groups.first().map_or(end, |g| g.0.clamp(start, end));
+    let name_span = folded.original_range(start, name_end);
     Some(Item {
         display,
         matcher,
         span: (span_start, span_end),
         children,
         partial,
+        name_span,
     })
 }
 
