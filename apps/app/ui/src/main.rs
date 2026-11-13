@@ -1,6 +1,7 @@
 mod api;
 mod history;
 mod icons;
+mod manufacturer;
 mod nav;
 mod screens;
 mod ui;

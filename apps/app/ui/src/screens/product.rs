@@ -402,6 +402,15 @@ fn Ingredients(product: Product) -> impl IntoView {
                         <p class="muted small">"No está comprobada por SafeEat ni por el fabricante. Compárala con el envase."</p>
                     </div>
                 })}
+            {product.brand.as_deref().and_then(|b| crate::manufacturer::search_url(b, &product.name)).map(|(domain, url)| view! {
+                <div class="manufacturer-link">
+                    <a class="button ghost small" href=url target="_blank" rel="noopener noreferrer">
+                        <Icon svg=icons::GLOBE />
+                        {format!("Buscar en {domain}")}
+                    </a>
+                    <p class="muted small">"Abre un buscador externo limitado a la web oficial de la marca. SafeEat no comprueba lo que encuentres allí: lo que vale es el envase."</p>
+                </div>
+            })}
         </section>
     }
 }

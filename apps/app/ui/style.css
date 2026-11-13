@@ -1970,3 +1970,14 @@ body::before {
   font: inherit;
   line-height: 1.45;
 }
+.manufacturer-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+}
+.manufacturer-link .button {
+  align-self: flex-start;
+}
