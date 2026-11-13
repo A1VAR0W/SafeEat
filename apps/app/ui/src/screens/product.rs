@@ -116,6 +116,7 @@ fn ProductDetail(
 ) -> impl IntoView {
     let p = product;
     let summary = verdict::summary(&p);
+    let brief = verdict::brief(&p, &summary);
     let reports = p.gluten_reports.unwrap_or_default();
     let opinions = reports.gluten_free + reports.contains_gluten;
     // Arrow keys move between tabs, as in any tab list.
@@ -180,6 +181,7 @@ fn ProductDetail(
                 <span class="verdict-icon" inner_html=summary.tone.icon()></span>
                 <div class="verdict-body">
                     <p class="verdict-text">{summary.text.clone()}</p>
+                    {brief.map(|b| view! { <p class="verdict-brief">{b}</p> })}
                     {summary.warning.map(|w| view! {
                         <p class="verdict-warning"><span class="icon" inner_html=icons::ALERT></span>{w}</p>
                     })}
@@ -252,7 +254,9 @@ fn AnalysisPart(product: Product) -> impl IntoView {
     let p = product;
     let tone = verdict::analysis_tone(&p);
     let (level, level_why) = verdict::evidence_level(&p.assessment);
-    let items = p.assessment.items.clone();
+    let groups = verdict::ingredient_groups(&p.assessment.items);
+    let reasons = verdict::shown_reasons(&p.assessment);
+    let has_details = !groups.is_empty() || !p.assessment.evidence.is_empty();
     view! {
         <div class="stack">
             // Certified seal / declaration, with where it comes from.
@@ -271,29 +275,38 @@ fn AnalysisPart(product: Product) -> impl IntoView {
                     {verdict::analysis_heading(&p)}
                 </h3>
                 <ul class="reasons">
-                    {p.assessment.reasons.iter().map(|r| view! { <li>{r.message.clone()}</li> }).collect_view()}
+                    {reasons.into_iter().map(|r| view! { <li>{r}</li> }).collect_view()}
                 </ul>
-                {(!p.assessment.evidence.is_empty()).then(|| view! {
-                    <details class="evidence">
-                        <summary>"¿En qué se basa?"</summary>
-                        <ul>
-                            {p.assessment.evidence.iter().map(|e| view! { <li>"«" {e.text.clone()} "»"</li> }).collect_view()}
-                        </ul>
-                    </details>
-                })}
-                {(!items.is_empty()).then(|| view! {
-                    <details class="evidence">
-                        <summary>"¿Cómo se ha clasificado cada ingrediente?"</summary>
-                        <ul>
-                            {items.iter().map(|i| view! {
-                                <li>{i.text.clone()} " · " <span class="muted">{verdict::class_label(i.class)}</span></li>
-                            }).collect_view()}
-                        </ul>
-                    </details>
-                })}
                 <p class="muted small">
                     "Evidencia: " <strong>{level}</strong> ". " {level_why}
                 </p>
+                {has_details.then(|| view! {
+                    <details class="evidence full-analysis">
+                        <summary>"Ver análisis completo"</summary>
+                        {groups.into_iter().map(|g| view! {
+                            <section class="analysis-group">
+                                <h4 class="group-title">{g.title} <span class="muted">{format!(" ({})", g.items.len())}</span></h4>
+                                <ul>
+                                    {g.items.into_iter().map(|(text, label)| view! {
+                                        <li>{text} {label.map(|l| view! { " · " <span class="muted">{l}</span> })}</li>
+                                    }).collect_view()}
+                                </ul>
+                            </section>
+                        }).collect_view()}
+                        {(!p.assessment.evidence.is_empty()).then(|| view! {
+                            <section class="analysis-group">
+                                <h4 class="group-title">"Lo que declara la fuente"</h4>
+                                <ul>
+                                    {p.assessment.evidence.iter().map(|e| view! { <li>"«" {e.text.clone()} "»"</li> }).collect_view()}
+                                </ul>
+                            </section>
+                        })}
+                        <p class="muted small">
+                            "Fuente: " {p.source.clone()} " · motor " {p.assessment.engine_version.clone()}
+                            ". El texto original está en la pestaña Ingredientes."
+                        </p>
+                    </details>
+                })}
             </section>
             // On-server AI second opinion (only when the analysis left it UNKNOWN).
             {verdict::ai_note(&p).map(|ai| view! { <AiCard ai=ai /> })}

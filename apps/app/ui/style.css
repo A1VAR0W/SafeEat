@@ -299,6 +299,25 @@ button {
   flex-direction: column;
   gap: var(--space-1);
 }
+.full-analysis[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.analysis-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.group-title {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+.analysis-group ul {
+  padding-left: 1.1em;
+  list-style: disc;
+  overflow-wrap: anywhere;
+}
 .source {
   text-align: center;
   padding: var(--space-2) 0;
@@ -1289,6 +1308,10 @@ li + li > .suggestion {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.verdict-brief {
+  font-size: 0.9375rem;
+  line-height: 1.4;
 }
 .verdict-warning {
   display: flex;

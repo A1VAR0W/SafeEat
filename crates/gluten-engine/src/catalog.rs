@@ -23,7 +23,7 @@ use regex::{Regex, RegexSet};
 pub use safeeat_contracts::IngredientClass;
 
 /// Catalog version. Part of every cached analysis and AI result identity.
-pub const RULES_VERSION: &str = "2026.11.13";
+pub const RULES_VERSION: &str = "2026.11.13.2";
 /// Date the whole catalog was last reviewed against its sources.
 pub const REVIEWED: &str = "2026-11-13";
 
@@ -233,8 +233,14 @@ pub static RULES: &[Rule] = &[
         (Fr, r"proteines?\s+de\s+(?:soja|pois|lait)"),
     ]),
     rule!("maltitol", GenerallyCompatible, [
-        (Es, r"(?:jarabe\s+de\s+)?maltitol|isomalt|isomaltulosa"),
-    ]),
+        // English first: "maltitol syrup" before the Spanish "maltitol".
+        (En, r"maltitol(?:\s+syrup)?|isomalt|polyols"),
+        (Es, r"(?:jarabe\s+de\s+)?maltitol(?:es)?|isomalt|isomaltulosa|polioles|polialcoholes"),
+        (Pt, r"(?:xarope\s+de\s+)?maltitol|maltitois|poliois"),
+    ],
+        origins = "almidón hidrolizado (maíz, trigo...) transformado en un poliol",
+        sources = &[Face, CoeliacUk],
+    ),
     // ---- 3. Gluten sources (also known to the core engine) -----------------------
     rule!("wheat", GlutenSource, [
         (Es, r"trigos?(?:\s+(?:duro|blando|integral|tierno))?|gluten(?:\s+de\s+trigo)?"),
@@ -600,9 +606,48 @@ pub static RULES: &[Rule] = &[
         sources = EXEMPT,
         note = Some("La maltodextrina no representa un motivo de alerta por gluten, aunque proceda del trigo."),
     ),
+    rule!("glycerol", GenerallyCompatible, [
+        (Es, r"glicerina|glicerol"),
+        (Pt, r"glicerina|glicerol"),
+        (En, r"glycerine?|glycerol"),
+        (Fr, r"glycerine|glycerol"),
+        (It, r"glicerina|glicerolo"),
+        (De, r"glyzerin|glycerin"),
+    ],
+        origins = "grasas vegetales o animales (E 422)",
+        sources = &[Face, CoeliacUk],
+    ),
+    rule!("glazing-waxes", GenerallyCompatible, [
+        (Es, r"ceras?\s+de\s+(?:carnauba|abejas?|candelilla)|goma\s+laca|shellac"),
+        (Pt, r"ceras?\s+de\s+(?:carnauba|abelhas?|candelila)|goma\s+laca"),
+        (En, r"(?:carnauba|candelilla)\s+wax|beeswax|shellac"),
+        (Fr, r"cires?\s+(?:de\s+)?(?:carnauba|candelilla|d\s+abeilles?)"),
+        (It, r"cera\s+(?:di\s+)?(?:carnauba|candelilla|d\s+api)"),
+        (De, r"carnaubawachs|candelillawachs|bienenwachs|schellack"),
+    ],
+        origins = "ceras vegetales o de abeja (E 901-E 904)",
+        sources = &[Face, CoeliacUk],
+    ),
+    rule!("gum-base", ContextDependent, [
+        (Es, r"gomas?\s+base|base\s+de\s+goma(?:\s+de\s+mascar)?|base\s+de\s+chicle"),
+        (Pt, r"gomas?\s+base|base\s+de\s+pastilha\s+elastica"),
+        (En, r"(?:chewing\s+)?gum\s+base"),
+        (Fr, r"gomme\s+base|base\s+de\s+gomme"),
+        (It, r"gomma\s+base"),
+        (De, r"kaumasse"),
+    ],
+        origins = "mezcla de polímeros, resinas y ceras cuya composición no se detalla",
+        context = Some(Context {
+            description: "En la UE, un componente de la goma base elaborado con un cereal con gluten debe destacarse; fuera de la UE no siempre",
+            outside_eu: NeedsOrigin,
+        }),
+        sources = &[Eu1169, Face],
+        note = Some("La goma base no detalla su composición; por sí sola no demuestra la presencia de gluten."),
+    ),
     rule!("sweeteners", GenerallyCompatible, [
-        (Es, r"sorbitol|xilitol|eritritol|manitol|sucralosa|aspartamo|acesulfamo(?:\s+k)?|sacarina|ciclamato|esteviol|glucosidos\s+de\s+esteviol|stevia"),
+        (Es, r"sorbitol|xilitol|eritritol|manitol|sucralosa|aspartamo|acesulfamo(?:\s+k)?|acesulfame(?:\s+k)?|sacarina|ciclamato|esteviol|glucosidos\s+de\s+esteviol|stevia"),
         (En, r"sorbitol|xylitol|erythritol|mannitol|sucralose|aspartame|acesulfame(?:\s+k)?|saccharin|cyclamate|steviol|stevia"),
+        (Pt, r"sorbitol|xilitol|eritritol|manitol|sucralose|aspartame|acessulfame(?:\s+k)?|acesulfame(?:\s+k)?|sacarina|ciclamato|glicosidos\s+de\s+esteviol|stevia"),
     ]),
     rule!("raising-agents", GenerallyCompatible, [
         (Es, r"levaduras?(?:\s+(?:de\s+panaderia|fresca|seca|quimica))?|gasificantes?|impulsor(?:es)?|bicarbonatos?(?:\s+(?:sodico|de\s+sodio|amonico))?"),
@@ -614,11 +659,12 @@ pub static RULES: &[Rule] = &[
         note = None,
     ),
     rule!("additives", GenerallyCompatible, [
-        (Es, r"(?:acido|acidos)\s+(?:citrico|ascorbico|lactico|acetico|malico|tartarico|sorbico|fosforico|grasos?)|citratos?|ascorbatos?|lactatos?|acetatos?|sorbatos?|benzoatos?|nitritos?|nitratos?|fosfatos?|difosfatos?|trifosfatos?|polifosfatos?|carbonatos?|sulfitos?|metabisulfitos?|glutamatos?|inosinatos?|guanilatos?|ribonucleotidos?|carragenanos?|carrageninas?|gomas?(?:\s+(?:xantana|guar|garrofin|arabiga|gellan|de\s+acacia|de\s+algarrobo))?|xantana|pectinas?|agar(?:\s+agar)?|alginatos?|gelatinas?|lecitinas?(?:\s+de\s+(?:soja|girasol|colza))?|digliceridos|monogliceridos|esteres|tocoferol(?:es)?|extracto\s+rico\s+en\s+tocoferoles|carotenos?|betacarotenos?|curcumina|carmin|cochinilla|clorofilas?|antocianinas?|riboflavina|caramelo|colorante\s+caramelo|celulosa|metilcelulosa|carboximetilcelulosa|konjac|glucomanano|cloruros?(?:\s+de\s+(?:sodio|potasio|calcio|magnesio))?|vitaminas?(?:\s+[a-z0-9]{1,3})?|calcio|hierro|zinc|magnesio|potasio|sodio|yodo|minerales|e\s?[0-9]{3}[a-z]?"),
-        (En, r"(?:citric|ascorbic|lactic|acetic|malic|tartaric|sorbic|phosphoric|fatty)\s+acids?|citrates?|ascorbates?|lactates?|phosphates?|carbonates?|sulphites?|sulfites?|glutamates?|(?:xanthan|guar|locust\s+bean|gellan|arabic|acacia)\s+gum|pectins?|alginates?|gelatine?|lecithins?|mono\s+and\s+diglycerides|tocopherols?|carotenes?|curcumin|carmine|caramel(?:\s+colou?r)?|cellulose|vitamins?(?:\s+[a-z0-9]{1,3})?|iron|calcium|zinc"),
+        (Es, r"(?:acido|acidos)\s+(?:citrico|ascorbico|lactico|acetico|malico|tartarico|sorbico|fosforico|grasos?)|citratos?|ascorbatos?|lactatos?|acetatos?|sorbatos?|benzoatos?|nitritos?|nitratos?|fosfatos?|difosfatos?|trifosfatos?|polifosfatos?|carbonatos?|sulfitos?|metabisulfitos?|glutamatos?|inosinatos?|guanilatos?|ribonucleotidos?|carragenanos?|carrageninas?|gomas?(?:\s+(?:xantana|guar|garrofin|arabiga|arabica|de\s+alfarroba|gelana|gellan|de\s+acacia|de\s+algarrobo))?|xantana|pectinas?|agar(?:\s+agar)?|alginatos?|gelatinas?|lecitinas?(?:\s+de\s+(?:soja|girasol|colza))?|digliceridos|monogliceridos|esteres|tocoferol(?:es)?|extracto\s+rico\s+en\s+tocoferoles|carotenos?|betacarotenos?|curcumina|carmin|cochinilla|clorofilas?|antocianinas?|riboflavina|caramelo|colorante\s+caramelo|celulosa|metilcelulosa|carboximetilcelulosa|konjac|glucomanano|cloruros?(?:\s+de\s+(?:sodio|potasio|calcio|magnesio))?|vitaminas?(?:\s+[a-z0-9]{1,3})?|calcio|hierro|zinc|magnesio|potasio|sodio|yodo|minerales|e\s?[0-9]{3}[a-z]?"),
+        (En, r"(?:citric|ascorbic|lactic|acetic|malic|tartaric|sorbic|phosphoric|fatty)\s+acids?|citrates?|ascorbates?|lactates?|phosphates?|carbonates?|sulphites?|sulfites?|glutamates?|gum\s+(?:arabic|acacia)|(?:xanthan|guar|locust\s+bean|gellan|arabic|acacia)\s+gum|pectins?|alginates?|gelatine?|lecithins?|mono\s+and\s+diglycerides|tocopherols?|carotenes?|curcumin|carmine|caramel(?:\s+colou?r)?|cellulose|vitamins?(?:\s+[a-z0-9]{1,3})?|iron|calcium|zinc"),
         (Fr, r"acide\s+(?:citrique|ascorbique|lactique)|gomme\s+(?:xanthane|guar|arabique)|pectine|gelatine|lecithines?|caramel|vitamines?(?:\s+[a-z0-9]{1,3})?"),
         (It, r"acido\s+(?:citrico|ascorbico|lattico)|gomma\s+(?:xantana|di\s+guar)|pectina|lecitina|caramello"),
         (De, r"(?:zitronen|citronen|ascorbin|milch)saure|xanthan|guarkernmehl|johannisbrotkernmehl|pektin|gelatine|lecithine?|karamell"),
+        (Pt, r"acidos?\s+(?:citrico|ascorbico|lactico|acetico|malico|tartarico|sorbico|fosforico)|citratos?|ascorbatos?|lactatos?|fosfatos?|carbonatos?|sulfitos?|tocoferois|tocoferol|extrato\s+rico\s+em\s+tocoferois|gomas?\s+(?:arabica|xantana|guar|de\s+alfarroba|gelana)|pectinas?|alginatos?|gelatina|lecitinas?(?:\s+de\s+(?:soja|girassol|colza))?|carrageninas?|caramelo|celulose|vitaminas?(?:\s+[a-z0-9]{1,3})?"),
     ],
         note = None,
     ),
@@ -722,7 +768,8 @@ static DESCRIPTORS: Lazy<Regex> = Lazy::new(|| {
         r"antioxydants?|stabilisants?|edulcorants?|conservanti|emulsionanti|addensanti|coloranti|antiossidanti|",
         r"stabilizzanti|edulcoranti|correttori|acidita|konservierungsstoffe?|emulgatoren?|verdickungsmittel|",
         r"farbstoffe?|antioxidationsmittel|sauerungsmittel|sussungsmittel|stabilisatoren?|backtriebmittel|",
-        r"espessantes?|corantes?|acidificantes?|ingredientes?|ingredients?|mono)\b",
+        r"espessantes?|corantes?|acidificantes?|humidificantes?|revestimento|contem|aromatizantes?|",
+        r"edulcorante|ingredientes?|ingredients?|mono)\b",
     ))
     .expect("valid regex")
 });
@@ -786,6 +833,181 @@ const GLUTEN_WORDS: &[&str] = &[
     "malteado",
     "glutine",
 ];
+
+/// Text in the ingredient field that is not an ingredient: a fragment of the
+/// nutrition table. Never decides anything; it only keeps the list readable.
+pub static NUTRITION_TABLE: Rule = Rule {
+    id: "nutrition-table",
+    class: NotIngredient,
+    terms: &[],
+    origins: "tabla de información nutricional copiada junto a los ingredientes",
+    ..BASE
+};
+
+/// A consumer warning required for some additives ("contiene una fuente de
+/// fenilalanina", "un consumo excesivo puede producir efectos laxantes").
+pub static CONSUMER_WARNING: Rule = Rule {
+    id: "consumer-warning",
+    class: NotIngredient,
+    terms: &[],
+    origins: "advertencia obligatoria de consumo (Reglamento (UE) 1169/2011, anexo III)",
+    sources: &[Eu1169],
+    ..BASE
+};
+
+/// Words found only in a nutrition table ("valor energético", "de las cuales").
+const TABLE_ONLY: &[&str] = &[
+    "energetico",
+    "energetica",
+    "energ",
+    "energia",
+    "kcal",
+    "kj",
+    "lipidos",
+    "saturadas",
+    "saturados",
+    "saturada",
+    "saturates",
+    "monoinsaturadas",
+    "poliinsaturadas",
+    "hidratos",
+    "carbohidratos",
+    "carboidratos",
+    "cuales",
+    "quais",
+    "polialcoholes",
+    "poliois",
+    "polyols",
+    "nutricional",
+    "nutricionales",
+    "nutrition",
+];
+/// Words a nutrition table shares with ingredient lists.
+const TABLE_TOO: &[&str] = &[
+    "valor",
+    "valores",
+    "grasas",
+    "gorduras",
+    "carbono",
+    "carbon",
+    "azucares",
+    "acucares",
+    "sugars",
+    "proteinas",
+    "protein",
+    "proteins",
+    "fibra",
+    "fibras",
+    "alimentaria",
+    "sal",
+    "salt",
+    "fat",
+    "fats",
+    "which",
+    "porcion",
+    "racion",
+];
+/// Words of a consumer warning.
+const WARNING_WORDS: &[&str] = &[
+    "contiene",
+    "contem",
+    "contains",
+    "una",
+    "uma",
+    "un",
+    "um",
+    "fuente",
+    "fonte",
+    "source",
+    "fenilalanina",
+    "phenylalanine",
+    "consumo",
+    "excesivo",
+    "excessivo",
+    "excessive",
+    "consumption",
+    "puede",
+    "pode",
+    "may",
+    "producir",
+    "provocar",
+    "ter",
+    "have",
+    "cause",
+    "efectos",
+    "efeitos",
+    "effects",
+    "laxantes",
+    "laxante",
+    "laxativos",
+    "laxativo",
+    "laxative",
+    "seu",
+    "su",
+    "its",
+    "an",
+];
+/// Words that never count either way.
+const FILLER: &[&str] = &[
+    "de", "del", "la", "el", "los", "las", "dos", "das", "da", "do", "e", "y", "o", "a", "of",
+    "the", "and", "por", "per", "en", "em", "g", "mg", "ml", "100",
+];
+
+fn words(matcher: &str) -> Vec<String> {
+    crate::normalize(matcher)
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty() && !FILLER.contains(w))
+        .map(str::to_string)
+        .collect()
+}
+
+/// For an item no rule could place (`Unrecognized`, nothing worse than a generally
+/// compatible ingredient matched): whether it is a nutrition-table fragment or a
+/// consumer warning instead of an ingredient. Cautious by construction: an item with
+/// a gluten word, a misread one, or any rule above "generally compatible" never
+/// qualifies, so setting it aside cannot hide a risk.
+pub fn set_aside(matcher: &str, classified: &Classification) -> Option<&'static Rule> {
+    if classified.class != Unrecognized
+        || classified
+            .matched
+            .iter()
+            .any(|r| severity(r.class) > severity(GenerallyCompatible))
+    {
+        return None;
+    }
+    let all = words(matcher);
+    if all.is_empty()
+        || all
+            .iter()
+            .any(|w| GLUTEN_WORDS.contains(&w.as_str()) || looks_like_gluten_word(w))
+    {
+        return None;
+    }
+    // Descriptors ("edulcorantes", "antioxidante") are neutral too.
+    let content: Vec<&String> = all.iter().filter(|w| !is_only_descriptors(w)).collect();
+    let total = content.len();
+    let table_only = content
+        .iter()
+        .filter(|w| TABLE_ONLY.contains(&w.as_str()))
+        .count();
+    let table = table_only
+        + content
+            .iter()
+            .filter(|w| TABLE_TOO.contains(&w.as_str()))
+            .count();
+    if table_only >= 2 && table * 3 >= total * 2 {
+        return Some(&NUTRITION_TABLE);
+    }
+    let anchored = content.iter().any(|w| {
+        w.starts_with("fenilalanin") || w.starts_with("phenylalanin") || w.starts_with("laxa")
+    });
+    let foreign = content
+        .iter()
+        .filter(|w| !WARNING_WORDS.contains(&w.as_str()))
+        .count();
+    (anchored && total <= 14 && foreign <= 2 && classified.matched.is_empty())
+        .then_some(&CONSUMER_WARNING)
+}
 
 /// Optimal string alignment distance: a swap of two letters ("espleta") counts as one.
 fn edit_distance(a: &str, b: &str) -> usize {
@@ -859,6 +1081,7 @@ pub fn severity(class: IngredientClass) -> u8 {
         LegalExemption => 3,
         GenerallyCompatible => 2,
         NaturallyGlutenFree => 1,
+        NotIngredient => 0,
     }
 }
 
@@ -973,6 +1196,108 @@ mod tests {
                     rule.id
                 );
             }
+        }
+    }
+
+    #[test]
+    fn chewing_gum_ingredients_in_three_languages() {
+        for (text, expected) in [
+            // Spanish
+            ("maltitoles", GenerallyCompatible),
+            ("jarabe de maltitol", GenerallyCompatible),
+            ("polialcoholes", GenerallyCompatible),
+            ("glicerina", GenerallyCompatible),
+            ("glicerol", GenerallyCompatible),
+            ("acido citrico", GenerallyCompatible),
+            ("acido malico", GenerallyCompatible),
+            ("acesulfamo k", GenerallyCompatible),
+            ("acesulfame k", GenerallyCompatible),
+            ("sucralosa", GenerallyCompatible),
+            ("cera de carnauba", GenerallyCompatible),
+            ("cera de abejas", GenerallyCompatible),
+            ("goma arabiga", GenerallyCompatible),
+            ("tocoferoles", GenerallyCompatible),
+            ("extracto rico en tocoferoles", GenerallyCompatible),
+            ("goma base", ContextDependent),
+            ("aromas", ContextDependent),
+            // Portuguese
+            ("maltitois", GenerallyCompatible),
+            ("poliois", GenerallyCompatible),
+            ("extrato rico em tocoferois", GenerallyCompatible),
+            ("acessulfame k", GenerallyCompatible),
+            ("sucralose", GenerallyCompatible),
+            ("goma arabica", GenerallyCompatible),
+            // English
+            ("maltitol syrup", GenerallyCompatible),
+            ("glycerol", GenerallyCompatible),
+            ("glycerine", GenerallyCompatible),
+            ("citric acid", GenerallyCompatible),
+            ("carnauba wax", GenerallyCompatible),
+            ("gum arabic", GenerallyCompatible),
+            ("tocopherols", GenerallyCompatible),
+            ("gum base", ContextDependent),
+        ] {
+            assert_eq!(class(text), expected, "{text}");
+        }
+        assert_eq!(
+            classify("cera de carnauba", true).rule.unwrap().id,
+            "glazing-waxes"
+        );
+        // Outside EU labelling a gum base says nothing about its components.
+        assert_eq!(classify("gum base", false).class, NeedsOrigin);
+    }
+
+    fn aside(text: &str) -> Option<&'static str> {
+        set_aside(text, &classify(text, true)).map(|r| r.id)
+    }
+
+    #[test]
+    fn nutrition_tables_and_warnings_are_not_ingredients() {
+        for (text, kind) in [
+            (
+                "Energético/Energ Grasas/Lipidos Edulcorantes",
+                "nutrition-table",
+            ),
+            (
+                "Hidratos de Carbono de los cuales Azúcares Polialcoholes Proteínas Sal",
+                "nutrition-table",
+            ),
+            ("Valor energético kJ kcal", "nutrition-table"),
+            ("Contiene una fuente de fenilalanina", "consumer-warning"),
+            ("Contém uma fonte de fenilalanina", "consumer-warning"),
+            ("Contains a source of phenylalanine", "consumer-warning"),
+            (
+                "Un consumo excesivo puede producir efectos laxantes",
+                "consumer-warning",
+            ),
+            (
+                "Excessive consumption may have laxative effects",
+                "consumer-warning",
+            ),
+        ] {
+            assert_eq!(aside(text), Some(kind), "{text}");
+        }
+    }
+
+    #[test]
+    fn setting_aside_never_hides_a_risk() {
+        // A gluten word, a misread one or an ambiguous ingredient keeps the item.
+        for text in [
+            "Grasas Lipidos Saturadas harina de trigo",
+            "Hidratos de carbono de los cuales azucares trigo",
+            "Energetico lipidos saturadas almidon",
+            "Hidratos de carbono de los cuales cebaba",
+            "Contiene una fuente de fenilalanina y malta",
+            "fenilalanina harlna",
+            "Grasas saturadas aromas",
+            // Real ingredients that only share words with a table.
+            "proteinas de leche",
+            "grasa vegetal",
+            "sal",
+            // Unknown words are not turned into a nutrition table either.
+            "grasas xyzolina fructina",
+        ] {
+            assert_eq!(aside(text), None, "{text}");
         }
     }
 

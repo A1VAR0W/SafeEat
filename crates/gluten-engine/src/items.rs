@@ -68,6 +68,9 @@ pub(crate) struct Item {
     /// Byte range of the whole item (children included) in the original text.
     pub span: (usize, usize),
     pub children: Vec<Item>,
+    /// The parenthesis names only something added ("goma base (con antioxidante: ...)"),
+    /// not the whole composition: the item's own name still counts.
+    pub partial: bool,
 }
 
 static PERCENT: Lazy<Regex> = Lazy::new(|| {
@@ -76,6 +79,11 @@ static PERCENT: Lazy<Regex> = Lazy::new(|| {
 /// A parenthesis that only names the cereal an ingredient comes from.
 static ORIGIN_ONLY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^\s*(?:(?:de|from|aus|di|du|do|da|von)\s+)?(?:trigo|wheat|ble|froment|frumento|grano|weizen|cebada|barley|orge|orzo|gerste|centeno|rye|seigle|segale|roggen|maiz|corn|maize|mais|milho|arroz|rice|riz|riso|reis|patata|potato|pomme de terre|kartoffel|tapioca|guisante|pea|avena|oats?|avoine|hafer|aveia|cevada|centeio)\s*$")
+        .expect("valid regex")
+});
+/// A parenthesis that lists only additions, not the composition.
+static ADDITION: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*(?:con|contiene|contem|com|with|contains|avec|contient|mit|enthalt)\b")
         .expect("valid regex")
 });
 /// Label prefix ("Ingredientes:") and sentences that are not ingredients.
@@ -402,6 +410,7 @@ fn build_item(
     }
     let mut children = Vec::new();
     let mut origins = Vec::new();
+    let mut partial = false;
     for (open, close) in groups {
         let inner_start = open + 1;
         let inner_end = (*close).min(end);
@@ -412,6 +421,7 @@ fn build_item(
         if inner.trim().is_empty() {
             continue;
         }
+        partial |= ADDITION.is_match(&inner);
         if ORIGIN_ONLY.is_match(&inner) {
             let (oa, ob) = folded.original_range(inner_start, inner_end);
             origins.push((
@@ -461,6 +471,7 @@ fn build_item(
         matcher,
         span: (span_start, span_end),
         children,
+        partial,
     })
 }
 

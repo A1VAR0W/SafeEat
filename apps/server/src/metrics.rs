@@ -48,11 +48,14 @@ fn with<T>(f: impl FnOnce(&mut Counters) -> T) -> T {
 }
 
 pub fn record_analysis(elapsed: Duration, analysis: &Analysis) {
-    let items = analysis.assessment.items.len() as u64;
-    let by_rules = analysis
+    // Nutrition-table fragments and warnings are not ingredients: left out of both.
+    let ingredients = analysis
         .assessment
         .items
         .iter()
+        .filter(|i| i.class != IngredientClass::NotIngredient);
+    let items = ingredients.clone().count() as u64;
+    let by_rules = ingredients
         .filter(|i| i.class != IngredientClass::Unrecognized)
         .count() as u64;
     with(|m| {

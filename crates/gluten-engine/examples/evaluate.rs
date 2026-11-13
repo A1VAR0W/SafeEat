@@ -190,10 +190,12 @@ fn main() {
             a.status,
             GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
         );
-        items += a.items.len();
-        recognised += a
+        let ingredients = a
             .items
             .iter()
+            .filter(|i| i.class != IngredientClass::NotIngredient);
+        items += ingredients.clone().count();
+        recognised += ingredients
             .filter(|i| i.class != IngredientClass::Unrecognized)
             .count();
         ai_items += analysis.ai_candidates.len();

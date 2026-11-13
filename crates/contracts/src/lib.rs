@@ -203,6 +203,9 @@ pub enum IngredientClass {
     NaturallyGlutenFree,
     /// Not in the catalog.
     Unrecognized,
+    /// Not an ingredient: a fragment of the nutrition table or a consumer warning
+    /// ("contiene una fuente de fenilalanina") that ended up in the ingredient text.
+    NotIngredient,
     #[serde(other)]
     Other,
 }

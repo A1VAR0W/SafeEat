@@ -33,13 +33,13 @@ pub fn provenance(a: &Assessment, declared_by: EvidenceSource) -> EvidenceSource
     }
 }
 
-use crate::catalog::{self, classify, is_only_descriptors, severity, RULES_VERSION};
+use crate::catalog::{self, classify, is_only_descriptors, set_aside, severity, RULES_VERSION};
 use crate::items::{self, Item};
 use crate::{assess_gluten, normalize, GlutenInput};
 
 /// Version of the analysis served by the API: engine layer + rule catalog. Cached
 /// analyses with any other version are recomputed.
-pub const ENGINE_VERSION: &str = "1.2.1+rules.2026.11.13";
+pub const ENGINE_VERSION: &str = "1.2.2+rules.2026.11.13.2";
 
 /// Labelling regime of the source. Under EU law (1169/2011 art. 21) any ingredient made
 /// from a gluten cereal must name it, which changes how vague words are read.
@@ -101,12 +101,65 @@ const CHECK_LABEL: &str = "Comprueba la información de alérgenos y posibles tr
 const UNDETERMINED: &str = "No se ha podido determinar la presencia de gluten.";
 const INCOMPLETE_LIST: &str = "La lista de ingredientes es demasiado larga o está incompleta: no se han podido revisar todos los ingredientes uno a uno. Revisa el envase.";
 const UNBALANCED_LIST: &str = "La lista tiene paréntesis sin cerrar: la composición de algún ingrediente compuesto puede no haberse interpretado bien.";
+const MIXED_TEXT: &str = "El texto de ingredientes está mezclado con la tabla nutricional u otra información del envase: puede que la lista no esté completa o no se haya leído bien. Revisa el envase.";
+const NO_LIST_FOUND: &str = "El texto disponible no contiene una lista de ingredientes reconocible (parece información nutricional o advertencias). Revisa el envase.";
+/// Unknown ingredients named in the explanation; the rest are counted.
+const UNRECOGNIZED_SHOWN: usize = 3;
+/// Longest name quoted in the explanation (characters).
+const NAME_CHARS: usize = 32;
+
+/// "acesulfamo Ky sucralosa" as written, or its first words and "…" when too long.
+fn short_name(name: &str) -> String {
+    let name = name.trim_matches(|c: char| c.is_whitespace() || "-.,;:".contains(c));
+    if name.chars().count() <= NAME_CHARS {
+        return name.to_string();
+    }
+    let mut out = String::new();
+    for word in name.split_whitespace() {
+        if out.chars().count() + word.chars().count() + 1 > NAME_CHARS {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    if out.is_empty() {
+        out = name.chars().take(NAME_CHARS).collect();
+    }
+    format!("{out}…")
+}
+
+/// "No reconocemos «a», «b» y «c»" or, for a long list, the count and three examples.
+fn unrecognized_message(names: &[String]) -> String {
+    let mut unique: Vec<String> = Vec::new();
+    for name in names {
+        let short = short_name(name);
+        if !short.is_empty() && !unique.iter().any(|u| u.eq_ignore_ascii_case(&short)) {
+            unique.push(short);
+        }
+    }
+    let quoted =
+        |list: &[String]| join_names(&list.iter().map(|u| format!("«{u}»")).collect::<Vec<_>>());
+    if unique.len() <= UNRECOGNIZED_SHOWN {
+        format!(
+            "No reconocemos {}. Compruébalo en el envase.",
+            quoted(&unique)
+        )
+    } else {
+        format!(
+            "No reconocemos {} ingredientes, entre ellos {}. Compruébalo en el envase.",
+            unique.len(),
+            quoted(&unique[..UNRECOGNIZED_SHOWN])
+        )
+    }
+}
 
 fn classify_items(items: &[Item], eu: bool) -> Vec<ClassifiedItem> {
     items
         .iter()
         .filter_map(|item| {
-            let children = classify_items(&item.children, eu);
+            let mut children = classify_items(&item.children, eu);
             if children.is_empty() && is_only_descriptors(&item.matcher) {
                 return None; // "antioxidante", "colorante": a function, not an ingredient
             }
@@ -114,18 +167,47 @@ fn classify_items(items: &[Item], eu: bool) -> Vec<ClassifiedItem> {
             if children.is_empty() && own.matched.is_empty() && own.leftover.is_empty() {
                 return None; // only a claim or descriptors ("Sin gluten.", "en polvo")
             }
+            if children.is_empty() {
+                if let Some(rule) = set_aside(&item.matcher, &own) {
+                    return Some(ClassifiedItem {
+                        display: item.display.clone(),
+                        class: IngredientClass::NotIngredient,
+                        rule: Some(rule),
+                        claims_gluten_free: own.claims_gluten_free,
+                        span: item.span,
+                        children,
+                    });
+                }
+            }
+            // "goma base (con antioxidante: ...)": the parenthesis is an addition, so
+            // the item's own name keeps its weight.
+            let own_counts = matches!(
+                own.class,
+                IngredientClass::GlutenSource | IngredientClass::Oats
+            ) || (item.partial
+                && (!own.matched.is_empty() || !own.leftover.is_empty()));
+            if item.partial && own_counts && !children.is_empty() {
+                // Listed as an ingredient of its own, so it is never hidden behind the
+                // additive in its parenthesis.
+                children.insert(
+                    0,
+                    ClassifiedItem {
+                        display: item.display.clone(),
+                        class: own.class,
+                        rule: own.rule,
+                        claims_gluten_free: own.claims_gluten_free,
+                        span: item.span,
+                        children: Vec::new(),
+                    },
+                );
+            }
             let worst_child = children
                 .iter()
                 .min_by_key(|c| std::cmp::Reverse(severity(c.class)));
             // A compound ingredient is what its listed ingredients are. Only a gluten
             // word in its own name ("galleta de trigo (...)") is kept.
             let (class, rule) = match worst_child {
-                Some(child)
-                    if !matches!(
-                        own.class,
-                        IngredientClass::GlutenSource | IngredientClass::Oats
-                    ) || severity(child.class) > severity(own.class) =>
-                {
+                Some(child) if !own_counts || severity(child.class) > severity(own.class) => {
                     (child.class, child.rule)
                 }
                 _ => (own.class, own.rule),
@@ -257,17 +339,25 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
         .filter(|i| i.class == IngredientClass::Unrecognized)
         .map(|i| i.display.clone())
         .collect();
+    // Text set aside as not being ingredients. A nutrition table in the ingredient
+    // field means the list itself may be cut or misread: it never reassures.
+    let real_items = all_leaves
+        .iter()
+        .any(|i| i.class != IngredientClass::NotIngredient);
+    let mixed_with_table = all_leaves
+        .iter()
+        .any(|i| i.rule.is_some_and(|r| r.id == catalog::NUTRITION_TABLE.id));
 
     // The case the product falls in if it is (or ends up) UNKNOWN.
     let unknown_finding = if contradictory {
         GlutenFinding::Contradictory
-    } else if ingredients.is_none() || items.is_empty() {
+    } else if ingredients.is_none() || items.is_empty() || !real_items {
         GlutenFinding::InsufficientInformation
     } else if uncertain
         || worst.is_some_and(|c| severity(c) >= severity(IngredientClass::NeedsOrigin))
     {
         GlutenFinding::AmbiguousIngredient
-    } else if !unrecognized.is_empty() || parsed.incomplete() {
+    } else if !unrecognized.is_empty() || parsed.incomplete() || mixed_with_table {
         // Ingredients that were never classified one by one leave nothing to reassure.
         GlutenFinding::InsufficientInformation
     } else {
@@ -322,23 +412,21 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
                 "No disponemos de la lista de ingredientes: no se ha podido determinar la presencia de gluten. Revisa el envase.",
             )]
         }
-        GlutenFinding::InsufficientInformation if unrecognized.is_empty() => vec![
-            reason("INSUFFICIENT_EVIDENCE", UNDETERMINED),
-            reason("INCOMPLETE_LIST", INCOMPLETE_LIST),
-        ],
+        GlutenFinding::InsufficientInformation if !real_items => {
+            vec![reason("INSUFFICIENT_EVIDENCE", NO_LIST_FOUND)]
+        }
+        GlutenFinding::InsufficientInformation if unrecognized.is_empty() => {
+            let mut list = vec![reason("INSUFFICIENT_EVIDENCE", UNDETERMINED)];
+            if parsed.incomplete() {
+                list.push(reason("INCOMPLETE_LIST", INCOMPLETE_LIST));
+            }
+            list
+        }
         GlutenFinding::InsufficientInformation => vec![
             reason("INSUFFICIENT_EVIDENCE", UNDETERMINED),
             reason(
                 "UNRECOGNIZED_INGREDIENTS",
-                format!(
-                    "No reconocemos {}. Compruébalo en el envase.",
-                    join_names(
-                        &unrecognized
-                            .iter()
-                            .map(|u| format!("«{u}»"))
-                            .collect::<Vec<_>>()
-                    )
-                ),
+                unrecognized_message(&unrecognized),
             ),
         ],
         _ => vec![reason(
@@ -351,6 +439,9 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
     }
     if parsed.unbalanced {
         unknown_reasons.push(reason("UNBALANCED_LIST", UNBALANCED_LIST));
+    }
+    if mixed_with_table && real_items {
+        unknown_reasons.push(reason("MIXED_TEXT", MIXED_TEXT));
     }
     unknown_reasons.extend(extra.iter().cloned());
     unknown_reasons.extend(core_others.iter().cloned());
@@ -698,6 +789,135 @@ mod tests {
 
     fn messages(a: &Assessment) -> Vec<String> {
         a.reasons.iter().map(|r| r.message.clone()).collect()
+    }
+
+    /// Regression: Chic-kles Fresa Morango (Hacendado), EAN 8402001044311. Open Food
+    /// Facts holds a bilingual OCR mixed with the nutrition table (fetched 2026-11-13).
+    #[test]
+    fn chickles_8402001044311_stays_unknown_and_reads_cleanly() {
+        let text = include_str!("../tests/fixtures/chickles-8402001044311.txt").trim();
+        let analysis = analyze(&provider(text), Context::default());
+        let a = &analysis.assessment;
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        let codes: Vec<&str> = a.reasons.iter().map(|r| r.code.as_str()).collect();
+        assert!(codes.contains(&"MIXED_TEXT"), "{codes:?}");
+        let unrecognized = a
+            .reasons
+            .iter()
+            .find(|r| r.code == "UNRECOGNIZED_INGREDIENTS")
+            .unwrap();
+        // One short sentence, not the whole label.
+        assert!(
+            unrecognized.message.chars().count() < 220,
+            "{}",
+            unrecognized.message
+        );
+        assert!(unrecognized.message.contains("ingredientes, entre ellos"));
+        let class_of = |name: &str| {
+            a.items
+                .iter()
+                .find(|i| i.text == name)
+                .unwrap_or_else(|| panic!("{name} missing"))
+                .class
+        };
+        for known in [
+            "maltitoles",
+            "glicerina",
+            "glicerol",
+            "cera de carnauba",
+            "maltitóis",
+            "extrato rico em tocoferóis",
+        ] {
+            assert_eq!(
+                class_of(known),
+                IngredientClass::GenerallyCompatible,
+                "{known}"
+            );
+        }
+        assert_eq!(class_of("goma-base"), IngredientClass::ContextDependent);
+        // The compound's own name is listed, not hidden behind its antioxidant.
+        assert_eq!(
+            class_of("goma base de las cuales dos ma"),
+            IngredientClass::Unrecognized
+        );
+        for aside in [
+            "Energético/Energ Grasas/Lipidos Edulcorantes",
+            "Contiene una fuente de fenilalanina",
+            "Un consumo excesivo puede producir efectos laxantes",
+        ] {
+            assert_eq!(class_of(aside), IngredientClass::NotIngredient, "{aside}");
+        }
+        // The nutrition table and the warnings are never sent to the AI.
+        assert!(analysis
+            .ai_candidates
+            .iter()
+            .all(|c| !c.contains("fenilalanina") && !c.contains("Lipidos")));
+    }
+
+    #[test]
+    fn a_table_alone_is_not_an_ingredient_list() {
+        let a = run("Valor energético 1000 kJ / 239 kcal. Grasas 0 g, de las cuales saturadas 0 g. Hidratos de carbono 95 g, de los cuales azúcares 0 g, polialcoholes 95 g.");
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        assert!(a
+            .reasons
+            .iter()
+            .all(|r| r.code != "NO_GLUTEN_INGREDIENTS_IDENTIFIED"));
+    }
+
+    #[test]
+    fn a_table_mixed_in_never_reassures() {
+        // Every real ingredient is known, but the text is mixed with the table.
+        let a = run(
+            "Edulcorantes: maltitol, sorbitol. Valor energético kJ kcal grasas lípidos saturadas.",
+        );
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        assert!(a.reasons.iter().any(|r| r.code == "MIXED_TEXT"));
+        // A warning alone is normal on a label and changes nothing.
+        let a = run(
+            "Edulcorantes: maltitol, sorbitol, aspartamo. Contiene una fuente de fenilalanina.",
+        );
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::NoGlutenIdentified));
+    }
+
+    #[test]
+    fn an_addition_in_parentheses_does_not_hide_the_ingredient() {
+        let a = run("Azúcar, zorvex (con antioxidante: extracto rico en tocoferoles), sal.");
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        assert!(a
+            .items
+            .iter()
+            .any(|i| i.text.starts_with("zorvex") && i.class == IngredientClass::Unrecognized));
+        // A real composition still decides ("galleta (harina de arroz, azúcar)").
+        let a = run("Galleta (harina de arroz, azúcar), sal.");
+        assert!(a.items.iter().all(|i| !i.text.starts_with("Galleta")));
+    }
+
+    #[test]
+    fn a_long_unknown_list_is_summed_up() {
+        let message = |text: &str| {
+            run(text)
+                .reasons
+                .into_iter()
+                .find(|r| r.code == "UNRECOGNIZED_INGREDIENTS")
+                .unwrap()
+                .message
+        };
+        assert_eq!(
+            message("Alfa, beta, gamma, delta, epsilon, zeta."),
+            "No reconocemos 6 ingredientes, entre ellos «Alfa», «beta» y «gamma». Compruébalo en el envase."
+        );
+        assert_eq!(
+            message("Alfa, beta."),
+            "No reconocemos «Alfa» y «beta». Compruébalo en el envase."
+        );
+        assert_eq!(
+            short_name(&"palabra ".repeat(10)),
+            "palabra palabra palabra palabra…"
+        );
     }
 
     /// Regression: Kimbo «Patatas fritas sabor a Toreras», EAN 8410044005008.

@@ -12,8 +12,79 @@
 
 use safeeat_contracts::{
     AiCheckStatus, AiItemVerdict, AiOutcome, Assessment, Certification, EvidenceSource, Freshness,
-    GlutenFinding, GlutenStatus, IngredientClass, Product, VerdictValue,
+    GlutenFinding, GlutenStatus, IngredientClass, IngredientFinding, Product, VerdictValue,
 };
+
+/// Short explanation under an answer that is not a confirmation either way.
+pub const UNDETERMINED_BRIEF: &str =
+    "La información disponible no permite determinar si este producto es apto para celíacos.";
+
+/// The explanation under the one-line answer, when the answer alone leaves her guessing.
+pub fn brief(p: &Product, summary: &Summary) -> Option<&'static str> {
+    (summary.tone == Tone::Unknown && p.assessment.status == GlutenStatus::Unknown)
+        .then_some(UNDETERMINED_BRIEF)
+}
+
+/// Engine reasons that only repeat the card's title ("No se ha podido determinar la
+/// presencia de gluten."): the title already says it.
+pub fn shown_reasons(a: &Assessment) -> Vec<String> {
+    a.reasons
+        .iter()
+        .filter(|r| {
+            !(r.code == "INSUFFICIENT_EVIDENCE"
+                && r.message
+                    .starts_with("No se ha podido determinar la presencia de gluten")
+                && a.reasons.len() > 1)
+        })
+        .map(|r| r.message.clone())
+        .collect()
+}
+
+/// One group of the full analysis ("Ingredientes que no reconocemos", ...).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngredientGroup {
+    pub title: &'static str,
+    /// Ingredient as written, and how the rules classified it when the group mixes
+    /// classes (a group of unknown ones does not repeat "No reconocido" on every row).
+    pub items: Vec<(String, Option<&'static str>)>,
+}
+
+/// Ingredients grouped by what they mean for her, worst first, each name once.
+/// Nutrition-table fragments and consumer warnings are kept apart from ingredients.
+pub fn ingredient_groups(items: &[IngredientFinding]) -> Vec<IngredientGroup> {
+    use IngredientClass as C;
+    const GROUPS: [&str; 5] = [
+        "Requieren atención",
+        "No reconocidos",
+        "Reconocidos",
+        "Advertencias del envase",
+        "Texto apartado: no son ingredientes",
+    ];
+    let mut out: Vec<IngredientGroup> = GROUPS
+        .iter()
+        .map(|title| IngredientGroup {
+            title,
+            items: Vec::new(),
+        })
+        .collect();
+    for i in items {
+        let at = match i.class {
+            C::GlutenSource | C::LikelyGluten | C::Oats | C::NeedsOrigin => 0,
+            C::Unrecognized | C::Other => 1,
+            C::NotIngredient if i.rule.as_deref() == Some("consumer-warning") => 3,
+            C::NotIngredient => 4,
+            _ => 2,
+        };
+        let text = i.text.trim().to_string();
+        let group = &mut out[at].items;
+        if !text.is_empty() && !group.iter().any(|(t, _)| t.eq_ignore_ascii_case(&text)) {
+            let label = matches!(at, 0 | 2).then(|| class_label(i.class));
+            group.push((text, label));
+        }
+    }
+    out.retain(|g| !g.items.is_empty());
+    out
+}
 
 /// A "sin gluten" recorded by the community, not by the manufacturer or a database fed
 /// by brand owners: shown as a declaration nobody has verified, never green.
@@ -234,7 +305,7 @@ pub fn summary(p: &Product) -> Summary {
             Some(AiOutcome::GlutenSuspected) => {
                 return Summary {
                     tone: Tone::Unknown,
-                    text: "No se ha podido determinar la presencia de gluten".into(),
+                    text: "No se ha podido confirmar si contiene gluten".into(),
                     warning: Some("La IA sospecha de un ingrediente · sin confirmar"),
                 }
             }
@@ -309,7 +380,7 @@ fn short_title(a: &Assessment) -> &'static str {
             "Las fuentes no coinciden · revisa la etiqueta"
         }
         (GlutenStatus::Unknown, Some(F::InsufficientInformation)) => {
-            "No se ha podido determinar la presencia de gluten"
+            "No se ha podido confirmar si contiene gluten"
         }
         (status, _) => status_title(status),
     }
@@ -335,7 +406,7 @@ pub fn analysis_title(a: &Assessment) -> &'static str {
             "Hay ingredientes cuyo origen no podemos confirmar"
         }
         (GlutenStatus::Unknown, Some(F::Contradictory)) => "Las fuentes no coinciden",
-        (GlutenStatus::Unknown, _) => "No se ha podido determinar la presencia de gluten",
+        (GlutenStatus::Unknown, _) => "No se ha podido confirmar si contiene gluten",
     }
 }
 
@@ -394,6 +465,7 @@ pub fn class_label(class: IngredientClass) -> &'static str {
         IngredientClass::GenerallyCompatible => "Compatible en general",
         IngredientClass::NaturallyGlutenFree => "No procede de cereales con gluten",
         IngredientClass::Unrecognized => "No reconocido",
+        IngredientClass::NotIngredient => "No es un ingrediente",
         IngredientClass::Other => "Sin clasificar",
     }
 }
@@ -528,6 +600,55 @@ mod tests {
     }
 
     #[test]
+    fn the_full_analysis_groups_without_repeating() {
+        let items: Vec<IngredientFinding> = serde_json::from_value(serde_json::json!([
+            {"text": "Energético/Energ Grasas/Lipidos", "class": "NOT_INGREDIENT", "rule": "nutrition-table"},
+            {"text": "sorbitol", "class": "GENERALLY_COMPATIBLE", "rule": "sweeteners"},
+            {"text": "acesulfamo Ky sucralosa", "class": "UNRECOGNIZED"},
+            {"text": "Contiene una fuente de fenilalanina", "class": "NOT_INGREDIENT", "rule": "consumer-warning"},
+            {"text": "Sorbitol", "class": "GENERALLY_COMPATIBLE", "rule": "sweeteners"},
+            {"text": "almidón", "class": "NEEDS_ORIGIN", "rule": "starch"}
+        ]))
+        .unwrap();
+        let groups = ingredient_groups(&items);
+        let titles: Vec<&str> = groups.iter().map(|g| g.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Requieren atención",
+                "No reconocidos",
+                "Reconocidos",
+                "Advertencias del envase",
+                "Texto apartado: no son ingredientes"
+            ]
+        );
+        assert_eq!(groups[2].items.len(), 1, "sorbitol once");
+        assert_eq!(groups[2].items[0].1, Some("Compatible en general"));
+        assert_eq!(groups[4].items[0].1, None);
+    }
+
+    #[test]
+    fn the_title_is_not_repeated_below_it() {
+        let mut p = with_finding("UNKNOWN", GlutenFinding::InsufficientInformation);
+        p.assessment.reasons = serde_json::from_value(serde_json::json!([
+            {"code": "INSUFFICIENT_EVIDENCE", "message": "No se ha podido determinar la presencia de gluten."},
+            {"code": "UNRECOGNIZED_INGREDIENTS", "message": "No reconocemos «x». Compruébalo en el envase."}
+        ]))
+        .unwrap();
+        assert_eq!(
+            shown_reasons(&p.assessment),
+            ["No reconocemos «x». Compruébalo en el envase."]
+        );
+        assert_eq!(brief(&p, &summary(&p)), Some(UNDETERMINED_BRIEF));
+        // Alone, it is the only explanation there is: kept.
+        p.assessment.reasons.truncate(1);
+        assert_eq!(shown_reasons(&p.assessment).len(), 1);
+        // A declared answer needs no "cannot determine" line.
+        let gluten = with_finding("CONTAINS_GLUTEN", GlutenFinding::DeclaredGluten);
+        assert_eq!(brief(&gluten, &summary(&gluten)), None);
+    }
+
+    #[test]
     fn texts_say_which_case_it_is() {
         assert_eq!(
             summary(&with_finding(
@@ -535,7 +656,7 @@ mod tests {
                 GlutenFinding::InsufficientInformation
             ))
             .text,
-            "No se ha podido determinar la presencia de gluten"
+            "No se ha podido confirmar si contiene gluten"
         );
         assert_eq!(
             summary(&with_finding(
@@ -561,7 +682,7 @@ mod tests {
         p.ai_review = review(AiOutcome::GlutenSuspected);
         let s = summary(&p);
         assert_eq!(s.tone, Tone::Unknown);
-        assert_eq!(s.text, "No se ha podido determinar la presencia de gluten");
+        assert_eq!(s.text, "No se ha podido confirmar si contiene gluten");
         assert!(s.warning.is_some_and(|w| w.contains("sin confirmar")));
         assert_eq!(ai_note(&p).unwrap().tone, Tone::Unknown);
         // The legacy field of an older server too.
@@ -580,7 +701,7 @@ mod tests {
             assert_eq!(summary(&p).tone, Tone::Unknown);
             assert_eq!(
                 summary(&p).text,
-                "No se ha podido determinar la presencia de gluten"
+                "No se ha podido confirmar si contiene gluten"
             );
         }
     }
