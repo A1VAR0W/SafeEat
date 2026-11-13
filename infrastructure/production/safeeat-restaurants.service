@@ -8,3 +8,5 @@ Type=oneshot
 User=server
 WorkingDirectory=/opt/safeeat
 ExecStart=/bin/bash /opt/safeeat/scripts/update-restaurant-catalog.sh spain /opt/safeeat/infrastructure/production/.env
+# The Canary Islands are a separate Geofabrik extract (under Africa).
+ExecStart=/bin/bash /opt/safeeat/scripts/update-restaurant-catalog.sh canarias /opt/safeeat/infrastructure/production/.env

@@ -189,10 +189,81 @@ async fn flush(
     Ok(())
 }
 
-pub async fn import(db: &PgPool, region: &str, file: &Path) -> Result<()> {
-    if !REGION.is_match(region) {
-        bail!("Usage: safeeat-server import-restaurants <region> <geojsonseq-file>");
+type Ring = Vec<(f64, f64)>;
+
+/// Boundary of an OpenStreetMap extract in the Osmosis `.poly` format (what Geofabrik
+/// publishes next to each extract) as WKT. Sections starting with `!` are holes of the
+/// previous polygon.
+pub fn poly_to_wkt(text: &str) -> Result<String> {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    lines.next().context("empty .poly file")?;
+    let mut polygons: Vec<(Ring, Vec<Ring>)> = Vec::new();
+    loop {
+        let header = lines.next().context("unterminated .poly file")?;
+        if header == "END" {
+            break;
+        }
+        let mut ring: Ring = Vec::new();
+        loop {
+            let line = lines.next().context("unterminated .poly ring")?;
+            if line == "END" {
+                break;
+            }
+            let mut parts = line.split_whitespace();
+            let x: f64 = parts.next().context("missing longitude")?.parse()?;
+            let y: f64 = parts.next().context("missing latitude")?.parse()?;
+            if !(-180.0..=180.0).contains(&x) || !(-90.0..=90.0).contains(&y) {
+                bail!("coordinate out of range in .poly: {line}");
+            }
+            ring.push((x, y));
+        }
+        if ring.len() < 3 {
+            bail!("a .poly ring needs at least three points");
+        }
+        if ring.first() != ring.last() {
+            ring.push(ring[0]);
+        }
+        if header.starts_with('!') {
+            polygons
+                .last_mut()
+                .context(".poly hole before any outer ring")?
+                .1
+                .push(ring);
+        } else {
+            polygons.push((ring, Vec::new()));
+        }
     }
+    if polygons.is_empty() {
+        bail!("a .poly file needs at least one polygon");
+    }
+    let ring = |r: &Ring| {
+        let points: Vec<String> = r.iter().map(|(x, y)| format!("{x} {y}")).collect();
+        format!("({})", points.join(","))
+    };
+    let parts: Vec<String> = polygons
+        .iter()
+        .map(|(outer, holes)| {
+            let rings: Vec<String> = std::iter::once(outer).chain(holes).map(ring).collect();
+            format!("({})", rings.join(","))
+        })
+        .collect();
+    Ok(format!("MULTIPOLYGON({})", parts.join(",")))
+}
+
+/// `area`: the extract's `.poly` boundary. Without it the region keeps the boundary
+/// of a previous import, or 016's cell rule if it never had one.
+pub async fn import(db: &PgPool, region: &str, file: &Path, area: Option<&Path>) -> Result<()> {
+    if !REGION.is_match(region) {
+        bail!("Usage: safeeat-server import-restaurants <region> <geojsonseq-file> [area.poly]");
+    }
+    let area = match area {
+        Some(path) => Some(poly_to_wkt(
+            &tokio::fs::read_to_string(path)
+                .await
+                .with_context(|| format!("opening {}", path.display()))?,
+        )?),
+        None => None,
+    };
     let reader = tokio::io::BufReader::new(
         tokio::fs::File::open(file)
             .await
@@ -248,10 +319,14 @@ pub async fn import(db: &PgPool, region: &str, file: &Path) -> Result<()> {
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO restaurant_catalog_imports(region,item_count) VALUES($1,$2) ON CONFLICT(region) DO UPDATE SET imported_at=now(),item_count=$2",
+        "INSERT INTO restaurant_catalog_imports(region,item_count,area)
+         VALUES($1,$2,ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_GeomFromText($3,4326)),3)))
+         ON CONFLICT(region) DO UPDATE SET imported_at=now(),item_count=$2,
+           area=COALESCE(EXCLUDED.area,restaurant_catalog_imports.area)",
     )
     .bind(region)
     .bind(count as i32)
+    .bind(area)
     .execute(&mut *tx)
     .await?;
     // Where this region has data (docs: migration 016).
@@ -272,6 +347,25 @@ pub async fn import(db: &PgPool, region: &str, file: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_poly_boundary_becomes_a_multipolygon() {
+        let poly = "spain\n1\n   -1.0E+00   4.0E+01\n   1.0   40.0\n   1.0   41.0\nEND\n!2\n -0.5 40.2\n 0.5 40.2\n 0.5 40.8\nEND\n3\n 2 39\n 3 39\n 3 40\n 2 39\nEND\nEND\n";
+        assert_eq!(
+            poly_to_wkt(poly).unwrap(),
+            "MULTIPOLYGON(((-1 40,1 40,1 41,-1 40),(-0.5 40.2,0.5 40.2,0.5 40.8,-0.5 40.2)),((2 39,3 39,3 40,2 39)))"
+        );
+    }
+
+    #[test]
+    fn a_broken_poly_is_refused() {
+        assert!(poly_to_wkt("").is_err());
+        assert!(poly_to_wkt("x\n1\n 0 0\n 1 1\nEND\nEND\n").is_err());
+        assert!(poly_to_wkt("x\n!1\n 0 0\n 1 1\n 1 0\nEND\nEND\n").is_err());
+        assert!(poly_to_wkt("x\n1\n 0 0\n 1 1\n 1 0\n").is_err());
+        assert!(poly_to_wkt("x\n1\n 0 0\n 1 95\n 1 0\nEND\nEND\n").is_err());
+        assert!(poly_to_wkt("x\nEND\n").is_err());
+    }
 
     #[test]
     fn parses_ways_and_nodes() {

@@ -119,7 +119,13 @@ async fn main() -> Result<()> {
         ["import-restaurants", region, file] => {
             let url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
             let db = pool(&url, 2).await?;
-            importer::import(&db, region, std::path::Path::new(file)).await
+            importer::import(&db, region, std::path::Path::new(file), None).await
+        }
+        ["import-restaurants", region, file, area] => {
+            let url = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
+            let db = pool(&url, 2).await?;
+            let area = std::path::Path::new(area);
+            importer::import(&db, region, std::path::Path::new(file), Some(area)).await
         }
         ["healthcheck", url] => {
             let response = reqwest::Client::builder()
@@ -134,7 +140,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         _ => bail!(
-            "usage: safeeat-server [serve [--mode api|web] | migrate | import-restaurants <region> <file> | healthcheck <url>]"
+            "usage: safeeat-server [serve [--mode api|web] | migrate | import-restaurants <region> <file> [area.poly] | healthcheck <url>]"
         ),
     }
 }
