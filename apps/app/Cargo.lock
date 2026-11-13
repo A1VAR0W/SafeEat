@@ -3520,7 +3520,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "safeeat-app"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -3546,7 +3546,7 @@ dependencies = [
 
 [[package]]
 name = "safeeat-ui"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
@@ -4461,7 +4461,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-safeeat-secure"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "serde",
  "tauri",
@@ -4470,7 +4470,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-safeeat-share"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "serde",
  "tauri",
@@ -4479,7 +4479,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-safeeat-updater"
-version = "2.0.2"
+version = "2.0.3"
 dependencies = [
  "serde",
  "serde_json",

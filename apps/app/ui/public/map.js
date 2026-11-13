@@ -43,6 +43,8 @@
   // Pins kept in memory; beyond this the farthest from the view are dropped.
   const KEEP_MAX = 9000;
   const KEEP_AFTER_TRIM = 7000;
+  // From this zoom places without data are small pins with their names.
+  const CLOSE_ZOOM = 15;
 
   let map = null;
   let ready = false;
@@ -114,7 +116,25 @@
     return g.getImageData(0, 0, W, H);
   }
 
+  // Places without data from afar: a small dot, so the favourable pins stand out.
+  function dotImage(color) {
+    const S = 28;
+    const c = document.createElement('canvas');
+    c.width = S;
+    c.height = S;
+    const g = c.getContext('2d');
+    g.beginPath();
+    g.arc(S / 2, S / 2, 9, 0, Math.PI * 2);
+    g.fillStyle = color;
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = '#FFFFFF';
+    g.stroke();
+    return g.getImageData(0, 0, S, S);
+  }
+
   function addImages() {
+    map.addImage('dot-UNKNOWN', dotImage(COLORS.UNKNOWN), { pixelRatio: 2 });
     Object.keys(COLORS).forEach(function (k) {
       map.addImage('pin-' + k, pinImage(COLORS[k]), { pixelRatio: 2 });
     });
@@ -257,13 +277,32 @@
       filter: ['!', ['has', 'point_count']],
       layout: Object.assign(
         {
-          'icon-image': ['get', 'icon'],
-          'icon-anchor': 'bottom',
+          // Places without data: dots from afar, small pins up close (like minor
+          // places on Google Maps). Zoom steps must be the outermost expression.
+          'icon-image': [
+            'step',
+            ['zoom'],
+            ['case', unknown, 'dot-UNKNOWN', ['get', 'icon']],
+            CLOSE_ZOOM,
+            ['get', 'icon'],
+          ],
+          'icon-anchor': [
+            'step',
+            ['zoom'],
+            ['case', unknown, 'center', 'bottom'],
+            CLOSE_ZOOM,
+            'bottom',
+          ],
           'icon-allow-overlap': true,
-          // Places without data: small pins, like minor places on Google Maps.
-          'icon-size': ['case', unknown, 0.62, 0.85],
+          'icon-size': [
+            'step',
+            ['zoom'],
+            ['case', unknown, 1, 0.85],
+            CLOSE_ZOOM,
+            ['case', unknown, 0.62, 0.85],
+          ],
         },
-        label(16),
+        label(CLOSE_ZOOM + 1),
       ),
       paint: labelPaint,
     });
