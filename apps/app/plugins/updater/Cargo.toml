@@ -1,0 +1,16 @@
+[package]
+name = "tauri-plugin-safeeat-updater"
+description = "Downloads, verifies and installs a newer SafeEat APK (Android only). Reachable from the Rust shell only."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+links = "tauri-plugin-safeeat-updater"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", default-features = false }
+serde.workspace = true
+serde_json.workspace = true

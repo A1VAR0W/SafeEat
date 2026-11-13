@@ -1,5 +1,10 @@
 // Thin MapLibre GL JS glue for the Leptos UI. MapLibre (~940 kB) is loaded only
 // when the Restaurants tab first opens, so the scanner starts as fast as possible.
+//
+// The map always looks complete: the app loads every restaurant of an area much
+// wider than the screen (`addArea`) and the map keeps what it has, so panning only
+// adds pins, never empties the view. The filter is applied here, instantly. A typed
+// search shows only its results (`setResults` + `useResults(true)`).
 /* global maplibregl -- defined by vendor/maplibre-gl.js once it has loaded */
 'use strict';
 (function () {
@@ -30,33 +35,325 @@
   // never a green "safe"; warnings stay red.
   const COLORS = {
     DEDICATED_GLUTEN_FREE: '#1F4F8A',
-    GLUTEN_FREE_OPTIONS: '#4A7FC1',
-    NO_GLUTEN_FREE_OPTIONS: '#A02D22',
+    GLUTEN_FREE_OPTIONS: '#3F78BF',
+    NO_GLUTEN_FREE_OPTIONS: '#B3261E',
     UNKNOWN: '#857A5C',
   };
+  const FAVOURABLE = { DEDICATED_GLUTEN_FREE: true, GLUTEN_FREE_OPTIONS: true };
+  // Pins kept in memory; beyond this the farthest from the view are dropped.
+  const KEEP_MAX = 9000;
+  const KEEP_AFTER_TRIM = 7000;
 
   let map = null;
   let ready = false;
-  let pending = null;
   let handlers = {};
   // A camera asked for before MapLibre finished loading (the location often arrives
   // first): used as the starting view instead of being lost.
   let camera = null;
   let selected = '';
+  const area = new Map(); // id → {id,name,lat,lng,support}
+  let results = [];
+  let showResults = false;
+  let filter = 'all';
+  let frame = 0;
 
-  function setData(fc) {
-    if (!ready) {
-      pending = fc;
-      return;
+  // ---------- pins ----------
+
+  // A teardrop pin with a fork and knife, drawn once per colour (2× for sharp edges).
+  function pinImage(color) {
+    const W = 64;
+    const H = 84;
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d');
+    const cx = W / 2;
+    const cy = 28;
+    const R = 22;
+    const tip = 76;
+    g.shadowColor = 'rgba(0,0,0,0.35)';
+    g.shadowBlur = 5;
+    g.shadowOffsetY = 2;
+    g.beginPath();
+    g.moveTo(cx, tip);
+    g.arc(cx, cy, R, Math.PI / 6, (5 * Math.PI) / 6, true);
+    g.closePath();
+    g.fillStyle = color;
+    g.fill();
+    g.shadowColor = 'transparent';
+    g.lineWidth = 3;
+    g.strokeStyle = '#FFFFFF';
+    g.stroke();
+    // Fork.
+    g.fillStyle = '#FFFFFF';
+    g.lineCap = 'round';
+    g.lineWidth = 2.4;
+    [-10, -6, -2].forEach(function (dx) {
+      g.beginPath();
+      g.moveTo(cx + dx, cy - 12);
+      g.lineTo(cx + dx, cy - 4);
+      g.stroke();
+    });
+    g.beginPath();
+    g.moveTo(cx - 10, cy - 4);
+    g.quadraticCurveTo(cx - 6, cy + 1, cx - 2, cy - 4);
+    g.stroke();
+    g.lineWidth = 3.4;
+    g.beginPath();
+    g.moveTo(cx - 6, cy - 1);
+    g.lineTo(cx - 6, cy + 13);
+    g.stroke();
+    // Knife.
+    g.beginPath();
+    g.ellipse(cx + 7, cy - 5, 3.6, 8, 0, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx + 7, cy + 1);
+    g.lineTo(cx + 7, cy + 13);
+    g.stroke();
+    return g.getImageData(0, 0, W, H);
+  }
+
+  // Places without data: a small dot, like the minor places on Google Maps.
+  function dotImage(color) {
+    const S = 34;
+    const c = document.createElement('canvas');
+    c.width = S;
+    c.height = S;
+    const g = c.getContext('2d');
+    g.shadowColor = 'rgba(0,0,0,0.3)';
+    g.shadowBlur = 3;
+    g.shadowOffsetY = 1;
+    g.beginPath();
+    g.arc(S / 2, S / 2, 11, 0, Math.PI * 2);
+    g.fillStyle = color;
+    g.fill();
+    g.shadowColor = 'transparent';
+    g.lineWidth = 3;
+    g.strokeStyle = '#FFFFFF';
+    g.stroke();
+    g.beginPath();
+    g.arc(S / 2, S / 2, 3.5, 0, Math.PI * 2);
+    g.fillStyle = '#FFFFFF';
+    g.fill();
+    return g.getImageData(0, 0, S, S);
+  }
+
+  function addImages() {
+    Object.keys(COLORS).forEach(function (k) {
+      map.addImage('pin-' + k, pinImage(COLORS[k]), { pixelRatio: 2 });
+    });
+    map.addImage('dot-UNKNOWN', dotImage(COLORS.UNKNOWN), { pixelRatio: 2 });
+  }
+
+  // ---------- data ----------
+
+  function passes(p) {
+    if (filter === 'options') return !!FAVOURABLE[p.support];
+    if (filter === 'dedicated') return p.support === 'DEDICATED_GLUTEN_FREE';
+    return true;
+  }
+
+  function feature(p) {
+    const support = COLORS[p.support] ? p.support : 'UNKNOWN';
+    return {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+      properties: {
+        id: p.id,
+        name: p.name,
+        support: support,
+        icon: support === 'UNKNOWN' ? 'dot-UNKNOWN' : 'pin-' + support,
+      },
+    };
+  }
+
+  function find(id) {
+    if (!id) return null;
+    for (let i = 0; i < results.length; i++) if (results[i].id === id) return results[i];
+    return area.get(id) || null;
+  }
+
+  function render() {
+    frame = 0;
+    if (!ready) return;
+    const list = showResults ? results : Array.from(area.values());
+    const good = [];
+    const rest = [];
+    list.forEach(function (p) {
+      if (!passes(p)) return;
+      (FAVOURABLE[p.support] ? good : rest).push(feature(p));
+    });
+    map.getSource('good').setData({ type: 'FeatureCollection', features: good });
+    map.getSource('rest').setData({ type: 'FeatureCollection', features: rest });
+    const s = find(selected);
+    map.getSource('sel').setData({ type: 'FeatureCollection', features: s ? [feature(s)] : [] });
+  }
+
+  // One redraw per frame, however many updates arrive.
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(render);
+  }
+
+  function trim() {
+    if (area.size <= KEEP_MAX || !map) return;
+    const c = map.getCenter();
+    const far = Array.from(area.values())
+      .map(function (p) {
+        const dx = (p.lng - c.lng) * Math.cos((c.lat * Math.PI) / 180);
+        const dy = p.lat - c.lat;
+        return [dx * dx + dy * dy, p.id];
+      })
+      .sort(function (a, b) {
+        return b[0] - a[0];
+      });
+    for (let i = 0; i < far.length && area.size > KEEP_AFTER_TRIM; i++) {
+      if (far[i][1] !== selected) area.delete(far[i][1]);
     }
-    map.getSource('places').setData(fc);
+  }
+
+  // ---------- map ----------
+
+  function report() {
+    if (!handlers.onView) return;
+    const b = map.getBounds();
+    handlers.onView(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), map.getZoom());
+  }
+
+  function addLayers() {
+    const empty = { type: 'FeatureCollection', features: [] };
+    map.addSource('rest', {
+      type: 'geojson',
+      data: empty,
+      cluster: true,
+      clusterRadius: 42,
+      clusterMaxZoom: 14,
+    });
+    // Places with gluten-free options are never hidden inside a cluster.
+    map.addSource('good', { type: 'geojson', data: empty });
+    map.addSource('sel', { type: 'geojson', data: empty });
+
+    map.addLayer({
+      id: 'clusters',
+      type: 'circle',
+      source: 'rest',
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': '#FFFFFF',
+        'circle-radius': ['step', ['get', 'point_count'], 14, 10, 17, 50, 21, 200, 25],
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': '#6B6248',
+      },
+    });
+    map.addLayer({
+      id: 'cluster-count',
+      type: 'symbol',
+      source: 'rest',
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': ['get', 'point_count_abbreviated'],
+        'text-size': 12,
+        'text-font': ['Noto Sans Bold'],
+        'text-allow-overlap': true,
+      },
+      paint: { 'text-color': '#3D3826' },
+    });
+    const label = function (fromZoom) {
+      return {
+        'text-field': ['step', ['zoom'], '', fromZoom, ['get', 'name']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 12,
+        'text-anchor': 'top',
+        'text-offset': [0, 0.25],
+        'text-max-width': 9,
+        'text-optional': true,
+      };
+    };
+    const labelPaint = {
+      'text-color': '#1D2A25',
+      'text-halo-color': '#FFFFFF',
+      'text-halo-width': 1.6,
+    };
+    const unknown = ['==', ['get', 'support'], 'UNKNOWN'];
+    map.addLayer({
+      id: 'rest-pins',
+      type: 'symbol',
+      source: 'rest',
+      filter: ['!', ['has', 'point_count']],
+      layout: Object.assign(
+        {
+          'icon-image': ['get', 'icon'],
+          'icon-anchor': ['case', unknown, 'center', 'bottom'],
+          'icon-allow-overlap': true,
+          'icon-size': ['case', unknown, 1, 0.85],
+        },
+        label(16),
+      ),
+      paint: labelPaint,
+    });
+    map.addLayer({
+      id: 'good-pins',
+      type: 'symbol',
+      source: 'good',
+      layout: Object.assign(
+        {
+          'icon-image': ['get', 'icon'],
+          'icon-anchor': 'bottom',
+          'icon-allow-overlap': true,
+          'symbol-sort-key': ['case', ['==', ['get', 'support'], 'DEDICATED_GLUTEN_FREE'], 1, 0],
+        },
+        label(14),
+      ),
+      paint: Object.assign({}, labelPaint, { 'text-color': '#16365F' }),
+    });
+    // The tapped place, larger and on top, always with its name.
+    map.addLayer({
+      id: 'sel-pin',
+      type: 'symbol',
+      source: 'sel',
+      layout: {
+        'icon-image': ['get', 'icon'],
+        'icon-anchor': ['case', unknown, 'center', 'bottom'],
+        'icon-allow-overlap': true,
+        'icon-size': 1.35,
+        'text-field': ['get', 'name'],
+        'text-font': ['Noto Sans Bold'],
+        'text-size': 13,
+        'text-anchor': 'top',
+        'text-offset': [0, 0.35],
+        'text-max-width': 10,
+        'text-allow-overlap': true,
+      },
+      paint: labelPaint,
+    });
+
+    map.on('click', 'clusters', function (e) {
+      const f = e.features[0];
+      const tap = e.originalEvent;
+      map
+        .getSource('rest')
+        .getClusterExpansionZoom(f.properties.cluster_id)
+        .then(function (z) {
+          // Her tap moved the map: the list follows, as with a pan.
+          map.easeTo(
+            { center: f.geometry.coordinates, zoom: z, duration: 300 },
+            { originalEvent: tap },
+          );
+        });
+    });
+    ['good-pins', 'rest-pins', 'sel-pin'].forEach(function (layer) {
+      map.on('click', layer, function (e) {
+        if (handlers.onSelect) handlers.onSelect(String(e.features[0].properties.id));
+      });
+    });
   }
 
   window.seMap = {
-    // Creates (or re-attaches) the map. `onMove(lat,lng,zoom)` fires after the user
-    // pans, `onSelect(id)` when a marker is tapped.
-    mount: function (el, lat, lng, zoom, onMove, onSelect, onError) {
-      handlers = { onMove: onMove, onSelect: onSelect };
+    // Creates (or re-attaches) the map. `onMove(lat,lng,zoom,byUser)` fires after a
+    // pan, `onView(south,west,north,east,zoom)` after every move (to load the area),
+    // `onSelect(id)` when a pin is tapped.
+    mount: function (el, lat, lng, zoom, onMove, onView, onSelect, onError) {
+      handlers = { onMove: onMove, onView: onView, onSelect: onSelect };
       load()
         .then(function () {
           if (map) {
@@ -81,102 +378,20 @@
           camera = null;
           map.touchZoomRotate.disableRotation();
           map.on('load', function () {
-            map.addSource('places', {
-              type: 'geojson',
-              data: { type: 'FeatureCollection', features: [] },
-              cluster: true,
-              clusterRadius: 44,
-              clusterMaxZoom: 15,
-            });
-            map.addLayer({
-              id: 'clusters',
-              type: 'circle',
-              source: 'places',
-              filter: ['has', 'point_count'],
-              paint: {
-                'circle-color': '#064B39',
-                'circle-opacity': 0.88,
-                'circle-radius': ['step', ['get', 'point_count'], 16, 10, 20, 50, 26],
-                'circle-stroke-width': 2,
-                'circle-stroke-color': '#FFFFFF',
-              },
-            });
-            map.addLayer({
-              id: 'cluster-count',
-              type: 'symbol',
-              source: 'places',
-              filter: ['has', 'point_count'],
-              layout: {
-                'text-field': ['get', 'point_count_abbreviated'],
-                'text-size': 13,
-                'text-font': ['Noto Sans Bold'],
-              },
-              paint: { 'text-color': '#FFFFFF' },
-            });
-            map.addLayer({
-              id: 'place',
-              type: 'circle',
-              source: 'places',
-              filter: ['!', ['has', 'point_count']],
-              paint: {
-                'circle-color': [
-                  'match',
-                  ['get', 'support'],
-                  'DEDICATED_GLUTEN_FREE',
-                  COLORS.DEDICATED_GLUTEN_FREE,
-                  'GLUTEN_FREE_OPTIONS',
-                  COLORS.GLUTEN_FREE_OPTIONS,
-                  'NO_GLUTEN_FREE_OPTIONS',
-                  COLORS.NO_GLUTEN_FREE_OPTIONS,
-                  COLORS.UNKNOWN,
-                ],
-                'circle-radius': ['case', ['get', 'highlight'], 10, 8],
-                'circle-stroke-width': ['case', ['get', 'highlight'], 3, 2],
-                'circle-stroke-color': '#FFFFFF',
-              },
-            });
-            // The tapped place, drawn on top with a ring.
-            map.addLayer({
-              id: 'place-selected',
-              type: 'circle',
-              source: 'places',
-              filter: ['==', ['get', 'id'], selected],
-              paint: {
-                'circle-color': 'rgba(0,0,0,0)',
-                'circle-radius': 15,
-                'circle-stroke-width': 3,
-                'circle-stroke-color': '#0E1A16',
-              },
-            });
-            map.on('click', 'clusters', function (e) {
-              const f = e.features[0];
-              const tap = e.originalEvent;
-              map
-                .getSource('places')
-                .getClusterExpansionZoom(f.properties.cluster_id)
-                .then(function (z) {
-                  // Her tap moved the map: the list follows, as with a pan.
-                  map.easeTo(
-                    { center: f.geometry.coordinates, zoom: z, duration: 250 },
-                    { originalEvent: tap },
-                  );
-                });
-            });
-            map.on('click', 'place', function (e) {
-              if (handlers.onSelect) handlers.onSelect(String(e.features[0].properties.id));
-            });
+            addImages();
+            addLayers();
             ready = true;
-            if (pending) {
-              map.getSource('places').setData(pending);
-              pending = null;
-            }
+            render();
             // Only report position after the style exists, so the first search uses
             // the real camera and not a default city.
             const c = map.getCenter();
             if (handlers.onMove) handlers.onMove(c.lat, c.lng, map.getZoom(), false);
+            report();
           });
           map.on('moveend', function (e) {
-            if (!ready || !e.originalEvent) return; // ignore programmatic moves
+            if (!ready) return;
+            report();
+            if (!e.originalEvent) return; // the list only follows her own moves
             const c = map.getCenter();
             if (handlers.onMove) handlers.onMove(c.lat, c.lng, map.getZoom(), true);
           });
@@ -185,26 +400,52 @@
           if (onError) onError();
         });
     },
-    setPlaces: function (json) {
-      setData(JSON.parse(json));
+    // Adds the restaurants of a loaded area (JSON array of {id,name,lat,lng,support}).
+    addArea: function (json) {
+      JSON.parse(json).forEach(function (p) {
+        area.set(p.id, p);
+      });
+      trim();
+      if (!showResults) schedule();
+    },
+    // The list's restaurants (same shape), shown instead of the area while
+    // `useResults(true)`: a typed search, or a place the catalog does not cover.
+    setResults: function (json) {
+      results = JSON.parse(json);
+      if (showResults) schedule();
+    },
+    useResults: function (on) {
+      if (showResults === !!on) return;
+      showResults = !!on;
+      schedule();
+    },
+    // 'all' | 'options' | 'dedicated'.
+    setFilter: function (value) {
+      filter = value;
+      schedule();
+    },
+    // A place the map knows (JSON, or '' when it does not): for the preview card.
+    place: function (id) {
+      const p = find(id);
+      return p ? JSON.stringify(p) : '';
     },
     flyTo: function (lat, lng, zoom) {
       if (map) map.jumpTo({ center: [lng, lat], zoom: zoom || map.getZoom() });
       else camera = { lat: lat, lng: lng, zoom: zoom || 14 };
     },
-    // Shows every result of a typed search (they may lie outside the current view).
+    // Frames the given places (JSON array): the results of a typed search.
     fitPlaces: function (json) {
-      const fc = JSON.parse(json);
-      if (!map || !fc.features.length) return;
+      const list = JSON.parse(json);
+      if (!map || !list.length) return;
       const b = new maplibregl.LngLatBounds();
-      fc.features.forEach(function (f) {
-        b.extend(f.geometry.coordinates);
+      list.forEach(function (p) {
+        b.extend([p.lng, p.lat]);
       });
       map.fitBounds(b, { padding: 64, maxZoom: 15, duration: 0 });
     },
     select: function (id) {
       selected = id || '';
-      if (ready) map.setFilter('place-selected', ['==', ['get', 'id'], selected]);
+      schedule();
     },
     center: function () {
       if (!map) return null;
