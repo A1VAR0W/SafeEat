@@ -15,7 +15,10 @@ pub mod catalog;
 mod items;
 mod nutrition;
 
-pub use analysis::{analyze, Analysis, ClassifiedItem, Context, ENGINE_VERSION};
+pub use analysis::{
+    analyze, provenance, Alternative, AlternativeKind, Analysis, ClassifiedItem, Context,
+    ENGINE_VERSION,
+};
 pub use catalog::RULES_VERSION;
 pub use nutrition::score_nutrition;
 
@@ -369,6 +372,7 @@ pub fn assess_gluten(input: &GlutenInput) -> Assessment {
         finding: None,
         rules_version: None,
         items: Vec::new(),
+        provenance: None,
     }
 }
 
@@ -442,6 +446,7 @@ mod tests {
             finding: None,
             rules_version: None,
             items: vec![],
+            provenance: None,
         };
         let unknown = Assessment {
             status: GlutenStatus::Unknown,

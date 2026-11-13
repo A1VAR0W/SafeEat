@@ -45,12 +45,12 @@ posteriores puede deshacer una advertencia.
 Los cuatro estados de la API no han cambiado, para no romper la app 1.0.x ni la 2.0.2.
 Para distinguir los casos se ha añadido un campo opcional, `assessment.finding`.
 
-| Estado               | Cuándo                                                        | Casos (`finding`)                                                                          |
-| -------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `CONTAINS_GLUTEN`    | Hay pruebas positivas: un ingrediente o alérgeno con gluten declarado | `DECLARED_GLUTEN`, o `CONTRADICTORY` si las fuentes no coinciden                     |
-| `MAY_CONTAIN_TRACES` | La fuente declara una advertencia de trazas (nunca una hipótesis de la IA) | `DECLARED_TRACES`, `CONTRADICTORY`                                                 |
-| `GLUTEN_FREE`        | Declaración «sin gluten» del producto, sin contradicciones y con lista de ingredientes | `GLUTEN_FREE_CLAIM`                                                    |
-| `UNKNOWN`            | Todo lo demás                                                 | `NO_GLUTEN_IDENTIFIED`, `AMBIGUOUS_INGREDIENT`, `INSUFFICIENT_INFORMATION`, `CONTRADICTORY` |
+| Estado               | Cuándo                                                                                 | Casos (`finding`)                                                                           |
+| -------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `CONTAINS_GLUTEN`    | Hay pruebas positivas: un ingrediente o alérgeno con gluten declarado                  | `DECLARED_GLUTEN`, o `CONTRADICTORY` si las fuentes no coinciden                            |
+| `MAY_CONTAIN_TRACES` | La fuente declara una advertencia de trazas (nunca una hipótesis de la IA)             | `DECLARED_TRACES`, `CONTRADICTORY`                                                          |
+| `GLUTEN_FREE`        | Declaración «sin gluten» del producto, sin contradicciones y con lista de ingredientes | `GLUTEN_FREE_CLAIM`                                                                         |
+| `UNKNOWN`            | Todo lo demás                                                                          | `NO_GLUTEN_IDENTIFIED`, `AMBIGUOUS_INGREDIENT`, `INSUFFICIENT_INFORMATION`, `CONTRADICTORY` |
 
 Para dar `GLUTEN_FREE`, la política es más estricta que la de la versión 1.x. Estos
 casos se quedan en UNKNOWN y llevan su motivo:
@@ -99,17 +99,17 @@ Está en `crates/gluten-engine/src/catalog.rs` y se carga en memoria.
 
 Clases, de más a menos grave. Un ingrediente toma la peor clase que reconoce:
 
-| Clase                   | Ejemplos                                                                                                         | Efecto                                                     |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `GLUTEN_SOURCE`         | trigo y sus variedades, espelta, kamut, cebada, malta, centeno, triticale, seitán, bulgur, cuscús                 | CONTIENE GLUTEN                                            |
-| `LIKELY_GLUTEN`         | pan rallado, pasta, cerveza, levadura de cerveza, salsa de soja, sémola                                          | ambiguo como mínimo (el núcleo decide)                     |
-| `OATS`                  | avena                                                                                                            | solo apta si el producto se declara sin gluten             |
-| `NEEDS_ORIGIN`          | harina, almidón, almidón modificado, proteína vegetal, dextrina, cereales, extracto de levadura, fibra, sazonador | AMBIGUOUS_INGREDIENT                                       |
-| `UNRECOGNIZED`          | palabras que el catálogo no conoce                                                                               | INSUFFICIENT_INFORMATION (y candidatas para la IA)         |
-| `CONTEXT_DEPENDENT`     | aromas (naturales), especias, humo                                                                               | no son alerta en la UE; fuera de la UE pasan a NEEDS_ORIGIN |
-| `LEGAL_EXEMPTION`       | jarabes de glucosa, dextrosa y maltodextrinas de trigo o cebada, destilados de cereales                           | no son prueba de gluten (anexo II.1)                       |
-| `GENERALLY_COMPATIBLE`  | dextrosa, jarabe de glucosa, maltodextrina, edulcorantes, gasificantes, aditivos E                               | no son alerta                                              |
-| `NATURALLY_GLUTEN_FREE` | patata, arroz, maíz, trigo sarraceno, aceite de oliva, sal, leche, carne, verdura                                | no son alerta, pero **no** hacen el producto apto: puede haber contaminación cruzada |
+| Clase                   | Ejemplos                                                                                                          | Efecto                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `GLUTEN_SOURCE`         | trigo y sus variedades, espelta, kamut, cebada, malta, centeno, triticale, seitán, bulgur, cuscús                 | CONTIENE GLUTEN                                                                      |
+| `LIKELY_GLUTEN`         | pan rallado, pasta, cerveza, levadura de cerveza, salsa de soja, sémola                                           | ambiguo como mínimo (el núcleo decide)                                               |
+| `OATS`                  | avena                                                                                                             | solo apta si el producto se declara sin gluten                                       |
+| `NEEDS_ORIGIN`          | harina, almidón, almidón modificado, proteína vegetal, dextrina, cereales, extracto de levadura, fibra, sazonador | AMBIGUOUS_INGREDIENT                                                                 |
+| `UNRECOGNIZED`          | palabras que el catálogo no conoce                                                                                | INSUFFICIENT_INFORMATION (y candidatas para la IA)                                   |
+| `CONTEXT_DEPENDENT`     | aromas (naturales), especias, humo                                                                                | no son alerta en la UE; fuera de la UE pasan a NEEDS_ORIGIN                          |
+| `LEGAL_EXEMPTION`       | jarabes de glucosa, dextrosa y maltodextrinas de trigo o cebada, destilados de cereales                           | no son prueba de gluten (anexo II.1)                                                 |
+| `GENERALLY_COMPATIBLE`  | dextrosa, jarabe de glucosa, maltodextrina, edulcorantes, gasificantes, aditivos E                                | no son alerta                                                                        |
+| `NATURALLY_GLUTEN_FREE` | patata, arroz, maíz, trigo sarraceno, aceite de oliva, sal, leche, carne, verdura                                 | no son alerta, pero **no** hacen el producto apto: puede haber contaminación cruzada |
 
 Cómo se trocea y se lee la lista (`items.rs`):
 
@@ -153,6 +153,7 @@ Está en `apps/server/src/ai_check.rs`.
   - una respuesta incoherente, como `KNOWN_GLUTEN` sin cereal o «seguro» con cereal.
 
   `MODEL_ERROR` **nunca** se lee como gluten ni como seguro.
+
 - **Resultado por producto** (`aiReview.outcome`):
   - `NO_GLUTEN_SEEN`;
   - `GLUTEN_SUSPECTED`;
@@ -236,18 +237,18 @@ Datos de la evaluación:
 
 Resultado del 13-11-2026 (143 casos: 83 con riesgo real y 60 sin él):
 
-| Métrica                                                     | Resultado     | IC 95 %          |
-| ----------------------------------------------------------- | ------------- | ---------------- |
-| Falsos negativos peligrosos (verde o «no se identifican» con riesgo) | 0/83          | 0 – 4,35 %       |
-| Sensibilidad (con riesgo y sin mensaje tranquilizador)      | 83/83         | 95,65 – 100 %    |
-| Gluten → CONTIENE GLUTEN (rojo)                             | 49/75 (65 %)  | 53,5 – 76,0 %    |
-| Trazas declaradas → ámbar                                   | 6/8           | 34,9 – 96,8 %    |
-| Falsos positivos (rojo o ámbar sin riesgo)                  | 0/60          | 0 – 5,96 %       |
-| UNKNOWN / abstención                                        | 83/143 (58 %) | 49,5 – 66,2 %    |
-| Precisión de las respuestas favorables                      | 53/53         | 93,3 – 100 %     |
-| Cobertura del catálogo (ingredientes)                       | 484/499 (97 %) | 95,1 – 98,3 %   |
-| Productos que pedirían IA                                   | 1/143 (0,7 %) | 0,02 – 3,8 %     |
-| Latencia del análisis determinista                          | p50 12 µs · p95 30 µs | —        |
+| Métrica                                                              | Resultado             | IC 95 %       |
+| -------------------------------------------------------------------- | --------------------- | ------------- |
+| Falsos negativos peligrosos (verde o «no se identifican» con riesgo) | 0/83                  | 0 – 4,35 %    |
+| Sensibilidad (con riesgo y sin mensaje tranquilizador)               | 83/83                 | 95,65 – 100 % |
+| Gluten → CONTIENE GLUTEN (rojo)                                      | 49/75 (65 %)          | 53,5 – 76,0 % |
+| Trazas declaradas → ámbar                                            | 6/8                   | 34,9 – 96,8 % |
+| Falsos positivos (rojo o ámbar sin riesgo)                           | 0/60                  | 0 – 5,96 %    |
+| UNKNOWN / abstención                                                 | 83/143 (58 %)         | 49,5 – 66,2 % |
+| Precisión de las respuestas favorables                               | 53/53                 | 93,3 – 100 %  |
+| Cobertura del catálogo (ingredientes)                                | 484/499 (97 %)        | 95,1 – 98,3 % |
+| Productos que pedirían IA                                            | 1/143 (0,7 %)         | 0,02 – 3,8 %  |
+| Latencia del análisis determinista                                   | p50 12 µs · p95 30 µs | —             |
 
 **Advertencia:** el objetivo de menos de un 0,01 % de falsos negativos **no está
 demostrado**. Con 0 fallos harían falta al menos 29 956 casos positivos etiquetados

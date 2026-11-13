@@ -51,7 +51,7 @@ fn confirmed_by(people: i64) -> String {
 }
 
 /// `2026-11-12T10:00:00Z` → `12/11/2026`.
-fn short_date(iso: &str) -> String {
+pub(crate) fn short_date(iso: &str) -> String {
     let date = iso.get(..10).unwrap_or(iso);
     let mut parts = date.split('-');
     match (parts.next(), parts.next(), parts.next()) {

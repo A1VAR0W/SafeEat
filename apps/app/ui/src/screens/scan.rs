@@ -243,6 +243,9 @@ fn still_checking(p: &Product) -> bool {
 fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     let text = RwSignal::new(String::new());
     let only_free = RwSignal::new(false);
+    // Her own SAFE verdicts: a separate filter, never mixed into the declared one.
+    let only_mine = RwSignal::new(false);
+    let signed_in = use_session().0;
     let results = RwSignal::new(None::<Result<Vec<Product>, api::Failure>>);
     let loading = RwSignal::new(false);
     // Each search gets a number; late answers of older searches are ignored.
@@ -258,7 +261,7 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     // times, quietly (no spinner), while something in the list is still being checked.
     fn fetch_results(
         q: String,
-        free: bool,
+        (free, mine): (bool, bool),
         ticket: u32,
         round: u8,
         generation: StoredValue<u32>,
@@ -267,9 +270,10 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
     ) {
         spawn_local(async move {
             let path = format!(
-                "/products/search?q={}{}",
+                "/products/search?q={}{}{}",
                 api::enc(&q),
-                if free { "&glutenFree=true" } else { "" }
+                if free { "&glutenFree=true" } else { "" },
+                if mine { "&mySafe=true" } else { "" }
             );
             let result = api::get::<Items<Product>>(&path).await.map(|r| r.items);
             // The screen may be gone (tab switch) before the answer arrives.
@@ -287,14 +291,24 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
             loading.try_set(false);
             if waiting && round < REFRESH_ROUNDS {
                 set_timeout(
-                    move || fetch_results(q, free, ticket, round + 1, generation, results, loading),
+                    move || {
+                        fetch_results(
+                            q,
+                            (free, mine),
+                            ticket,
+                            round + 1,
+                            generation,
+                            results,
+                            loading,
+                        )
+                    },
                     std::time::Duration::from_secs(REFRESH_SECS),
                 );
             }
         });
     }
-    let fetch_results = move |q: String, free: bool, ticket: u32, round: u8| {
-        fetch_results(q, free, ticket, round, generation, results, loading)
+    let fetch_results = move |q: String, filters: (bool, bool), ticket: u32, round: u8| {
+        fetch_results(q, filters, ticket, round, generation, results, loading)
     };
 
     let run = move || {
@@ -308,8 +322,8 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
         let ticket = generation.get_value() + 1;
         generation.set_value(ticket);
         loading.set(true);
-        let free = only_free.get_untracked();
-        fetch_results(q, free, ticket, 0);
+        let filters = (only_free.get_untracked(), only_mine.get_untracked());
+        fetch_results(q, filters, ticket, 0);
     };
 
     view! {
@@ -336,6 +350,16 @@ fn ProductSearch(searches: RwSignal<Vec<String>>) -> impl IntoView {
                 />
                 "Solo sin gluten declarado"
             </label>
+            <Show when=move || signed_in.with(Option::is_some)>
+                <label class="check">
+                    <input
+                        type="checkbox"
+                        prop:checked=move || only_mine.get()
+                        on:change=move |ev| { only_mine.set(event_target_checked(&ev)); run(); }
+                    />
+                    "Solo los que marqué como seguros"
+                </label>
+            </Show>
             <Show when=move || results.with(Option::is_none) && searches.with(|s| !s.is_empty())>
                 <div class="chips" role="group" aria-label="Búsquedas recientes">
                     {move || searches.get().into_iter().map(|q| {

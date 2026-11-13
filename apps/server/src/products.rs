@@ -12,10 +12,14 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::Engine as _;
 use safeeat_contracts::{
-    Certification, GlutenStatus, InformationSource, Items, LabelAnalysis, NutritionInput,
-    PersonalVerdict, Product, ProductReportCounts, Reason, VerdictValue,
+    Certification, EvidenceSource, Freshness, GlutenStatus, InformationSource, Items,
+    LabelAnalysis, NutritionInput, PersonalVerdict, Product, ProductReportCounts, Reason,
+    VerdictValue,
 };
-use safeeat_gluten_engine::{analyze, score_nutrition, Analysis, Context, GlutenInput, Origin};
+use safeeat_gluten_engine::{
+    analyze, provenance, score_nutrition, Alternative, AlternativeKind, Analysis, Context,
+    GlutenInput, Origin,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -111,13 +115,24 @@ fn analyse_external(external: &ExternalProduct, translation: Option<&Translation
                 context,
             )
         };
-        let mut alternatives: Vec<(String, Analysis)> = external
+        let mut alternatives: Vec<Alternative> = external
             .alternate_ingredients
             .iter()
-            .map(|(label, text)| (label.clone(), other(text)))
+            .map(|(label, text)| Alternative {
+                label: label.clone(),
+                kind: AlternativeKind::SourceList,
+                analysis: other(text),
+            })
             .collect();
         if let Some(t) = translation {
-            alternatives.push(("traducida al español".into(), other(&t.text)));
+            alternatives.push(Alternative {
+                label: "traducida al español".into(),
+                // The engine reads Spanish and English: an English original decides.
+                kind: AlternativeKind::Translation {
+                    original_readable: t.language == "en",
+                },
+                analysis: other(&t.text),
+            });
         }
         let mut analysis = analyze(&external.gluten, context).with_alternatives(alternatives);
         if let Some(modified) = external
@@ -248,7 +263,11 @@ pub fn community_product(state: &AppState, code: &str, c: &Contribution) -> Prod
         gluten_reports: None,
         verified_gluten_reports: None,
         ingredients: Some(c.ingredients.clone()),
-        assessment: community_assessment(&c.ingredients),
+        assessment: {
+            let mut a = community_assessment(&c.ingredients);
+            a.provenance = Some(provenance(&a, EvidenceSource::Community));
+            a
+        },
         nutrition: NutritionInput::default(),
         quality: score_nutrition(&NutritionInput::default()),
         nutri_score: None,
@@ -264,6 +283,8 @@ pub fn community_product(state: &AppState, code: &str, c: &Contribution) -> Prod
         community_ingredients: Some(c.ingredients.clone()),
         provider_assessment: None,
         ai_review: None,
+        freshness: Some(Freshness::Current),
+        data_updated_at: None,
     }
 }
 
@@ -273,6 +294,13 @@ pub async fn with_reports_many(state: &AppState, items: Vec<Product>) -> ApiResu
         .iter()
         .filter(|p| !p.user_created)
         .map(|p| p.id.clone())
+        .collect();
+    let items: Vec<Product> = items
+        .into_iter()
+        .map(|item| Product {
+            freshness: Some(freshness(&item)),
+            ..item
+        })
         .collect();
     if ids.is_empty() {
         return Ok(ai_check::attach(state, items).await);
@@ -335,6 +363,59 @@ pub fn ingredients_hash(product: &Product) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
+/// Identity of the food-safety evidence (docs/SAFETY.md, "Invalidación"): the
+/// formulation plus allergens, traces, declarations, their provenance and the
+/// conclusion the current rules draw from them. A new rules version that reaches the
+/// same conclusion does not change it; one that changes the conclusion does.
+pub fn evidence_hash(product: &Product) -> String {
+    let a = &product.assessment;
+    let mut evidence: Vec<String> = a
+        .evidence
+        .iter()
+        .map(|e| serde_json::to_string(e).unwrap_or_default())
+        .collect();
+    evidence.sort_unstable();
+    let key = serde_json::json!({
+        "formulation": formulation(product),
+        "status": a.status.as_str(),
+        "finding": a.finding,
+        "certification": a.certification,
+        "provenance": a.provenance,
+        "evidence": evidence,
+    });
+    hex::encode(Sha256::digest(key.to_string().as_bytes()))
+}
+
+/// Cache older than this, served because the source failed, is not current.
+const CACHED_DAYS: i64 = 7;
+
+/// How current a product's information is, independent of its gluten status.
+fn freshness(item: &Product) -> Freshness {
+    if item.user_created
+        || item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "SEARCH_PREVIEW")
+    {
+        return Freshness::Current;
+    }
+    if outdated(item) {
+        return Freshness::OldRules;
+    }
+    if !item.stale {
+        return Freshness::Current;
+    }
+    let age = chrono::DateTime::parse_from_rfc3339(&item.fetched_at)
+        .map(|t| (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_days())
+        .unwrap_or(i64::MAX);
+    if age > CACHED_DAYS {
+        Freshness::Outdated
+    } else {
+        Freshness::Cached
+    }
+}
+
 /// Attach the caller's personal verdicts (never changes the automatic assessment).
 pub async fn with_verdicts(
     state: &AppState,
@@ -343,22 +424,27 @@ pub async fn with_verdicts(
 ) -> ApiResult<Vec<Product>> {
     let Some(user) = user else { return Ok(items) };
     let ids: Vec<String> = items.iter().map(|p| p.id.clone()).collect();
-    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, String)>(&format!(
-        "SELECT product_id,verdict,note,ingredients_hash,{} FROM user_product_verdicts WHERE user_id=$1 AND product_id=ANY($2)",
+    type Row = (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+    );
+    let rows = sqlx::query_as::<_, Row>(&format!(
+        "SELECT product_id,verdict,note,ingredients_hash,evidence_hash,{} FROM user_product_verdicts WHERE user_id=$1 AND product_id=ANY($2)",
         util::sql_iso("updated_at")
     ))
     .bind(user)
     .bind(&ids)
     .fetch_all(&state.db)
     .await?;
-    let verdicts: HashMap<String, (String, String, Option<String>, String)> = rows
-        .into_iter()
-        .map(|(id, v, n, h, u)| (id, (v, n, h, u)))
-        .collect();
+    let verdicts: HashMap<String, Row> = rows.into_iter().map(|r| (r.0.clone(), r)).collect();
     Ok(items
         .into_iter()
         .map(|item| match verdicts.get(&item.id) {
-            Some((verdict, note, hash, updated_at)) => Product {
+            Some((_, verdict, note, hash, evidence, updated_at)) => Product {
                 my_verdict: Some(PersonalVerdict {
                     verdict: if verdict == "SAFE" {
                         VerdictValue::Safe
@@ -370,6 +456,11 @@ pub async fn with_verdicts(
                     ingredients_changed: hash
                         .as_deref()
                         .is_some_and(|h| h != ingredients_hash(&item)),
+                    // Verdicts saved before 2.0.5 have no evidence identity: only the
+                    // ingredient check applies to them.
+                    evidence_changed: evidence
+                        .as_deref()
+                        .is_some_and(|h| h != evidence_hash(&item)),
                 }),
                 ..item
             },
@@ -429,6 +520,13 @@ fn from_external(
         .filter(|_| assessment.status == GlutenStatus::GlutenFree);
     let community =
         !external.manufacturer_data && external.gluten.source.starts_with("Open Food Facts");
+    let declared_by = if external.manufacturer_data {
+        EvidenceSource::Manufacturer
+    } else if community || external.information_source == InformationSource::Community {
+        EvidenceSource::Community
+    } else {
+        EvidenceSource::ExternalDeclaration
+    };
     if community && assessment.status == GlutenStatus::GlutenFree {
         // A label tag added by the community (often from a front photo) is a
         // declaration someone read, not a verified certification.
@@ -444,6 +542,7 @@ fn from_external(
             message: "Dato recogido por la comunidad de Open Food Facts, no por el fabricante. Compruébalo en tu envase.".into(),
         });
     }
+    assessment.provenance = Some(provenance(&assessment, declared_by));
     if external.summary_only {
         assessment.reasons.push(Reason {
             code: "SEARCH_PREVIEW".into(),
@@ -481,6 +580,11 @@ fn from_external(
         community_ingredients: None,
         provider_assessment: None,
         ai_review: None,
+        freshness: Some(Freshness::Current),
+        data_updated_at: external
+            .last_modified
+            .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+            .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
     };
     let candidates = if external.summary_only {
         Vec::new()
@@ -526,13 +630,28 @@ async fn note_formulation_change(state: &AppState, item: &mut Product) {
     let Ok(previous) = serde_json::from_value::<Product>(data) else {
         return;
     };
-    if let (Some(before), Some(now)) = (formulation(&previous), formulation(item)) {
-        if before != now {
-            item.assessment.reasons.push(Reason {
-                code: "INGREDIENTS_CHANGED".into(),
-                message: "La lista de ingredientes de la fuente ha cambiado recientemente: puede ser una receta nueva. Comprueba que coincide con tu envase.".into(),
-            });
-        }
+    let formulation_changed = matches!(
+        (formulation(&previous), formulation(item)),
+        (Some(before), Some(now)) if before != now
+    );
+    if formulation_changed {
+        item.assessment.reasons.push(Reason {
+            code: "INGREDIENTS_CHANGED".into(),
+            message: "La lista de ingredientes de la fuente ha cambiado recientemente: puede ser una receta nueva. Comprueba que coincide con tu envase.".into(),
+        });
+    } else if !outdated(&previous)
+        && previous.assessment.status != item.assessment.status
+        && previous.assessment.status != GlutenStatus::Unknown
+    {
+        // Same ingredients, other allergens, traces or declaration: say so instead of
+        // silently replacing the earlier conclusion.
+        item.assessment.reasons.push(Reason {
+            code: "EVIDENCE_CHANGED".into(),
+            message: format!(
+                "La información de alérgenos, trazas o declaraciones de la fuente ha cambiado (antes: {}). Comprueba tu envase.",
+                previous.assessment.status.label().1.to_lowercase()
+            ),
+        });
     }
 }
 
@@ -787,16 +906,24 @@ async fn by_barcode(
     Ok(Json(decorate(&state, item, user.map(|u| u.id)).await?))
 }
 
+/// "Solo sin gluten declarado": food evidence only. A personal verdict never puts a
+/// product here (see `is_my_safe_choice`); a certification never does on its own (it is
+/// only kept on GLUTEN_FREE assessments); community reports of gluten and data too old
+/// to be a current confirmation keep it out.
 fn is_gluten_free_choice(item: &Product) -> bool {
-    match &item.my_verdict {
-        Some(v) => v.verdict == VerdictValue::Safe,
-        None => {
-            item.assessment.status != GlutenStatus::ContainsGluten
-                && item.assessment.status != GlutenStatus::MayContainTraces
-                && (item.assessment.status == GlutenStatus::GlutenFree
-                    || item.assessment.certification.is_some())
-        }
-    }
+    item.assessment.status == GlutenStatus::GlutenFree
+        && item.gluten_reports.is_none_or(|r| r.contains_gluten == 0)
+        && !matches!(
+            item.freshness,
+            Some(Freshness::Outdated | Freshness::OldRules)
+        )
+}
+
+/// "Mis seguros": the user's own SAFE verdicts that still match the product.
+fn is_my_safe_choice(item: &Product) -> bool {
+    item.my_verdict.as_ref().is_some_and(|v| {
+        v.verdict == VerdictValue::Safe && !v.ingredients_changed && !v.evidence_changed
+    })
 }
 
 async fn search(
@@ -813,6 +940,7 @@ async fn search(
         100,
     )?;
     let gluten_free = util::query_bool(query.get("glutenFree"))?.unwrap_or(false);
+    let my_safe = util::query_bool(query.get("mySafe"))?.unwrap_or(false);
     let externals = state.off.search(&q).await?;
     let items = save_previews(&state, &externals).await?;
     enrich_previews(&state, &items);
@@ -858,6 +986,9 @@ async fn search(
     let mut views = with_verdicts(&state, views, user.map(|u| u.id)).await?;
     if gluten_free {
         views.retain(is_gluten_free_choice);
+    }
+    if my_safe {
+        views.retain(is_my_safe_choice);
     }
     Ok(Json(Items { items: views }))
 }
@@ -914,6 +1045,8 @@ async fn analyze_text(
         community_ingredients: None,
         provider_assessment: None,
         ai_review: None,
+        freshness: Some(Freshness::Current),
+        data_updated_at: None,
     };
     sqlx::query("INSERT INTO products(id,provider,owner_id,data,expires_at) VALUES($1,'user',$2,$3,now()+interval '30 days')")
         .bind(&item.id)
@@ -1161,14 +1294,15 @@ async fn put_verdict(
     let note = util::trimmed(util::opt_str(object, "note")?.unwrap_or(""), 0, 500)?;
     let item = get_product(&state, &id, Some(auth.id)).await?;
     sqlx::query(
-        "INSERT INTO user_product_verdicts(user_id,product_id,verdict,note,ingredients_hash) VALUES($1,$2,$3,$4,$5)
-         ON CONFLICT(user_id,product_id) DO UPDATE SET verdict=$3,note=$4,ingredients_hash=$5,updated_at=now()",
+        "INSERT INTO user_product_verdicts(user_id,product_id,verdict,note,ingredients_hash,evidence_hash) VALUES($1,$2,$3,$4,$5,$6)
+         ON CONFLICT(user_id,product_id) DO UPDATE SET verdict=$3,note=$4,ingredients_hash=$5,evidence_hash=$6,updated_at=now()",
     )
     .bind(auth.id)
     .bind(&item.id)
     .bind(verdict)
     .bind(&note)
     .bind(ingredients_hash(&item))
+    .bind(evidence_hash(&item))
     .execute(&state.db)
     .await?;
     Ok(Json(
@@ -1554,5 +1688,172 @@ mod tests {
         assert!(!outdated(&item));
         item.assessment.engine_version = "1.1.0".into();
         assert!(outdated(&item));
+    }
+
+    fn with_status(text: &str, declaration: Option<&str>) -> Product {
+        let mut ext = french(text);
+        ext.gluten.declaration = declaration.map(str::to_string);
+        from_external(&ext, None).0
+    }
+
+    fn verdict(value: VerdictValue, changed: bool) -> Option<PersonalVerdict> {
+        Some(PersonalVerdict {
+            verdict: value,
+            note: String::new(),
+            updated_at: now_iso(),
+            ingredients_changed: changed,
+            evidence_changed: false,
+        })
+    }
+
+    /// Regression (audit 2.1): a personal SAFE put products with declared gluten in
+    /// "Solo sin gluten declarado". Every status × personal verdict combination.
+    #[test]
+    fn the_gluten_free_filter_uses_food_evidence_only() {
+        let products = [
+            (
+                with_status("Riz, sucre.", Some("sin gluten")),
+                GlutenStatus::GlutenFree,
+            ),
+            (
+                with_status("Harina de trigo, azúcar.", None),
+                GlutenStatus::ContainsGluten,
+            ),
+            (
+                with_status("Arroz, azúcar. Puede contener trazas de trigo.", None),
+                GlutenStatus::MayContainTraces,
+            ),
+            (
+                with_status("Patatas, aceite, sal.", None),
+                GlutenStatus::Unknown,
+            ),
+        ];
+        let verdicts = [
+            None,
+            verdict(VerdictValue::Safe, false),
+            verdict(VerdictValue::Safe, true),
+            verdict(VerdictValue::Unsafe, false),
+        ];
+        for (base, status) in &products {
+            assert_eq!(base.assessment.status, *status);
+            for v in &verdicts {
+                let item = Product {
+                    my_verdict: v.clone(),
+                    freshness: Some(Freshness::Current),
+                    ..base.clone()
+                };
+                assert_eq!(
+                    is_gluten_free_choice(&item),
+                    *status == GlutenStatus::GlutenFree,
+                    "{status:?} with {v:?}"
+                );
+                let mine = v
+                    .as_ref()
+                    .is_some_and(|v| v.verdict == VerdictValue::Safe && !v.ingredients_changed);
+                assert_eq!(is_my_safe_choice(&item), mine, "{status:?} with {v:?}");
+            }
+        }
+        let free = products[0].0.clone();
+        // Community reports of gluten and data too old to confirm keep it out.
+        let reported = Product {
+            gluten_reports: Some(ProductReportCounts {
+                gluten_free: 0,
+                contains_gluten: 1,
+            }),
+            ..free.clone()
+        };
+        assert!(!is_gluten_free_choice(&reported));
+        for (f, kept) in [
+            (Freshness::Current, true),
+            (Freshness::Cached, true),
+            (Freshness::Outdated, false),
+            (Freshness::OldRules, false),
+        ] {
+            let item = Product {
+                freshness: Some(f),
+                ..free.clone()
+            };
+            assert_eq!(is_gluten_free_choice(&item), kept, "{f:?}");
+        }
+        // A personal verdict pending review is not "mine safe".
+        let mut pending = free.clone();
+        pending.my_verdict = verdict(VerdictValue::Safe, false);
+        pending.my_verdict.as_mut().unwrap().evidence_changed = true;
+        assert!(!is_my_safe_choice(&pending));
+    }
+
+    #[test]
+    fn provenance_says_who_stands_behind_the_status() {
+        let community = with_status("Riz, sucre.", Some("sin gluten"));
+        assert_eq!(
+            community.assessment.provenance,
+            Some(EvidenceSource::Community)
+        );
+        let mut ext = french("Riz, sucre.");
+        ext.gluten.declaration = Some("sin gluten".into());
+        ext.manufacturer_data = true;
+        assert_eq!(
+            from_external(&ext, None).0.assessment.provenance,
+            Some(EvidenceSource::Manufacturer)
+        );
+        let mut usda = french("Rice, sugar.");
+        usda.gluten.source = "USDA FoodData Central".into();
+        usda.gluten.declaration = Some("gluten free".into());
+        assert_eq!(
+            from_external(&usda, None).0.assessment.provenance,
+            Some(EvidenceSource::ExternalDeclaration)
+        );
+        assert_eq!(
+            with_status("Patatas, aceite, sal.", None)
+                .assessment
+                .provenance,
+            Some(EvidenceSource::Automatic)
+        );
+        let mut empty = french("x");
+        empty.ingredients = None;
+        empty.gluten.ingredients = None;
+        assert_eq!(
+            from_external(&empty, None).0.assessment.provenance,
+            Some(EvidenceSource::Insufficient)
+        );
+    }
+
+    #[test]
+    fn evidence_identity_follows_food_data_not_rule_versions() {
+        let a = with_status("Arroz, azúcar.", None);
+        let same = with_status("Arroz, azúcar.", None);
+        assert_eq!(evidence_hash(&a), evidence_hash(&same));
+        let mut rules = a.clone();
+        rules.assessment.engine_version = "9.9.9".into();
+        assert_eq!(evidence_hash(&a), evidence_hash(&rules));
+        let traces = with_status("Arroz, azúcar. Puede contener trazas de trigo.", None);
+        assert_eq!(ingredients_hash(&a), {
+            // Same list, a trace statement added after it.
+            let mut t = traces.clone();
+            t.ingredients = a.ingredients.clone();
+            ingredients_hash(&t)
+        });
+        assert_ne!(evidence_hash(&a), evidence_hash(&traces));
+        let claim = with_status("Arroz, azúcar.", Some("sin gluten"));
+        assert_ne!(evidence_hash(&a), evidence_hash(&claim));
+    }
+
+    #[test]
+    fn freshness_is_independent_of_the_status() {
+        let mut item = with_status("Riz, sucre.", Some("sin gluten"));
+        assert_eq!(freshness(&item), Freshness::Current);
+        item.stale = true;
+        let days_ago = |d: i64| {
+            (chrono::Utc::now() - chrono::Duration::days(d))
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        };
+        item.fetched_at = days_ago(2);
+        assert_eq!(freshness(&item), Freshness::Cached);
+        item.fetched_at = days_ago(10);
+        assert_eq!(freshness(&item), Freshness::Outdated);
+        // Still GLUTEN_FREE: an old cache never turns into a warning by itself.
+        assert_eq!(item.assessment.status, GlutenStatus::GlutenFree);
+        item.assessment.engine_version = "1.1.0".into();
+        assert_eq!(freshness(&item), Freshness::OldRules);
     }
 }

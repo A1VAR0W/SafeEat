@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::api::{self, Failure};
 use crate::icons;
 use crate::nav::{use_nav, use_session, Route};
-use crate::screens::community::{CommunityReviews, ProductReviewForm, ShareButton};
+use crate::screens::community::{short_date, CommunityReviews, ProductReviewForm, ShareButton};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
 use crate::verdict::{self, status_title, status_tone, AiNote};
 
@@ -231,7 +231,8 @@ fn ProductDetail(
             <ShareButton kind="products" id=p.id.clone() />
             <p class="muted small source">
                 "Fuente: " {p.source.clone()}
-                {p.stale.then_some(" · datos sin actualizar")}
+                {p.data_updated_at.as_deref().map(|d| format!(" · datos de la fuente del {}", short_date(d)))}
+                {format!(" · consultado el {}", short_date(&p.fetched_at))}
             </p>
         </article>
     }
@@ -248,8 +249,14 @@ fn AnalysisPart(product: Product) -> impl IntoView {
     view! {
         <div class="stack">
             // Certified seal / declaration, with where it comes from.
+            {verdict::freshness_notice(&p).map(|text| view! {
+                <div class="notice tone-caution" role="status">
+                    <Icon svg=icons::ALERT />
+                    <div class="notice-body"><p><strong>{text}</strong></p></div>
+                </div>
+            })}
             {p.assessment.certification.map(|c| view! {
-                <div class="notice tone-safe">
+                <div class=if verdict::community_claim(&p.assessment) || verdict::not_current(&p) { "notice tone-info" } else { "notice tone-safe" }>
                     <Icon svg=icons::SEAL />
                     <div class="notice-body">
                         <p><strong>{c.label()}</strong></p>
@@ -437,6 +444,12 @@ fn PersonalVerdictCard(
                             <div class="notice tone-caution">
                                 <Icon svg=icons::ALERT />
                                 <div class="notice-body"><p><strong>"Los ingredientes han cambiado, revísalo."</strong></p></div>
+                            </div>
+                        })}
+                        {(v.evidence_changed && !v.ingredients_changed).then(|| view! {
+                            <div class="notice tone-caution">
+                                <Icon svg=icons::ALERT />
+                                <div class="notice-body"><p><strong>"La información de alérgenos o trazas ha cambiado desde tu valoración: revísala."</strong></p></div>
                             </div>
                         })}
                         <div class="my-verdict-row">

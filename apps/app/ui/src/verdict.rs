@@ -11,9 +11,39 @@
 //! No percentages: the strength of the evidence is a word with its explanation.
 
 use safeeat_contracts::{
-    AiCheckStatus, AiItemVerdict, AiOutcome, Assessment, Certification, GlutenFinding,
-    GlutenStatus, IngredientClass, Product, VerdictValue,
+    AiCheckStatus, AiItemVerdict, AiOutcome, Assessment, Certification, EvidenceSource, Freshness,
+    GlutenFinding, GlutenStatus, IngredientClass, Product, VerdictValue,
 };
+
+/// A "sin gluten" recorded by the community, not by the manufacturer or a database fed
+/// by brand owners: shown as a declaration nobody has verified, never green.
+pub fn community_claim(a: &Assessment) -> bool {
+    a.status == GlutenStatus::GlutenFree && a.provenance == Some(EvidenceSource::Community)
+}
+
+/// The information is too old to be a current confirmation (the source could not be
+/// reached for over a week, or older rules analysed it).
+pub fn not_current(p: &Product) -> bool {
+    matches!(p.freshness, Some(Freshness::Outdated | Freshness::OldRules))
+}
+
+/// Banner text when the information shown is not current, independent of the status.
+pub fn freshness_notice(p: &Product) -> Option<&'static str> {
+    match p.freshness {
+        Some(Freshness::Cached) => Some(
+            "No hemos podido actualizar este producto: mostramos los últimos datos guardados (de hace pocos días).",
+        ),
+        Some(Freshness::Outdated) => Some(
+            "Datos guardados hace más de una semana y sin actualizar: no son una confirmación actual. Comprueba el envase.",
+        ),
+        Some(Freshness::OldRules) => Some(
+            "Analizado con reglas anteriores. Abre de nuevo el producto con conexión para actualizar el análisis.",
+        ),
+        // App 1.x servers only send `stale`.
+        None if p.stale => Some("Datos sin actualizar: comprueba el envase."),
+        _ => None,
+    }
+}
 
 /// Visual tone of a badge. Every tone also carries an icon and words, never colour alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +115,9 @@ fn plural(n: i64, one: &str, many: &str) -> String {
 pub fn summary(p: &Product) -> Summary {
     // Her own verdict is what she trusts most.
     if let Some(v) = &p.my_verdict {
-        if !v.ingredients_changed {
+        // A verdict given on other ingredients or other allergen/trace information is
+        // kept as history (the product page shows it) but does not decide the badge.
+        if !v.ingredients_changed && !v.evidence_changed {
             return match v.verdict {
                 // Her "safe" never hides a risk the analysis found.
                 VerdictValue::Safe if p.assessment.status.risk() >= 2 => Summary {
@@ -199,6 +231,22 @@ pub fn summary(p: &Product) -> Summary {
             warning: None,
         };
     }
+    // A community-recorded "sin gluten" is information, not a verified declaration.
+    if community_claim(&p.assessment) {
+        return Summary {
+            tone: Tone::Info,
+            text: "«Sin gluten» según datos de la comunidad · sin verificar".into(),
+            warning: Some("Compruébalo en tu envase"),
+        };
+    }
+    // Old data is never presented as a current confirmation.
+    if status == GlutenStatus::GlutenFree && not_current(p) {
+        return Summary {
+            tone: Tone::Info,
+            text: "Sin gluten declarado · datos antiguos sin actualizar".into(),
+            warning: Some("No es una confirmación actual: compruébalo en el envase"),
+        };
+    }
     // A declaration with the certification symbol says so in the answer itself.
     if status == GlutenStatus::GlutenFree
         && p.assessment.certification == Some(Certification::CertifiedSeal)
@@ -283,6 +331,10 @@ pub fn evidence_level(a: &Assessment) -> (&'static str, &'static str) {
         (GlutenStatus::MayContainTraces, _) => (
             "Clara",
             "La fuente declara una advertencia de posibles trazas.",
+        ),
+        (GlutenStatus::GlutenFree, _) if a.provenance == Some(EvidenceSource::Community) => (
+            "Declaración no verificada",
+            "Un colaborador de una base de datos abierta registró la mención «sin gluten» del envase. Ni el fabricante ni SafeEat lo han confirmado.",
         ),
         (GlutenStatus::GlutenFree, _) if a.certification == Some(Certification::CertifiedSeal) => (
             "Declaración con sello",
@@ -540,7 +592,7 @@ mod tests {
                         gluten_free: verified.min(free),
                         contains_gluten: 0,
                     });
-                    p.ai_check = status.and_then(|s| ai(s));
+                    p.ai_check = status.and_then(ai);
                     assert_ne!(summary(&p).tone, Tone::Safe, "{free} {verified} {status:?}");
                 }
             }
@@ -590,6 +642,7 @@ mod tests {
             note: String::new(),
             updated_at: String::new(),
             ingredients_changed: false,
+            evidence_changed: false,
         });
         assert_eq!(summary(&p).tone, Tone::Caution);
         p.assessment.status = GlutenStatus::Unknown;
@@ -597,5 +650,55 @@ mod tests {
         p.assessment.status = GlutenStatus::ContainsGluten;
         p.my_verdict.as_mut().unwrap().ingredients_changed = true;
         assert_eq!(summary(&p).tone, Tone::Danger);
+        // Same ingredients, other allergen/trace information: pending review.
+        p.my_verdict.as_mut().unwrap().ingredients_changed = false;
+        p.my_verdict.as_mut().unwrap().evidence_changed = true;
+        p.assessment.status = GlutenStatus::Unknown;
+        assert_ne!(summary(&p).tone, Tone::Safe);
+    }
+
+    /// Regression (audit 2.3): a community "sin gluten" from Open Food Facts was shown
+    /// green, like a verified declaration.
+    #[test]
+    fn a_community_claim_is_never_green() {
+        let mut p = product("GLUTEN_FREE");
+        p.assessment.provenance = Some(EvidenceSource::Community);
+        let s = summary(&p);
+        assert_eq!(s.tone, Tone::Info);
+        assert!(s.text.contains("comunidad") && s.text.contains("sin verificar"));
+        assert_eq!(evidence_level(&p.assessment).0, "Declaración no verificada");
+        for source in [
+            EvidenceSource::Manufacturer,
+            EvidenceSource::ExternalDeclaration,
+        ] {
+            p.assessment.provenance = Some(source);
+            assert_eq!(summary(&p).tone, Tone::Safe, "{source:?}");
+        }
+    }
+
+    /// Regression (audit 2.5): a cached product kept a plain green badge while the
+    /// provider was down.
+    #[test]
+    fn old_information_is_not_a_current_confirmation() {
+        let mut p = product("GLUTEN_FREE");
+        for (f, green) in [
+            (Freshness::Current, true),
+            (Freshness::Cached, true),
+            (Freshness::Outdated, false),
+            (Freshness::OldRules, false),
+        ] {
+            p.freshness = Some(f);
+            assert_eq!(summary(&p).tone == Tone::Safe, green, "{f:?}");
+            assert_eq!(
+                freshness_notice(&p).is_some(),
+                f != Freshness::Current,
+                "{f:?}"
+            );
+        }
+        // Never turned into a warning by an old cache.
+        let mut p = product("UNKNOWN");
+        p.freshness = Some(Freshness::Outdated);
+        assert_ne!(summary(&p).tone, Tone::Danger);
+        assert_ne!(summary(&p).tone, Tone::Caution);
     }
 }

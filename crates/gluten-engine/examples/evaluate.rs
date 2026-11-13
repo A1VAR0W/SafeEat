@@ -10,7 +10,9 @@
 use std::time::Instant;
 
 use safeeat_contracts::{GlutenFinding, GlutenStatus, IngredientClass};
-use safeeat_gluten_engine::{analyze, Analysis, Context, GlutenInput, Origin, ENGINE_VERSION};
+use safeeat_gluten_engine::{
+    analyze, Alternative, AlternativeKind, Analysis, Context, GlutenInput, Origin, ENGINE_VERSION,
+};
 use serde_json::Value;
 
 fn load() -> Vec<(String, String, GlutenInput, Context, Option<String>)> {
@@ -69,7 +71,11 @@ fn run(input: &GlutenInput, context: Context, alternate: &Option<String>) -> Ana
                 },
                 context,
             );
-            analysis.with_alternatives(vec![("original".into(), other)])
+            analysis.with_alternatives(vec![Alternative {
+                label: "original".into(),
+                kind: AlternativeKind::SourceList,
+                analysis: other,
+            }])
         }
         None => analysis,
     }

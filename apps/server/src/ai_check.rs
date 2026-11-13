@@ -1037,6 +1037,7 @@ mod tests {
                 finding: Some(GlutenFinding::InsufficientInformation),
                 rules_version: Some(RULES_VERSION.into()),
                 items: vec![],
+                provenance: None,
             },
             nutrition: NutritionInput::default(),
             quality: NutritionScore {
@@ -1058,6 +1059,8 @@ mod tests {
             community_ingredients: None,
             provider_assessment: None,
             ai_review: None,
+            freshness: None,
+            data_updated_at: None,
         }
     }
 

@@ -15,9 +15,23 @@
 //! - a "sin gluten" that qualifies one ingredient is not a product declaration.
 
 use safeeat_contracts::{
-    Assessment, EvidenceKind, GlutenFinding, GlutenStatus, IngredientClass, IngredientFinding,
-    Reason,
+    Assessment, EvidenceKind, EvidenceSource, GlutenFinding, GlutenStatus, IngredientClass,
+    IngredientFinding, Reason,
 };
+
+/// Provenance of an assessment whose declarations come from `declared_by`: a declared
+/// status (gluten, traces, "sin gluten") is as strong as its source; an UNKNOWN is
+/// SafeEat's own reading, or nothing at all.
+pub fn provenance(a: &Assessment, declared_by: EvidenceSource) -> EvidenceSource {
+    match (a.status, a.finding) {
+        (
+            GlutenStatus::Unknown,
+            None | Some(GlutenFinding::InsufficientInformation) | Some(GlutenFinding::Other),
+        ) => EvidenceSource::Insufficient,
+        (GlutenStatus::Unknown, _) => EvidenceSource::Automatic,
+        _ => declared_by,
+    }
+}
 
 use crate::catalog::{self, classify, is_only_descriptors, severity, RULES_VERSION};
 use crate::items::{self, Item};
@@ -25,7 +39,7 @@ use crate::{assess_gluten, normalize, GlutenInput};
 
 /// Version of the analysis served by the API: engine layer + rule catalog. Cached
 /// analyses with any other version are recomputed.
-pub const ENGINE_VERSION: &str = "1.2.0+rules.2026.11.13";
+pub const ENGINE_VERSION: &str = "1.2.1+rules.2026.11.13";
 
 /// Labelling regime of the source. Under EU law (1169/2011 art. 21) any ingredient made
 /// from a gluten cereal must name it, which changes how vague words are read.
@@ -85,6 +99,8 @@ fn reason(code: &str, message: impl Into<String>) -> Reason {
 const NO_GLUTEN_IDENTIFIED: &str = "No se han identificado ingredientes que declaren gluten. Sin embargo, no disponemos de información suficiente para confirmar que el producto sea apto para celíacos.";
 const CHECK_LABEL: &str = "Comprueba la información de alérgenos y posibles trazas del envase.";
 const UNDETERMINED: &str = "No se ha podido determinar la presencia de gluten.";
+const INCOMPLETE_LIST: &str = "La lista de ingredientes es demasiado larga o está incompleta: no se han podido revisar todos los ingredientes uno a uno. Revisa el envase.";
+const UNBALANCED_LIST: &str = "La lista tiene paréntesis sin cerrar: la composición de algún ingrediente compuesto puede no haberse interpretado bien.";
 
 fn classify_items(items: &[Item], eu: bool) -> Vec<ClassifiedItem> {
     items
@@ -176,9 +192,8 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
         .as_deref()
         .map(str::trim)
         .filter(|t| !t.is_empty());
-    let items = ingredients
-        .map(|text| classify_items(&items::split(text), eu))
-        .unwrap_or_default();
+    let parsed = ingredients.map(items::parse).unwrap_or_default();
+    let items = classify_items(&parsed.items, eu);
     let mut core = assess_gluten(input);
     let mut extra: Vec<Reason> = Vec::new();
     // Set when only an exemption separated a "sin gluten" claim from green.
@@ -252,7 +267,8 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
         || worst.is_some_and(|c| severity(c) >= severity(IngredientClass::NeedsOrigin))
     {
         GlutenFinding::AmbiguousIngredient
-    } else if !unrecognized.is_empty() {
+    } else if !unrecognized.is_empty() || parsed.incomplete() {
+        // Ingredients that were never classified one by one leave nothing to reassure.
         GlutenFinding::InsufficientInformation
     } else {
         GlutenFinding::NoGlutenIdentified
@@ -306,6 +322,10 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
                 "No disponemos de la lista de ingredientes: no se ha podido determinar la presencia de gluten. Revisa el envase.",
             )]
         }
+        GlutenFinding::InsufficientInformation if unrecognized.is_empty() => vec![
+            reason("INSUFFICIENT_EVIDENCE", UNDETERMINED),
+            reason("INCOMPLETE_LIST", INCOMPLETE_LIST),
+        ],
         GlutenFinding::InsufficientInformation => vec![
             reason("INSUFFICIENT_EVIDENCE", UNDETERMINED),
             reason(
@@ -326,6 +346,12 @@ pub fn analyze(input: &GlutenInput, context: Context) -> Analysis {
             "No disponemos de información suficiente para confirmar que sea seguro.",
         )],
     };
+    if parsed.incomplete() && !unrecognized.is_empty() {
+        unknown_reasons.push(reason("INCOMPLETE_LIST", INCOMPLETE_LIST));
+    }
+    if parsed.unbalanced {
+        unknown_reasons.push(reason("UNBALANCED_LIST", UNBALANCED_LIST));
+    }
     unknown_reasons.extend(extra.iter().cloned());
     unknown_reasons.extend(core_others.iter().cloned());
 
@@ -502,45 +528,153 @@ impl Analysis {
         self
     }
 
-    /// Other texts of the same source and formulation (the list in another language,
-    /// a translation). They can only make the result more cautious: a gluten or trace
-    /// warning in any of them wins, and a reassuring case needs all of them to agree.
-    pub fn with_alternatives(mut self, others: Vec<(String, Analysis)>) -> Analysis {
-        for (label, other) in others {
-            let a = &self.assessment;
-            let b = &other.assessment;
-            let warns = matches!(
-                b.status,
-                GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
-            );
-            let disagree_message = format!(
-                "La lista de ingredientes {label} no permite la misma conclusión. Prevalece la precaución: revisa la etiqueta."
-            );
-            if warns && b.status.risk() > a.status.risk() {
-                let mut adopted = other;
-                adopted.assessment.finding = Some(GlutenFinding::Contradictory);
-                adopted
-                    .assessment
-                    .reasons
-                    .push(reason("TEXTS_DISAGREE", disagree_message));
+    /// Other texts of the same record: lists in other languages, a machine translation.
+    /// Reconciled one by one by provenance (`reconcile`); they never make the result
+    /// more favourable.
+    pub fn with_alternatives(mut self, others: Vec<Alternative>) -> Analysis {
+        for other in others {
+            self = self.reconcile(other);
+        }
+        self
+    }
+
+    /// Policy (docs/GLUTEN-ANALYSIS.md, "Varias listas del mismo producto"):
+    ///
+    /// | this list        | other list            | other is evidence¹ | result                          |
+    /// |------------------|-----------------------|--------------------|---------------------------------|
+    /// | gluten           | anything              | -                  | gluten                          |
+    /// | free/unknown/traces | warning, more severe | yes             | the warning, contradictory      |
+    /// | free/unknown     | warning               | no (translation)   | UNKNOWN, contradictory          |
+    /// | traces           | gluten                | no (translation)   | traces + note                   |
+    /// | free             | unknown/free-less     | yes                | UNKNOWN, contradictory          |
+    /// | free             | unknown               | no (translation)   | free + note (original decides)  |
+    /// | unknown          | more cautious unknown | any                | that case                       |
+    /// | unknown/traces   | free                  | any                | unchanged (never more favourable)|
+    ///
+    /// ¹ Another list of the record is label text in its own right. A machine
+    /// translation is evidence only when the engine cannot read the original language.
+    fn reconcile(mut self, other: Alternative) -> Analysis {
+        use GlutenStatus::{ContainsGluten, GlutenFree, MayContainTraces, Unknown};
+        let label = other.label.clone();
+        let evidence = other.is_evidence();
+        let a = self.assessment.status;
+        let b = other.analysis.assessment.status;
+        let b_warns = matches!(b, ContainsGluten | MayContainTraces);
+        let disagree = || {
+            reason(
+                "TEXTS_DISAGREE",
+                format!("La lista de ingredientes {label} no permite la misma conclusión. Prevalece la precaución: revisa la etiqueta."),
+            )
+        };
+        match (a, b) {
+            (ContainsGluten, _) => self,
+            _ if b_warns && b.risk() > a.risk() && evidence => {
+                let mut adopted = other.analysis;
+                let translated = matches!(other.kind, AlternativeKind::Translation { .. });
+                if a == GlutenFree || !translated {
+                    adopted.assessment.finding = Some(GlutenFinding::Contradictory);
+                }
+                adopted.assessment.reasons.push(if translated {
+                    reason(
+                        "TRANSLATION_EVIDENCE",
+                        format!("Detectado en la lista {label}: SafeEat no reconoce el idioma original. Compruébalo en el envase."),
+                    )
+                } else {
+                    disagree()
+                });
                 adopted.ai_candidates.clear();
-                self = adopted;
-            } else if a.status == GlutenStatus::Unknown
-                && b.status == GlutenStatus::Unknown
-                && unknown_rank(b.finding) > unknown_rank(a.finding)
-            {
-                let mut adopted = other;
                 adopted
-                    .assessment
-                    .reasons
-                    .push(reason("TEXTS_DISAGREE", disagree_message));
+            }
+            (GlutenFree | Unknown, ContainsGluten | MayContainTraces) => {
+                // Only a translation says so: perhaps a translation error, never proof of
+                // gluten, but never green either.
+                self.into_unknown(
+                    GlutenFinding::Contradictory,
+                    reason(
+                        "TRANSLATION_DISAGREES",
+                        format!("La lista {label} menciona gluten o trazas y la original no. Puede ser un error de traducción: compruébalo en el envase."),
+                    ),
+                )
+            }
+            (MayContainTraces, ContainsGluten) => {
+                self.assessment.reasons.push(reason(
+                    "TRANSLATION_DISAGREES",
+                    format!("La lista {label} menciona gluten como ingrediente; la original solo trazas. Compruébalo en el envase."),
+                ));
+                self
+            }
+            (GlutenFree, Unknown) if evidence => {
+                let mut unknown = other.analysis;
+                let why = disagree();
+                unknown.assessment.finding = Some(GlutenFinding::Contradictory);
+                unknown.assessment.reasons.push(why.clone());
+                unknown.assessment.items = std::mem::take(&mut self.assessment.items);
+                unknown.ai_candidates.clear();
+                unknown.unknown_finding = GlutenFinding::Contradictory;
+                unknown.unknown_reasons.push(why);
+                unknown
+            }
+            (GlutenFree, Unknown) => {
+                self.assessment.reasons.push(reason(
+                    "TRANSLATION_NOT_DECISIVE",
+                    format!("La lista {label} no permite reconocer todos los ingredientes; la conclusión se basa en la lista original."),
+                ));
+                self
+            }
+            (Unknown, Unknown)
+                if unknown_rank(other.analysis.assessment.finding)
+                    > unknown_rank(self.assessment.finding) =>
+            {
+                let mut adopted = other.analysis;
+                adopted.assessment.reasons.push(disagree());
                 adopted.ai_candidates.clear();
                 // Keep the items of the list the user sees.
                 adopted.assessment.items = std::mem::take(&mut self.assessment.items);
-                self = adopted;
+                adopted
             }
+            _ => self,
         }
+    }
+
+    fn into_unknown(mut self, finding: GlutenFinding, why: Reason) -> Analysis {
+        self.assessment.status = GlutenStatus::Unknown;
+        self.assessment.confidence = 0.0;
+        self.assessment.certification = None;
+        self.assessment.finding = Some(finding);
+        self.assessment.reasons = self.unknown_reasons.clone();
+        self.assessment.reasons.push(why.clone());
+        self.unknown_finding = finding;
+        self.unknown_reasons.push(why);
+        self.ai_candidates.clear();
         self
+    }
+}
+
+/// Where another text of the same product comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlternativeKind {
+    /// Another list of the same record (another language): label text in its own right.
+    SourceList,
+    /// A machine translation of this list. `original_readable`: the engine supports the
+    /// original language (Spanish, English), so the original decides.
+    Translation { original_readable: bool },
+}
+
+/// Another text of the same product, analysed.
+#[derive(Debug, Clone)]
+pub struct Alternative {
+    /// "en francés", "traducida al español"...
+    pub label: String,
+    pub kind: AlternativeKind,
+    pub analysis: Analysis,
+}
+
+impl Alternative {
+    fn is_evidence(&self) -> bool {
+        match self.kind {
+            AlternativeKind::SourceList => true,
+            AlternativeKind::Translation { original_readable } => !original_readable,
+        }
     }
 }
 
@@ -727,41 +861,160 @@ mod tests {
         assert_eq!(a.finding, Some(GlutenFinding::Contradictory));
     }
 
+    fn alt(label: &str, kind: AlternativeKind, text: &str) -> Alternative {
+        Alternative {
+            label: label.into(),
+            kind,
+            analysis: analyze(&provider(text), Context::default()),
+        }
+    }
+
+    const LIST: AlternativeKind = AlternativeKind::SourceList;
+    const READABLE: AlternativeKind = AlternativeKind::Translation {
+        original_readable: true,
+    };
+    const UNREADABLE: AlternativeKind = AlternativeKind::Translation {
+        original_readable: false,
+    };
+
+    fn merged(primary: &str, kind: AlternativeKind, other: &str) -> Assessment {
+        analyze(&provider(primary), Context::default())
+            .with_alternatives(vec![alt("en otro idioma", kind, other)])
+            .assessment
+    }
+
+    fn codes(a: &Assessment) -> Vec<&str> {
+        a.reasons.iter().map(|r| r.code.as_str()).collect()
+    }
+
+    const FREE: &str = "Arroz, sal. Producto sin gluten.";
+    const NONE: &str = "Patatas, aceite, sal.";
+    const VAGUE: &str = "Patatas, almidón, sal.";
+    const WHEAT: &str = "Patatas, harina de trigo, sal.";
+    const TRACES: &str = "Patatas, aceite, sal. Puede contener trazas de trigo.";
+
     #[test]
     fn alternatives_only_add_caution() {
-        let es = analyze(&provider("Patatas, aceite, sal."), Context::default());
-        let fr = analyze(
-            &provider("Pommes de terre, farine de blé, sel."),
-            Context::default(),
-        );
-        let merged = es
-            .clone()
-            .with_alternatives(vec![("en francés".into(), fr)]);
-        assert_eq!(merged.assessment.status, GlutenStatus::ContainsGluten);
-        assert_eq!(
-            merged.assessment.finding,
-            Some(GlutenFinding::Contradictory)
-        );
-        let vague = analyze(
-            &provider("Pommes de terre, amidon, sel."),
-            Context::default(),
-        );
-        let merged = es
-            .clone()
-            .with_alternatives(vec![("en francés".into(), vague)]);
-        assert_eq!(
-            merged.assessment.finding,
-            Some(GlutenFinding::AmbiguousIngredient)
-        );
-        let same = analyze(
-            &provider("Pommes de terre, huile, sel."),
-            Context::default(),
-        );
-        let merged = es.with_alternatives(vec![("en francés".into(), same)]);
-        assert_eq!(
-            merged.assessment.finding,
-            Some(GlutenFinding::NoGlutenIdentified)
-        );
+        let a = merged(NONE, LIST, "Pommes de terre, farine de blé, sel.");
+        assert_eq!(a.status, GlutenStatus::ContainsGluten);
+        assert_eq!(a.finding, Some(GlutenFinding::Contradictory));
+        let a = merged(NONE, LIST, "Pommes de terre, amidon, sel.");
+        assert_eq!(a.finding, Some(GlutenFinding::AmbiguousIngredient));
+        let a = merged(NONE, LIST, "Pommes de terre, huile, sel.");
+        assert_eq!(a.finding, Some(GlutenFinding::NoGlutenIdentified));
+    }
+
+    /// Every status pair, for each provenance: never more favourable than the primary,
+    /// a primary warning never lost, and label-text warnings adopted.
+    #[test]
+    fn reconciliation_matrix() {
+        use GlutenStatus::*;
+        let texts = [FREE, NONE, VAGUE, WHEAT, TRACES];
+        for kind in [LIST, READABLE, UNREADABLE] {
+            for primary in texts {
+                for other in texts {
+                    let base = analyze(&provider(primary), Context::default()).assessment;
+                    let out = merged(primary, kind, other);
+                    let ctx = format!("{kind:?}: «{primary}» + «{other}» → {:?}", out.status);
+                    if base.status != GlutenFree {
+                        assert_ne!(out.status, GlutenFree, "{ctx}");
+                    }
+                    if base.status == ContainsGluten {
+                        assert_eq!(out.status, ContainsGluten, "{ctx}");
+                    }
+                    if base.status == MayContainTraces {
+                        assert!(out.status.risk() >= MayContainTraces.risk(), "{ctx}");
+                    }
+                    let other_status = analyze(&provider(other), Context::default())
+                        .assessment
+                        .status;
+                    if out.status == GlutenFree {
+                        assert!(other_status == GlutenFree || kind == READABLE, "{ctx}");
+                    }
+                    if matches!(other_status, ContainsGluten | MayContainTraces)
+                        && base.status != ContainsGluten
+                    {
+                        if kind == READABLE {
+                            assert_ne!(out.status, GlutenFree, "{ctx}");
+                        } else {
+                            assert!(out.status.risk() >= other_status.risk(), "{ctx}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_free_list_with_an_unknown_other_list_is_not_green() {
+        let a = merged(FREE, LIST, VAGUE);
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::Contradictory));
+        assert!(codes(&a).contains(&"TEXTS_DISAGREE"));
+        assert_eq!(a.certification, None);
+    }
+
+    #[test]
+    fn a_vague_translation_does_not_erase_a_readable_original() {
+        let a = merged(FREE, READABLE, VAGUE);
+        assert_eq!(a.status, GlutenStatus::GlutenFree);
+        assert!(codes(&a).contains(&"TRANSLATION_NOT_DECISIVE"));
+        // ...but it decides when the original cannot be read.
+        let a = merged(FREE, UNREADABLE, VAGUE);
+        assert_ne!(a.status, GlutenStatus::GlutenFree);
+    }
+
+    #[test]
+    fn a_wrong_translation_is_not_proof_of_gluten() {
+        let a = merged(NONE, READABLE, WHEAT);
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::Contradictory));
+        assert!(codes(&a).contains(&"TRANSLATION_DISAGREES"));
+        let a = merged(FREE, READABLE, WHEAT);
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        // Unreadable original: the translation is the only evidence and is adopted.
+        let a = merged(NONE, UNREADABLE, WHEAT);
+        assert_eq!(a.status, GlutenStatus::ContainsGluten);
+        assert!(codes(&a).contains(&"TRANSLATION_EVIDENCE"));
+    }
+
+    #[test]
+    fn traces_are_kept() {
+        let a = merged(TRACES, READABLE, WHEAT);
+        assert_eq!(a.status, GlutenStatus::MayContainTraces);
+        assert!(codes(&a).contains(&"TRANSLATION_DISAGREES"));
+        let a = merged(TRACES, LIST, NONE);
+        assert_eq!(a.status, GlutenStatus::MayContainTraces);
+        let a = merged(FREE, LIST, TRACES);
+        assert_eq!(a.status, GlutenStatus::MayContainTraces);
+        assert_eq!(a.finding, Some(GlutenFinding::Contradictory));
+    }
+
+    #[test]
+    fn truncated_lists_never_get_the_reassuring_text() {
+        let mut text = String::from("Patatas, aceite, sal");
+        for _ in 0..250 {
+            text.push_str(", sal");
+        }
+        let a = run(&text);
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(a.finding, Some(GlutenFinding::InsufficientInformation));
+        assert!(codes(&a).contains(&"INCOMPLETE_LIST"), "{:?}", codes(&a));
+        assert!(!codes(&a).contains(&"NO_GLUTEN_INGREDIENTS_IDENTIFIED"));
+        // Gluten past the item limit is still found by the core engine.
+        let a = run(&format!("{text}, harina de trigo"));
+        assert_eq!(a.status, GlutenStatus::ContainsGluten);
+        // Oversized input too.
+        let huge = format!("{}, harina de trigo", "patata, ".repeat(4000));
+        let a = run(&huge);
+        assert_eq!(a.status, GlutenStatus::ContainsGluten);
+    }
+
+    #[test]
+    fn unbalanced_brackets_are_reported() {
+        let a = run("Patatas, aceite (girasol, sal");
+        assert!(codes(&a).contains(&"UNBALANCED_LIST"), "{:?}", codes(&a));
+        assert_ne!(a.status, GlutenStatus::GlutenFree);
     }
 
     #[test]

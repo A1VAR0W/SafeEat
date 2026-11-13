@@ -101,15 +101,61 @@ static NOT_INGREDIENTS: Lazy<Regex> = Lazy::new(|| {
 
 const MAX_DEPTH: usize = 3;
 const MAX_ITEMS: usize = 200;
+/// Longest list split into items (bytes). The core engine still reads the whole text;
+/// what lies beyond is reported as not analysed item by item.
+pub(crate) const MAX_INPUT: usize = 16 * 1024;
+
+/// Items left to build, and whether any real ingredient was dropped for lack of them.
+pub(crate) struct Budget {
+    left: usize,
+    lost: bool,
+}
+
+/// An ingredient list split into items, with what the split could not cover.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Parsed {
+    pub items: Vec<Item>,
+    /// Ingredients beyond `MAX_ITEMS` or `MAX_INPUT` were not classified one by one.
+    pub truncated: bool,
+    /// Opening and closing brackets do not match: compound ingredients may be misread.
+    pub unbalanced: bool,
+}
+
+impl Parsed {
+    /// Some ingredients were never classified (the reassuring text must not be used).
+    pub fn incomplete(&self) -> bool {
+        self.truncated
+    }
+}
 
 /// Items of an ingredient list. Never fails: unreadable parts become items the rules
 /// do not recognise, which is the cautious outcome.
+#[cfg(test)]
 pub(crate) fn split(original: &str) -> Vec<Item> {
+    parse(original).items
+}
+
+/// Splits a list and reports how complete the split is.
+pub(crate) fn parse(original: &str) -> Parsed {
+    let mut oversized = false;
+    let original = if original.len() > MAX_INPUT {
+        oversized = true;
+        let mut cut = MAX_INPUT;
+        while !original.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        &original[..cut]
+    } else {
+        original
+    };
     let folded = Folded::new(original);
     let text = folded.text.as_str();
     let mut start = PREFIX.find(text).map_or(0, |m| m.end());
     let mut items = Vec::new();
-    let mut budget = MAX_ITEMS;
+    let mut budget = Budget {
+        left: MAX_ITEMS,
+        lost: false,
+    };
     // Sentences are cut at the non-ingredient markers.
     while start < text.len() {
         let rest = &text[start..];
@@ -123,7 +169,33 @@ pub(crate) fn split(original: &str) -> Vec<Item> {
         parse_level(&folded, original, start, end, 0, &mut items, &mut budget);
         start = skip_to;
     }
-    items
+    Parsed {
+        items,
+        truncated: oversized || budget.lost,
+        unbalanced: !balanced(text),
+    }
+}
+
+/// Every opening bracket is closed by the same kind, in order.
+fn balanced(text: &str) -> bool {
+    let mut stack = Vec::new();
+    for b in text.bytes() {
+        match b {
+            b'(' | b'[' | b'{' => stack.push(b),
+            b')' | b']' | b'}' => {
+                let open = match b {
+                    b')' => b'(',
+                    b']' => b'[',
+                    _ => b'{',
+                };
+                if stack.pop() != Some(open) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    stack.is_empty()
 }
 
 /// End of the sentence that contains `from` (after its full stop).
@@ -158,7 +230,7 @@ fn parse_level(
     end: usize,
     depth: usize,
     out: &mut Vec<Item>,
-    budget: &mut usize,
+    budget: &mut Budget,
 ) {
     let bytes = folded.text.as_bytes();
     let mut i = start;
@@ -273,7 +345,7 @@ fn emit_segment(
     groups: &[(usize, usize)],
     depth: usize,
     out: &mut Vec<Item>,
-    budget: &mut usize,
+    budget: &mut Budget,
 ) {
     let text = folded.text.as_str();
     let cuts = conjunction_splits(text, start, end, groups);
@@ -300,12 +372,14 @@ fn build_item(
     end: usize,
     groups: &[(usize, usize)],
     depth: usize,
-    budget: &mut usize,
+    budget: &mut Budget,
 ) -> Option<Item> {
-    if *budget == 0 {
+    let text = folded.text.as_str();
+    if budget.left == 0 {
+        // A real ingredient (not punctuation) that will not be classified.
+        budget.lost |= text[start..end].bytes().any(|b| b.is_ascii_alphabetic());
         return None;
     }
-    let text = folded.text.as_str();
     // Own words: the segment without its parentheses.
     let mut own_ranges = Vec::new();
     let mut cursor = start;
@@ -380,7 +454,7 @@ fn build_item(
     if matcher.chars().all(|c| !c.is_ascii_alphabetic()) && children.is_empty() {
         return None;
     }
-    *budget -= 1;
+    budget.left -= 1;
     let (span_start, span_end) = folded.original_range(start, end);
     Some(Item {
         display,

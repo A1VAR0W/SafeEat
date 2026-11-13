@@ -110,6 +110,47 @@ pub struct Assessment {
     /// How each ingredient was classified by the rule catalog.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<IngredientFinding>,
+    /// Who stands behind the evidence that decided `status` (docs/SAFETY.md). A
+    /// "sin gluten" recorded by the community is not a verified declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<EvidenceSource>,
+}
+
+/// Provenance of the decisive evidence, from strongest to weakest. New variants read
+/// as `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EvidenceSource {
+    /// Entered by the manufacturer (Open Food Facts producers platform).
+    Manufacturer,
+    /// The product's declaration as registered by an external product database fed by
+    /// brand owners (USDA FoodData Central branded foods).
+    ExternalDeclaration,
+    /// Recorded by community contributors (Open Food Facts, SafeEat users): a reading of
+    /// the package nobody at SafeEat has checked.
+    Community,
+    /// SafeEat's own reading of the ingredient list (rules engine, OCR): no declaration.
+    Automatic,
+    /// Not enough information to conclude anything.
+    Insufficient,
+    #[serde(other)]
+    Other,
+}
+
+/// How current the information shown is, independent of the gluten result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Freshness {
+    /// Fetched from the source recently (within the cache period).
+    Current,
+    /// The source could not be reached: last data kept, a few days old at most.
+    Cached,
+    /// Last data kept is older than a week: not a current confirmation.
+    Outdated,
+    /// Analysed with older rules; open the product to analyse it again.
+    OldRules,
+    #[serde(other)]
+    Other,
 }
 
 /// The evidence case behind an assessment. New variants may be added: older apps read
@@ -244,6 +285,10 @@ pub struct PersonalVerdict {
     pub updated_at: String,
     /// True when the product's ingredients changed after the verdict was saved.
     pub ingredients_changed: bool,
+    /// True when allergens, traces, declarations or their source changed after the
+    /// verdict was saved (same ingredients): the verdict is kept but needs a review.
+    #[serde(default)]
+    pub evidence_changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -309,6 +354,13 @@ pub struct Product {
     /// classify. Replaces `ai_check` in app 2.0.3+; never changes `assessment`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_review: Option<AiReview>,
+    /// How current this information is (`stale` kept for app 1.0.x).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freshness: Option<Freshness>,
+    /// When the source last changed this product's data (the label information), as
+    /// opposed to `fetched_at` (when SafeEat last asked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_updated_at: Option<String>,
 }
 
 /// Outcome of the AI review of a product. New variants read as `Other`.
