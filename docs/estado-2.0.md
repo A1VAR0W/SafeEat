@@ -209,7 +209,7 @@ OCR de etiquetas, análisis de fotos con Claude, añadir restaurante, caché sin
   - **Ficha de producto:** veredicto arriba y pestañas Análisis / Ingredientes / Opiniones. El aviso de la comunidad sigue fuera de las pestañas.
   - **Mapa:** ubicación con GPS si no hay posición de red. Una búsqueda escrita encuadra los 10 más cercanos. Al tocar un punto sale una tarjeta. Filtro único, leyenda con los colores de la lista y chip para quitar la búsqueda. Los restaurantes sin datos dicen «Sin datos de gluten».
   - Probado en el emulador con el APK de release contra PRE (búsqueda, pestañas, mapa, cadena con falta) y en la API de PRE.
-  - **Pendiente:** la IA con foto (Claude) no funciona en PRE porque falta `ANTHROPIC_API_KEY` en su entorno.
+  - La IA de pago con foto (Claude) se retiró en 2.0.5: el usuario no usa APIs de pago. La foto se lee en el móvil (OCR libre).
 - **Ninguno está probado todavía en un dispositivo físico.** La 2.0 no tiene actualizador: cada versión de PRE se instala a mano. Al ser versionCode 2000036, volver a la 1.x en Android exige desinstalar.
 
 La app 2.0 **todavía no alcanza a la app Expo**: no se debe retirar la 1.0.x.
@@ -302,7 +302,7 @@ Leyenda:
 | Registro, login, refresh, logout, completar perfil, cambiar email y contraseña, borrar cuenta                            | ✅     | smoke-api y la app 1.0.13 en el emulador                                                             |
 | Escanear código (`/products/barcode`), producto, búsqueda por nombre con productos ya evaluados y filtro `glutenFree`    | ✅     | smoke-api                                                                                            |
 | Analizar texto de etiqueta (`analyze-text`)                                                                              | ✅     | smoke-api                                                                                            |
-| Analizar foto con IA de Claude (`analyze-photo`)                                                                         | 🟡     | Requiere `ANTHROPIC_API_KEY` en el servidor (la pones tú). No se ha probado con una clave real.      |
+| Analizar foto con IA de Claude (`analyze-photo`)                                                                         | ⛔     | Retirado en 2.0.5 (sin APIs de pago). Sustituido por OCR en el móvil + `analyze-text`.               |
 | Veredicto personal (`PUT/DELETE /products/:id/verdict`) y aviso «los ingredientes han cambiado»                          | ✅     | smoke-api                                                                                            |
 | Sello certificado / declaración «sin gluten» desde las etiquetas de Open Food Facts                                      | ✅     | tests y preproducción                                                                                |
 | Reseñas de productos y restaurantes, confirmar reseña e informe de gluten                                                | ✅     | smoke-api                                                                                            |

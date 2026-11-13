@@ -784,23 +784,6 @@ pub struct Meta {
     pub version: String,
 }
 
-/// Result of the AI label analysis.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LabelAnalysis {
-    /// Final, conservative assessment (deterministic engine ∧ AI).
-    pub assessment: Assessment,
-    pub ingredients: String,
-    pub allergens: Vec<String>,
-    pub traces: Vec<String>,
-    pub explanation: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub product_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub certification: Option<Certification>,
-    pub ai_status: GlutenStatus,
-}
-
 pub const RESTAURANT_DISCLAIMER: &str =
     "Confirma siempre con el restaurante sus protocolos y posibles contaminaciones cruzadas.";
 pub const PRODUCT_DISCLAIMER: &str = "Comprueba la etiqueta actual. La información puede estar incompleta o haber cambiado. La confianza refleja la evidencia disponible, no una probabilidad de seguridad.";

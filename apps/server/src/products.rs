@@ -13,8 +13,7 @@ use axum::{Json, Router};
 use base64::Engine as _;
 use safeeat_contracts::{
     Certification, EvidenceSource, Freshness, GlutenStatus, InformationSource, Items,
-    LabelAnalysis, NutritionInput, PersonalVerdict, Product, ProductReportCounts, Reason,
-    VerdictValue,
+    NutritionInput, PersonalVerdict, Product, ProductReportCounts, Reason, VerdictValue,
 };
 use safeeat_gluten_engine::{
     analyze, provenance, score_nutrition, Alternative, AlternativeKind, Analysis, Context,
@@ -40,7 +39,6 @@ use crate::util::{self, now_iso};
 const SEARCH_LIMIT: Limit = per_minute("product-search", 15);
 const REPORT_LIMIT: Limit = per_hour("product-report", 8);
 const PHOTO_LIMIT: Limit = per_hour("ingredients-photo", 6);
-const AI_LIMIT: Limit = per_hour("label-ai", 10);
 const VERDICT_LIMIT: Limit = per_hour("product-verdict", 60);
 const COMMUNITY_SOURCE: &str = "Comunidad SafeEat";
 
@@ -1275,39 +1273,6 @@ async fn ingredients_photo(
         .into_response())
 }
 
-/// AI reading of a label photo. The photo is sent to Anthropic and never stored.
-async fn analyze_photo(
-    State(state): State<AppState>,
-    auth: AuthUser,
-    JsonBody(body): JsonBody,
-) -> ApiResult<Json<LabelAnalysis>> {
-    let object = util::strict_object(&body, &["imageBase64", "barcode"])?;
-    let encoded = util::req_str(object, "imageBase64")?;
-    util::bounded(encoded, 100, 2_000_000)?;
-    let code = util::opt_str(object, "barcode")?
-        .map(util::barcode_param)
-        .transpose()?;
-    let ai = state.ai.as_ref().ok_or_else(|| {
-        ApiError::new(
-            503,
-            "AI_NOT_CONFIGURED",
-            "El análisis con IA no está activado en el servidor.",
-        )
-    })?;
-    // Claude works best with images up to ~1568 px on the long edge.
-    let photo = normalize_async(decode_jpeg(encoded)?, 1568, 85).await?;
-    let analysis = crate::providers::ai::combine(ai.extract(&photo).await?);
-    sqlx::query("INSERT INTO label_analyses(user_id,barcode,ai_status,final_status,model) VALUES($1,$2,$3,$4,$5)")
-        .bind(auth.id)
-        .bind(&code)
-        .bind(analysis.ai_status.as_str())
-        .bind(analysis.assessment.status.as_str())
-        .bind(&state.config.anthropic_model)
-        .execute(&state.db)
-        .await?;
-    Ok(Json(analysis))
-}
-
 // ---------- personal verdicts ----------
 
 async fn put_verdict(
@@ -1415,12 +1380,6 @@ pub fn routes(state: &AppState) -> Router<AppState> {
             get(search).route_layer(limit(state, SEARCH_LIMIT)),
         )
         .route("/api/v1/products/analyze-text", post(analyze_text))
-        .route(
-            "/api/v1/products/analyze-photo",
-            post(analyze_photo)
-                .route_layer(limit(state, AI_LIMIT))
-                .layer(photo_body()),
-        )
         .route("/api/v1/products/verdicts", get(my_verdicts))
         .route("/api/v1/products/{id}", get(product))
         .route(

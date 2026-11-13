@@ -203,11 +203,7 @@ const photo = await call('POST', '/products/analyze-photo', {
   token: N,
   body: { imageBase64: '/9j/' + 'A'.repeat(200) },
 });
-check(
-  'analyze-photo without key → 503',
-  photo.status === 503 && photo.json.error.code === 'AI_NOT_CONFIGURED',
-  photo,
-);
+check('no paid AI endpoint (analyze-photo removed)', photo.status === 404 || photo.status === 405, photo);
 const product = await call('GET', '/products/barcode/3017620422003', { token: N });
 check('barcode lookup (OFF network)', product.status === 200 && product.json.id, product);
 if (product.status === 200) {

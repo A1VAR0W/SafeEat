@@ -6,7 +6,7 @@
 - Never run `docker compose down -v` (or remove a SafeEat volume) on either deployment.
 - Never bind to or touch ports 443, 3307, 3308 or 3399, nginx sites other than `safeeat-funnel.conf`, or HallowFest's containers.
 - Production deploys start with a verified backup (`scripts/deploy-remote.sh` does it); migrations stay additive while a TypeScript image may still be rolled back to.
-- `ANTHROPIC_API_KEY` is set by the owner directly in the server env files; it never goes through the repository or the deploy scripts.
+- SafeEat uses no paid APIs (2.0.5): no Anthropic or OpenAI key. Label photos are read on the phone; the only model is the self-hosted llama.cpp (`AI_LOCAL_URL`). A leftover `ANTHROPIC_API_KEY` in an env file is ignored.
 
 ## Deploying from a workstation (SafeEat 2.0, Rust)
 

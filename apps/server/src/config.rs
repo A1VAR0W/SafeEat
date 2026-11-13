@@ -24,8 +24,6 @@ pub struct Config {
     pub openfoodfacts_base_url: String,
     pub openfoodfacts_search_url: String,
     pub usda_fdc_api_key: Option<String>,
-    pub anthropic_api_key: Option<String>,
-    pub anthropic_model: String,
     /// llama.cpp server for the orientative AI analysis (unset: feature off).
     pub ai_local_url: Option<String>,
     pub ai_local_model: String,
@@ -137,8 +135,6 @@ impl Config {
             openfoodfacts_search_url: get("OPENFOODFACTS_SEARCH_URL")
                 .unwrap_or_else(|| "https://search.openfoodfacts.org".into()),
             usda_fdc_api_key: get("USDA_FDC_API_KEY"),
-            anthropic_api_key: get("ANTHROPIC_API_KEY"),
-            anthropic_model: get("ANTHROPIC_MODEL").unwrap_or_else(|| "claude-sonnet-5-5".into()),
             ai_local_url: get("AI_LOCAL_URL")
                 .map(|v| url(&v, "AI_LOCAL_URL"))
                 .transpose()?,

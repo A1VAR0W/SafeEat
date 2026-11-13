@@ -7,7 +7,6 @@ use tokio::sync::Mutex;
 
 use crate::ai_check::AiChecker;
 use crate::config::Config;
-use crate::providers::ai::LabelAi;
 use crate::providers::food_data_central::FoodDataCentral;
 use crate::providers::open_food_facts::OpenFoodFacts;
 use crate::providers::openstreetmap::OpenStreetMap;
@@ -24,7 +23,6 @@ pub struct Inner {
     pub off: OpenFoodFacts,
     pub fdc: Option<FoodDataCentral>,
     pub osm: OpenStreetMap,
-    pub ai: Option<LabelAi>,
     /// On-server model for the orientative AI analysis (background queue).
     pub ai_check: Option<AiChecker>,
     /// Per-barcode locks so concurrent lookups share one provider request.
@@ -53,10 +51,6 @@ impl Inner {
                 .clone()
                 .map(|key| FoodDataCentral::new(http.clone(), key)),
             osm: OpenStreetMap::new(http.clone()),
-            ai: config
-                .anthropic_api_key
-                .clone()
-                .map(|key| LabelAi::new(http.clone(), key, config.anthropic_model.clone())),
             ai_check: config
                 .ai_local_url
                 .clone()

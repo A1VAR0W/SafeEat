@@ -1,4 +1,3 @@
-pub mod ai;
 pub mod food_data_central;
 pub mod http;
 pub mod open_food_facts;
