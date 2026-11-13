@@ -65,6 +65,9 @@ pub struct Failure {
     status: u16,
     code: String,
     message: String,
+    /// Seconds the server asked to wait (429).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after: Option<u64>,
 }
 
 impl Failure {
@@ -74,6 +77,7 @@ impl Failure {
             code: "OFFLINE".into(),
             message: "No hay conexión con SafeEat. Comprueba tu conexión e inténtalo de nuevo."
                 .into(),
+            retry_after: None,
         }
     }
 
@@ -83,6 +87,7 @@ impl Failure {
             status: 401,
             code: "SESSION_EXPIRED".into(),
             message: "Tu sesión ha caducado. Inicia sesión de nuevo.".into(),
+            retry_after: None,
         }
     }
 }
@@ -124,6 +129,7 @@ fn failure(status: u16, value: &Value) -> Failure {
             .as_str()
             .unwrap_or("Algo ha fallado. Inténtalo de nuevo.")
             .to_string(),
+        retry_after: error["retryAfter"].as_u64(),
     }
 }
 
@@ -466,6 +472,7 @@ fn offline_update() -> Failure {
         status: 0,
         code: "UPDATE_UNAVAILABLE".into(),
         message: "No se ha podido comprobar si hay una versión nueva. Inténtalo más tarde.".into(),
+        retry_after: None,
     }
 }
 
@@ -565,6 +572,7 @@ async fn update_download(app: AppHandle, state: State<'_, AppState>) -> Result<(
             status: 0,
             code: "UPDATE_FAILED".into(),
             message,
+            retry_after: None,
         })
 }
 
@@ -594,6 +602,7 @@ async fn update_install(app: AppHandle) -> Result<Value, Failure> {
             status: 0,
             code: "UPDATE_FAILED".into(),
             message,
+            retry_after: None,
         })
 }
 

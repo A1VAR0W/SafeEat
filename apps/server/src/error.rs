@@ -10,6 +10,8 @@ pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub message: String,
+    /// Seconds until the client may ask again (rate limits).
+    pub retry_after: Option<u64>,
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -20,6 +22,7 @@ impl ApiError {
             status: StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
             code,
             message: message.into(),
+            retry_after: None,
         }
     }
     pub fn invalid_input() -> Self {
@@ -48,6 +51,13 @@ impl ApiError {
             "Demasiadas solicitudes. Espera un momento.",
         )
     }
+    /// 429 saying when to ask again, so clients wait instead of retrying blindly.
+    pub fn rate_limited_for(seconds: u64) -> Self {
+        Self {
+            retry_after: Some(seconds.max(1)),
+            ..Self::rate_limited()
+        }
+    }
     pub fn provider_unavailable() -> Self {
         Self::new(
             503,
@@ -69,16 +79,24 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
+        let retry_after = self.retry_after;
+        let mut response = (
             self.status,
             Json(ApiErrorBody {
                 error: ApiErrorDetail {
                     code: self.code.into(),
                     message: self.message,
+                    retry_after,
                 },
             }),
         )
-            .into_response()
+            .into_response();
+        if let Some(seconds) = retry_after {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, seconds.into());
+        }
+        response
     }
 }
 

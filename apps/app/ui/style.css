@@ -37,6 +37,9 @@
   --tabbar: 64px;
   /* Android edge-to-edge webviews may report 0: keep room for the gesture bar. */
   --safe-bottom: max(env(safe-area-inset-bottom), 20px);
+  /* Restaurants panel: visible height when collapsed (PEEK_PX) and in the middle. */
+  --sheet-peek: 124px;
+  --sheet-half: 45dvh;
   --shadow: 0 1px 2px rgba(6, 40, 30, 0.08), 0 4px 12px rgba(6, 40, 30, 0.06);
   --font: system-ui, -apple-system, 'Roboto', 'Segoe UI', sans-serif;
   color-scheme: light;
@@ -905,14 +908,29 @@ button {
 }
 
 /* ---------- map ---------- */
+/* The map is the screen: from the top edge to the tab bar, the panel slides over it. */
 .map-host {
-  display: flex;
-  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--tabbar) + var(--safe-bottom));
+  overflow: hidden;
 }
 .map-wrap {
-  position: relative;
-  height: 56dvh;
-  min-height: 280px;
+  position: absolute;
+  inset: 0;
+}
+/* Controls and hints sit just above the panel, wherever it is. */
+.map-wrap {
+  --above-sheet: calc(var(--sheet-peek) + var(--space-3));
+}
+.map-wrap.sheet-half {
+  --above-sheet: calc(var(--sheet-half) + var(--space-3));
+}
+.map-wrap .maplibregl-ctrl-bottom-right,
+.map-wrap .maplibregl-ctrl-bottom-left {
+  bottom: calc(var(--above-sheet) - var(--space-3));
 }
 .map {
   position: absolute;
@@ -971,23 +989,24 @@ button {
 li + li > .suggestion {
   border-top: 1px solid var(--line);
 }
-/* Thin bar along the map's bottom edge while more places load: the map never empties. */
-.map-progress {
+/* Thin bar along the panel's top edge while places load: the map never empties. */
+.sheet-progress {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 20px;
+  right: 20px;
+  top: 0;
   z-index: 3;
   height: 3px;
+  border-radius: 3px;
   overflow: hidden;
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
 }
-.map-progress.on {
+.sheet-progress.on {
   opacity: 1;
 }
-.map-progress::after {
+.sheet-progress::after {
   content: '';
   position: absolute;
   top: 0;
@@ -1005,7 +1024,7 @@ li + li > .suggestion {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .map-progress::after {
+  .sheet-progress::after {
     animation: none;
     left: 0;
     width: 100%;
@@ -1015,13 +1034,17 @@ li + li > .suggestion {
 .map-controls {
   position: absolute;
   right: var(--space-3);
-  bottom: var(--space-4);
+  bottom: var(--above-sheet);
   z-index: 4;
+  transition: bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .map-hint {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--space-4) + 16px);
+  bottom: calc(var(--above-sheet) + 4px);
+  max-width: calc(100% - 96px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   transform: translateX(-50%);
   z-index: 4;
   margin: 0;
@@ -1052,7 +1075,7 @@ li + li > .suggestion {
   position: absolute;
   left: var(--space-3);
   right: var(--space-3);
-  bottom: calc(var(--space-4) + 12px);
+  bottom: var(--above-sheet);
   z-index: 5;
   display: flex;
   align-items: flex-start;
@@ -1101,6 +1124,16 @@ li + li > .suggestion {
   font-size: 0.875rem;
   padding: 0 6px;
 }
+.legend-box summary {
+  color: var(--muted);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.legend-box[open] summary {
+  margin-bottom: var(--space-1);
+}
 .legend {
   display: flex;
   flex-wrap: wrap;
@@ -1133,38 +1166,109 @@ li + li > .suggestion {
 .legend .unknown {
   background: #857a5c;
 }
-.sheet-head {
+/* Bottom sheet over the map: collapsed (only the filter), middle, or up to the search. */
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  height: calc(100% - env(safe-area-inset-top) - 76px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+  background: var(--bg);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
+  transform: translateY(calc(100% - var(--sheet-peek)));
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.sheet.half {
+  transform: translateY(max(0px, calc(100% - var(--sheet-half))));
+}
+.sheet.full {
+  transform: none;
+}
+.sheet.dragging {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .map-controls {
+    transition: none;
+  }
+}
+/* The grab zone: handle and status line. Vertical drags move the panel, not the page. */
+.sheet-grab {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.sheet-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.sheet-bar {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+.sheet-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   min-height: 32px;
 }
-.sheet-head .chip {
+.sheet-status p {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+}
+.sheet-status .chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  max-width: 60%;
+  min-height: 32px;
+  max-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sheet-head .chip svg {
+.sheet-status .chip svg {
   width: 16px;
   height: 16px;
   flex: none;
 }
-.sheet {
-  position: relative;
-  margin-top: -16px;
-  z-index: 6;
-  background: var(--bg);
-  border-radius: 20px 20px 0 0;
-  padding: var(--space-4) var(--space-4) calc(var(--tabbar) + var(--safe-bottom) + var(--space-5));
+.sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+.sheet.peek .sheet-body {
+  visibility: hidden;
+}
+.spinner.tiny {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
 }
 .maplibregl-ctrl-attrib {
   font-size: 11px;

@@ -725,6 +725,13 @@ pub struct ApiErrorBody {
 pub struct ApiErrorDetail {
     pub code: String,
     pub message: String,
+    /// Seconds before asking again (429), also sent as the `Retry-After` header.
+    #[serde(
+        default,
+        rename = "retryAfter",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub retry_after: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

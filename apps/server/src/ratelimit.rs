@@ -20,7 +20,13 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     /// Returns false when the caller exceeded `max` requests in `window`.
+    #[cfg(test)]
     pub fn check(&self, bucket: &str, ip: IpAddr, max: u32, window: Duration) -> bool {
+        self.wait(bucket, ip, max, window).is_none()
+    }
+
+    /// `None` when the request may go on, else the whole seconds until the window resets.
+    pub fn wait(&self, bucket: &str, ip: IpAddr, max: u32, window: Duration) -> Option<u64> {
         let now = Instant::now();
         let mut windows = self.windows.lock().expect("rate limiter lock");
         if windows.len() > 50_000 {
@@ -32,7 +38,11 @@ impl RateLimiter {
             *entry = (now, 0);
         }
         entry.1 += 1;
-        entry.1 <= max
+        if entry.1 <= max {
+            return None;
+        }
+        let left = window.saturating_sub(now.duration_since(entry.0));
+        Some(left.as_secs() + u64::from(left.subsec_nanos() > 0))
     }
 }
 
@@ -97,11 +107,11 @@ pub async fn enforce(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|c| c.0);
     let ip = client_ip(request.headers(), peer, state.config.trust_proxy);
-    if !state
+    if let Some(seconds) = state
         .limiter
-        .check(limit.bucket, ip, limit.max, limit.window)
+        .wait(limit.bucket, ip, limit.max, limit.window)
     {
-        return ApiError::rate_limited().into_response();
+        return ApiError::rate_limited_for(seconds).into_response();
     }
     next.run(request).await
 }
@@ -119,6 +129,21 @@ mod tests {
         }
         assert!(!l.check("a", ip, 3, Duration::from_secs(60)));
         assert!(l.check("b", ip, 3, Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn says_how_long_to_wait() {
+        let l = RateLimiter::default();
+        let ip: IpAddr = "10.0.0.2".parse().unwrap();
+        assert_eq!(l.wait("w", ip, 1, Duration::from_secs(60)), None);
+        let left = l.wait("w", ip, 1, Duration::from_secs(60)).unwrap();
+        assert!((59..=60).contains(&left), "{left}");
+        let response = ApiError::rate_limited_for(left).into_response();
+        assert_eq!(response.status(), 429);
+        assert_eq!(
+            response.headers()[axum::http::header::RETRY_AFTER],
+            left.to_string().as_str()
+        );
     }
 
     #[test]

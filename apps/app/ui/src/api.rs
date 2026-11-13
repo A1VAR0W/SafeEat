@@ -16,6 +16,9 @@ pub struct Failure {
     pub status: u16,
     pub code: String,
     pub message: String,
+    /// Seconds the server asked to wait before trying again (429).
+    #[serde(default)]
+    pub retry_after: Option<u64>,
 }
 
 impl Failure {
@@ -24,7 +27,12 @@ impl Failure {
             status: 0,
             code: "APP".into(),
             message: message.into(),
+            retry_after: None,
         }
+    }
+
+    pub fn rate_limited(&self) -> bool {
+        self.status == 429
     }
 }
 
