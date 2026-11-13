@@ -87,7 +87,7 @@ Compiladas del commit `bd303d9`, con el arreglo del lector de fotos. Sustituyen 
 
 ### Android (APK de preproducción, instalado encima de la 2.0.4)
 
-1. Se instala encima sin perder la sesión. «Tu cuenta» muestra SafeEat 2.0.5.
+1. Usa el APK con versionCode 2000044. Si instalaste antes otra 2.0.5 de hoy, la app ofrecerá esta como actualización. Se instala encima sin perder la sesión. «Tu cuenta» muestra SafeEat 2.0.5.
 2. **Foto de ingredientes:**
    - «Hacer foto» pide permiso de cámara y abre la cámara. «Elegir de la galería» abre la galería.
    - La primera lectura tarda algo más («Preparando el lector»).
@@ -106,12 +106,12 @@ Compiladas del commit `bd303d9`, con el arreglo del lector de fotos. Sustituyen 
 
 ### iPhone (IPA de preproducción, por SideStore)
 
-Repetir los puntos 2, 5, 6, 8 y 9. En iOS, la cámara se abre desde el selector de archivos del sistema.
+Instala desde la fuente de SideStore aunque ya tuvieras una 2.0.5 de hoy: la buena es la `CFBundleVersion` 2.0.5.52. Repetir los puntos 2, 5, 6, 8 y 9. En iOS, la cámara se abre desde el selector de archivos del sistema.
 
 ## Limitaciones conocidas
 
 - **Primer uso del OCR:** el lector ocupa unos 10 MB dentro de la app y la primera lectura carga el modelo de español. En el emulador tardó menos de 20 s; no lo he medido en un móvil real.
-- **OCR en iPhone:** nunca se ha ejecutado dentro de la app de iOS. Es el punto 2 de la lista del iPhone y el que más riesgo tiene.
+- **OCR en iPhone:** nunca se ha ejecutado dentro de la app de iOS. Es el punto 2 de la lista del iPhone y el que más riesgo tiene. Si falla, dímelo: hay un plan B (motor y worker en un solo `blob:`).
 - **OCR:** solo modelo de español. Las etiquetas en otros idiomas se leen peor; el texto siempre se puede corregir.
 - **Enlace al fabricante:** solo para unas 35 marcas con web oficial conocida. Para el resto no aparece enlace.
 - **iOS, texto del permiso de cámara:** ahora explica también la foto de los ingredientes.

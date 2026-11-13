@@ -51,9 +51,10 @@
 ### El lector de fotos dentro de la app
 
 - **Primer APK (versionCode 2000043), en el emulador:** con una foto clara de una etiqueta, «No se ha podido leer la foto». Falla de forma segura (no deja analizar nada), pero la función no servía.
-- **Causa**, encontrada al probarlo con la misma política de seguridad (CSP) que la app:
-  - El motor de Tesseract carga su parte en WebAssembly con `fetch(data:)`, y la política lo bloqueaba.
-  - Además, en Android las peticiones propias de un worker no pasan por el servidor de archivos de la app.
+- **Causa probable, sin confirmar:** el APK de producción no deja inspeccionar su WebView, así que no vi el error exacto. Hay dos candidatos:
+  - El motor de Tesseract carga su parte en WebAssembly con `fetch(data:)`, y la política de la app (`connect-src`) no lo permitía. Lo vi bloqueado en el navegador con esa política.
+  - En Android, las peticiones propias de un worker podrían no pasar por el servidor de archivos de la app. No lo he comprobado.
+- **Lo que sí está demostrado:** con el arreglo, la foto se lee dentro del APK en el emulador.
 - **Arreglo (commit `bd303d9`):**
   - La página lee el worker, el motor y el modelo de español, y se los pasa al worker como `blob:` y como bytes. El worker ya no pide nada.
   - La política permite `blob:` en los scripts y `data:` en las conexiones. Las dos cosas son locales: no abren nada nuevo en la red.
@@ -64,7 +65,10 @@
 ## Qué NO está verificado
 
 - **Pruebas en tus móviles físicos:** toda la lista de [release-2.0.5.md](release-2.0.5.md). Pendiente de tus resultados.
-- **El lector de fotos en iPhone:** nunca se ha ejecutado dentro de la app de iOS. Es la parte con más riesgo de la lista del iPhone.
+- **El lector de fotos en iPhone:** nunca se ha ejecutado dentro de la app de iOS. Es la parte con más riesgo de la lista del iPhone. Depende de dos cosas propias de WebKit que no puedo probar desde aquí:
+  - `importScripts` de una URL `blob:` con el fragmento `#core.js`.
+  - Un worker `blob:` bajo `tauri://`.
+  - Si falla, el siguiente paso es meter el motor y el worker en un solo `blob:`, para que el worker no tenga que cargar nada.
 - **La cámara del escáner** de la app de producción contra Rust: el emulador no tiene cámara. La búsqueda del producto que hace después sí está probada.
 - **Tasa de falsos negativos inferior al 0,01 %:** no está demostrada. Harían falta al menos 29 956 positivos etiquetados de forma independiente.
 - **La vuelta atrás automática al pasar de Node a Rust:** el mecanismo funciona en preproducción entre versiones en Rust, pero no lo he ejecutado al cambiar de Node a Rust, que usa otro fichero de compose.
