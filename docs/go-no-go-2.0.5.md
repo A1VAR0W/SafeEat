@@ -14,21 +14,21 @@
 
 ## Qué está verificado (ejecutado por mí)
 
-| Comprobación | Resultado |
-| --- | --- |
-| `cargo fmt`, `clippy -D warnings`, `cargo test` (servidor y app), clippy de la UI para WASM, `trunk build --release` | Correcto |
-| `npm` lint, format, typecheck y test; `check-workflows` | Correcto |
-| CI de GitHub en la rama (run 43441153696) | Correcto |
-| APK e IPA de preproducción | Publicados en el canal de preproducción (enlaces en [release-2.0.5.md](release-2.0.5.md)); producción sin tocar |
-| Prueba de extremo a extremo de la API (`scripts/smoke-api.mjs`) contra PostGIS desechable | 59/59 |
-| Motor de gluten 1.2.3: evaluación | 0/83 falsos negativos peligrosos, 0/60 falsos positivos, cobertura 484/499 |
-| Migraciones 010–018 sobre la copia de seguridad de producción del 13-11-2026, en una base aislada | 10 s; usuarios, contraseñas, roles, sesiones, favoritos, reseñas, compartidos y auditoría idénticos byte a byte |
-| Vuelta atrás: API 1.x sobre el esquema migrado, y la 2.0.5 leyendo lo que escribe la 1.x con sus tokens (`scripts/check-rollback.mjs`) | Correcto |
-| Restauración de copias (`scripts/verify-backup-restore.sh`): la de producción y una del esquema migrado | Integridad correcta |
-| Cobertura de restaurantes con los límites reales de Geofabrik (base local) | Cubiertas las 9 ciudades del encargo, zonas rurales, Baleares, Ceuta, Melilla y Canarias; Lisboa, Elvas, Toulouse y Marrakech fuera |
-| Despliegue en preproducción | Correcto: migraciones 015–018, servicios sanos, `meta` responde por el Funnel |
-| Restaurantes en preproducción: `spain` (153 698) y `canarias` (9 726) | Cubiertas las 9 ciudades del encargo, una zona rural, Canarias y Palma; Lisboa no |
-| Productos de la regresión en preproducción | Kimbo 8410044005008: no verde (sin gluten identificado, sin confirmar). Chic-kles 8402001044311: «información insuficiente» con texto mezclado apartado |
+| Comprobación                                                                                                                           | Resultado                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cargo fmt`, `clippy -D warnings`, `cargo test` (servidor y app), clippy de la UI para WASM, `trunk build --release`                   | Correcto                                                                                                                                                |
+| `npm` lint, format, typecheck y test; `check-workflows`                                                                                | Correcto                                                                                                                                                |
+| CI de GitHub en la rama (run 43441153696)                                                                                              | Correcto                                                                                                                                                |
+| APK e IPA de preproducción                                                                                                             | Publicados en el canal de preproducción (enlaces en [release-2.0.5.md](release-2.0.5.md)); producción sin tocar                                         |
+| Prueba de extremo a extremo de la API (`scripts/smoke-api.mjs`) contra PostGIS desechable                                              | 59/59                                                                                                                                                   |
+| Motor de gluten 1.2.3: evaluación                                                                                                      | 0/83 falsos negativos peligrosos, 0/60 falsos positivos, cobertura 484/499                                                                              |
+| Migraciones 010–018 sobre la copia de seguridad de producción del 13-11-2026, en una base aislada                                      | 10 s; usuarios, contraseñas, roles, sesiones, favoritos, reseñas, compartidos y auditoría idénticos byte a byte                                         |
+| Vuelta atrás: API 1.x sobre el esquema migrado, y la 2.0.5 leyendo lo que escribe la 1.x con sus tokens (`scripts/check-rollback.mjs`) | Correcto                                                                                                                                                |
+| Restauración de copias (`scripts/verify-backup-restore.sh`): la de producción y una del esquema migrado                                | Integridad correcta                                                                                                                                     |
+| Cobertura de restaurantes con los límites reales de Geofabrik (base local)                                                             | Cubiertas las 9 ciudades del encargo, zonas rurales, Baleares, Ceuta, Melilla y Canarias; Lisboa, Elvas, Toulouse y Marrakech fuera                     |
+| Despliegue en preproducción                                                                                                            | Correcto: migraciones 015–018, servicios sanos, `meta` responde por el Funnel                                                                           |
+| Restaurantes en preproducción: `spain` (153 698) y `canarias` (9 726)                                                                  | Cubiertas las 9 ciudades del encargo, una zona rural, Canarias y Palma; Lisboa no                                                                       |
+| Productos de la regresión en preproducción                                                                                             | Kimbo 8410044005008: no verde (sin gluten identificado, sin confirmar). Chic-kles 8402001044311: «información insuficiente» con texto mezclado apartado |
 
 ## Qué NO está verificado
 
@@ -54,13 +54,13 @@
 
 ## Riesgos
 
-| Riesgo | Mitigación |
-| --- | --- |
-| Primer paso de producción de Node a Rust | Mismo contrato, prueba de vuelta atrás, copia previa y vuelta automática si falla `meta` |
+| Riesgo                                                | Mitigación                                                                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Primer paso de producción de Node a Rust              | Mismo contrato, prueba de vuelta atrás, copia previa y vuelta automática si falla `meta`        |
 | El OCR puede ser lento o leer mal en móviles modestos | El texto siempre se puede corregir; sin la comprobación marcada el resultado nunca es favorable |
-| Importar toda España ocupa disco y tiempo | Se hace con prioridad baja (`nice`), fuera del contenedor de la base, con `TMPDIR` en disco |
-| `meta` indica la versión 2.0.0 | Solo es la etiqueta del workspace raíz; la app sí dice 2.0.5. Cosmético |
-| La API 1.x tiene avisos de `npm audit` conocidos | Solo se usaría para volver atrás |
+| Importar toda España ocupa disco y tiempo             | Se hace con prioridad baja (`nice`), fuera del contenedor de la base, con `TMPDIR` en disco     |
+| `meta` indica la versión 2.0.0                        | Solo es la etiqueta del workspace raíz; la app sí dice 2.0.5. Cosmético                         |
+| La API 1.x tiene avisos de `npm audit` conocidos      | Solo se usaría para volver atrás                                                                |
 
 ## Lo que necesito de ti
 

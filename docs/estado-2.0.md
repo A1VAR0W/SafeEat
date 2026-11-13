@@ -3,12 +3,12 @@
 ## 2.0.5 candidata (13-11-2026, rama `claude/safeeat-2.0.5`)
 
 Desplegada en **preproducción** (`b93bbc2f57bd`, migraciones 015–018). Producción sin tocar.
+
 - APK 2.0.5 (versionCode 2000043) e IPA publicados en el canal de preproducción.
 - Catálogo `spain` + `canarias` importado en preproducción.
 - Pendiente: tus pruebas en los móviles y la autorización para producción.
-Novedades, pruebas hechas y lista de pruebas en móvil: [release-2.0.5.md](release-2.0.5.md).
-Informe para decidir el paso a producción: [go-no-go-2.0.5.md](go-no-go-2.0.5.md).
-
+  Novedades, pruebas hechas y lista de pruebas en móvil: [release-2.0.5.md](release-2.0.5.md).
+  Informe para decidir el paso a producción: [go-no-go-2.0.5.md](go-no-go-2.0.5.md).
 
 Rama: `claude/safeeat-2.0-rust` (subida a GitHub, sin fusionar con `main`).
 **Producción no se ha tocado.** Solo está desplegada la **preproducción** (`:10000/preproduction`).

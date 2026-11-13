@@ -15,10 +15,10 @@
     "security": {
       "csp": {
         "default-src": "'self' ipc: http://ipc.localhost",
-        "connect-src": "'self' ipc: http://ipc.localhost https://tiles.openfreemap.org",
+        "connect-src": "'self' ipc: http://ipc.localhost https://tiles.openfreemap.org data:",
         "img-src": "'self' data: blob: https:",
         "style-src": "'self' 'unsafe-inline'",
-        "script-src": "'self' 'wasm-unsafe-eval'",
+        "script-src": "'self' 'wasm-unsafe-eval' blob:",
         "worker-src": "'self' blob:",
         "font-src": "'self' data: https://tiles.openfreemap.org"
       }

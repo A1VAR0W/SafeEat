@@ -9,3 +9,8 @@ app; no file is downloaded at run time and no photo leaves the phone.
   4.0.0_best_int: the Spanish LSTM model from tesseract-ocr/tessdata (Apache-2.0).
 
 Source maps were removed from the two .min.js files (the maps are not shipped).
+
+Local change to worker.min.js (SafeEat, 13-11-2026): in `initialize`, a language given
+as an object `{code, data}` was passed to Tesseract by its data instead of its code
+(`t.data` -> `t.code`). SafeEat hands the Spanish model to the worker as bytes because
+a worker cannot fetch the app's own files on Android.

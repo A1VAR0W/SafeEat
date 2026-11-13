@@ -14,7 +14,8 @@ case "$region" in
   *) echo 'Use madrid, spain or canarias' >&2; exit 2 ;;
 esac
 if [[ -z "$compose_env" ]]; then : "${DATABASE_URL:?DATABASE_URL or a compose env file is required}"; fi
-work="$(mktemp -d)"
+# On disk: the Spain extract is ~1.4 GB and /tmp on the server is a RAM tmpfs.
+work="$(mktemp -d "${TMPDIR:-/var/tmp}/safeeat-catalog.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 curl --fail --location --retry 3 --output "$work/source.osm.pbf" "$url"
 # Boundary of the extract: coverage is "inside the imported area", not "near a venue".

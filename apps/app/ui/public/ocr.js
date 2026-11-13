@@ -31,33 +31,84 @@
     return loading;
   }
 
+  // The wasm-feature-detect SIMD probe (what Tesseract's worker uses to pick a core).
+  const SIMD_PROBE = new Uint8Array([
+    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253,
+    15, 253, 98, 11,
+  ]);
+
+  async function bytes(path) {
+    // no-store: after an app update the old copy must never be reused.
+    const res = await fetch(BASE + path, { cache: 'no-store' });
+    if (!res.ok) throw new Error('ocr-file ' + path + ' ' + res.status);
+    return res.arrayBuffer();
+  }
+
+  // Everything the worker needs is read here, on the page, and handed over as blob:
+  // URLs and bytes. A worker's own requests do not go through the app's file server on
+  // Android (the reader failed in the APK while working in a browser), so the worker
+  // must not fetch anything itself.
+  let urls = [];
+  async function files() {
+    let simd = false;
+    try {
+      simd = WebAssembly.validate(SIMD_PROBE);
+    } catch {
+      simd = false;
+    }
+    const core = simd ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
+    const [workerJs, coreJs, spa] = await Promise.all([
+      bytes('worker.min.js'),
+      bytes('core/' + core),
+      bytes('lang/spa.traineddata.gz'),
+    ]);
+    const js = function (buf) {
+      const url = URL.createObjectURL(new Blob([buf], { type: 'application/javascript' }));
+      urls.push(url);
+      return url;
+    };
+    return {
+      workerPath: js(workerJs),
+      // Tesseract loads a core path ending in "js" as it is; a blob: URL ignores the
+      // fragment.
+      corePath: js(coreJs) + '#core.js',
+      // Gzipped model bytes: the worker recognises and unpacks them.
+      lang: { code: 'spa', data: new Uint8Array(spa) },
+    };
+  }
+
+  function forget() {
+    urls.forEach(function (u) {
+      URL.revokeObjectURL(u);
+    });
+    urls = [];
+  }
+
   let report = function () {};
   let worker = null;
   async function reader() {
     if (worker) return worker;
-    await load();
-    const base = new URL(BASE, document.baseURI).href;
-    worker = Tesseract.createWorker('spa', 1 /* LSTM only: the bundled model */, {
-      workerPath: base + 'worker.min.js',
-      corePath: base + 'core',
-      langPath: base + 'lang',
-      workerBlobURL: false,
-      // The model is a local file already: no copy in IndexedDB.
-      cacheMethod: 'none',
-      logger: function (m) {
-        report(m);
-      },
-      errorHandler: function () {},
-    }).then(
-      async function (w) {
-        await w.setParameters({ preserve_interword_spaces: '1' });
-        return w;
-      },
-      function (e) {
-        worker = null;
-        throw e;
-      },
-    );
+    worker = (async function () {
+      await load();
+      const f = await files();
+      const w = await Tesseract.createWorker([f.lang], 1 /* LSTM only: the bundled model */, {
+        workerPath: f.workerPath,
+        corePath: f.corePath,
+        workerBlobURL: false,
+        // The model is in memory already: no copy in IndexedDB.
+        cacheMethod: 'none',
+        logger: function (m) {
+          report(m);
+        },
+        errorHandler: function () {},
+      });
+      await w.setParameters({ preserve_interword_spaces: '1' });
+      return w;
+    })().catch(function (e) {
+      worker = null;
+      forget();
+      throw e;
+    });
     return worker;
   }
 
@@ -106,6 +157,7 @@
     if (w) {
       w.then(
         function (x) {
+          forget();
           return x.terminate();
         },
         function () {},
