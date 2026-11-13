@@ -1784,3 +1784,134 @@ body::before {
   width: 100%;
   height: 100%;
 }
+
+/* ---------- account: profile header, grouped settings, last dialog ---------- */
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.avatar {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 750;
+  font-size: 1.25rem;
+}
+.profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.profile-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.profile-email {
+  overflow-wrap: anywhere;
+}
+.profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.group-label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: var(--space-2) var(--space-1) calc(-1 * var(--space-1));
+}
+.settings-group {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.settings-group > * + * {
+  border-top: 1px solid var(--line);
+}
+.settings-row {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  list-style: none;
+}
+.settings-row::-webkit-details-marker {
+  display: none;
+}
+.settings-row > .icon:first-child {
+  color: var(--accent);
+}
+.settings-label {
+  flex: 1;
+  font-weight: 600;
+}
+.settings-fold[open] > .settings-row .chevron {
+  transform: rotate(90deg);
+}
+.settings-fold > form {
+  padding: 0 var(--space-4) var(--space-4);
+}
+.settings-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.about {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-content: center;
+}
+.danger-text {
+  color: var(--danger);
+}
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(3, 15, 11, 0.55);
+}
+.dialog {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.dialog-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}

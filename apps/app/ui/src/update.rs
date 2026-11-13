@@ -303,6 +303,7 @@ pub fn UpdateCard() -> impl IntoView {
                     </div>
                     <button class="button ghost small" disabled=move || u.checking.get()
                         on:click=move |_| u.run_check(true)>
+                        <Icon svg=icons::DOWNLOAD />
                         {move || if u.checking.get() { "Buscando…" } else { "Buscar actualizaciones" }}
                     </button>
                 </div>

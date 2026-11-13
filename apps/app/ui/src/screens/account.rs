@@ -5,8 +5,10 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::api::{self, Failure};
+use crate::icons;
 use crate::nav::{use_nav, use_session};
-use crate::ui::{ErrorBox, Header};
+use crate::screens::settings::initials;
+use crate::ui::{ErrorBox, Header, Icon};
 
 #[derive(Serialize)]
 struct AuthArgs {
@@ -157,19 +159,43 @@ pub fn ProfileScreen() -> impl IntoView {
     view! {
         <Header title="Tu cuenta".to_string() />
         <section class="stack">
-            {move || session.0.get().map(|u| view! {
-                <div class="card">
-                    <p class="row-title">{u.first_name.clone().unwrap_or_default()} " " {u.last_name.clone().unwrap_or_default()}</p>
-                    <p class="muted">{u.email.clone()}</p>
-                    {u.is_trusted().then(|| view! { <span class="badge tone-safe">"Cuenta de confianza"</span> })}
-                </div>
+            {move || session.0.get().map(|u| {
+                let name = [u.first_name.clone(), u.last_name.clone()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                view! {
+                    <div class="profile-head">
+                        <span class="avatar" aria-hidden="true">{initials(&u)}</span>
+                        <div class="profile-text">
+                            {(!name.is_empty()).then(|| view! { <p class="profile-name">{name.clone()}</p> })}
+                            <p class="muted small profile-email">{u.email.clone()}</p>
+                            <div class="profile-badges">
+                                {u.is_trusted().then(|| view! {
+                                    <span class="badge tone-safe"><Icon svg=icons::SHIELD />"Cuenta de confianza"</span>
+                                })}
+                                {u.is_admin().then(|| view! { <span class="badge tone-info">"Administración"</span> })}
+                            </div>
+                        </div>
+                    </div>
+                }
             })}
             <Show when=move || session.0.with(Option::is_some)>
                 <crate::screens::settings::AccountSettings />
             </Show>
+            <h2 class="group-label">"Aplicación"</h2>
             <crate::update::UpdateCard />
-            <button class="button ghost" on:click=logout>"Cerrar sesión"</button>
-            <p class="muted small">"SafeEat " {env!("CARGO_PKG_VERSION")} {move || meta.get().map(|m| format!(" · {m}"))}</p>
+            <div class="settings-group">
+                <button class="settings-row" on:click=logout>
+                    <Icon svg=icons::LOG_OUT />
+                    <span class="settings-label">"Cerrar sesión"</span>
+                </button>
+            </div>
+            <p class="muted small about">
+                <Icon svg=icons::INFO />
+                " SafeEat " {env!("CARGO_PKG_VERSION")} {move || meta.get().map(|m| format!(" · {m}"))}
+            </p>
         </section>
     }
 }

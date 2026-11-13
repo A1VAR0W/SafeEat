@@ -24,6 +24,8 @@ pub enum Route {
     Chain(String),
     Login,
     Profile,
+    /// Configuración → Cuenta → Opciones avanzadas (account deletion).
+    AccountAdvanced,
 }
 
 #[derive(Clone, Copy)]
@@ -57,6 +59,11 @@ impl Nav {
     }
     pub fn back(&self) {
         let _ = window().history().map(|h| h.back());
+    }
+    /// Back to the tab's first screen (after the account is deleted).
+    pub fn home(&self) {
+        self.stack.set(vec![Route::Home]);
+        scroll_top();
     }
     pub fn switch(&self, tab: Tab) {
         if self.tab.get_untracked() == tab {
@@ -179,6 +186,9 @@ pub fn App() -> impl IntoView {
             }
             (_, Route::Login) => view! { <screens::account::LoginScreen /> }.into_any(),
             (_, Route::Profile) => view! { <screens::account::ProfileScreen /> }.into_any(),
+            (_, Route::AccountAdvanced) => {
+                view! { <screens::settings::AdvancedScreen /> }.into_any()
+            }
             (Tab::Scan, Route::Home) => view! { <screens::scan::ScanScreen /> }.into_any(),
             (Tab::Saved, Route::Home) => view! { <screens::saved::SavedScreen /> }.into_any(),
             // The map lives outside this switch so it is never torn down.

@@ -551,16 +551,30 @@ async fn complete_profile(
     Ok(Json(public_user(&updated)))
 }
 
+/// Word typed to confirm an account deletion. Checked here, never only in the app.
+pub const DELETE_CONFIRMATION: &str = "ELIMINAR";
+
+/// The current password of a deletion request, once the request is complete: both
+/// fields, nothing else, and the confirmation word exactly as shown.
+fn deletion_password(body: &serde_json::Value) -> ApiResult<String> {
+    let object = util::strict_object(body, &["currentPassword", "confirmation"])?;
+    let current = password(util::req_str(object, "currentPassword")?, 1)?;
+    if util::req_str(object, "confirmation")? != DELETE_CONFIRMATION {
+        return Err(ApiError::new(
+            400,
+            "CONFIRMATION_REQUIRED",
+            "Escribe ELIMINAR para confirmar el borrado de la cuenta.",
+        ));
+    }
+    Ok(current)
+}
+
 async fn delete_account(
     State(state): State<AppState>,
     auth: AuthUser,
     JsonBody(body): JsonBody,
 ) -> ApiResult<StatusCode> {
-    let object = util::strict_object(&body, &["currentPassword", "confirmation"])?;
-    let current = password(util::req_str(object, "currentPassword")?, 1)?;
-    if util::req_str(object, "confirmation")? != "ELIMINAR" {
-        return Err(ApiError::invalid_input());
-    }
+    let current = deletion_password(&body)?;
     let mut tx = state.db.begin().await?;
     reauthenticate(&mut tx, &auth, &current).await?;
     sqlx::query("DELETE FROM users WHERE id=$1")
@@ -583,4 +597,32 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         .route("/api/v1/auth/profile/complete", post(complete_profile))
         .route_layer(crate::app::limit(state, AUTH_LIMIT))
         .route("/api/v1/auth/me", get(me))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deleting_an_account_needs_the_password_and_the_word() {
+        let ok =
+            serde_json::json!({"currentPassword": "una clave larga", "confirmation": "ELIMINAR"});
+        assert_eq!(deletion_password(&ok).unwrap(), "una clave larga");
+        for bad in [
+            serde_json::json!({"currentPassword": "una clave larga"}),
+            serde_json::json!({"confirmation": "ELIMINAR"}),
+            serde_json::json!({"currentPassword": "", "confirmation": "ELIMINAR"}),
+            serde_json::json!({"currentPassword": "x", "confirmation": "eliminar"}),
+            serde_json::json!({"currentPassword": "x", "confirmation": " ELIMINAR"}),
+            serde_json::json!({"currentPassword": "x", "confirmation": "ELIMINAR", "role": "ADMIN"}),
+            serde_json::json!([]),
+        ] {
+            assert!(deletion_password(&bad).is_err(), "{bad}");
+        }
+        let missing_word = serde_json::json!({"currentPassword": "x", "confirmation": "borrar"});
+        assert_eq!(
+            deletion_password(&missing_word).unwrap_err().code,
+            "CONFIRMATION_REQUIRED"
+        );
+    }
 }
