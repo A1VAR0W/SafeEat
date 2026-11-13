@@ -28,6 +28,7 @@
 //! product, keyed by the rules, engine, prompt and model versions.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
@@ -336,6 +337,22 @@ pub struct AiJob {
     pub items: Vec<String>,
     /// Failed attempts so far; the job is retried later up to `MAX_ATTEMPTS`.
     pub attempts: u8,
+    /// A search result's review: yields to products she opens between ingredients.
+    pub background: bool,
+}
+
+/// What became of a job's run.
+#[derive(Debug, PartialEq, Eq)]
+enum Ran {
+    Stored,
+    /// A product she opened is waiting: the rest of this background job waits (the
+    /// ingredients already answered are cached, so it resumes where it stopped).
+    Yielded,
+}
+
+/// A background job gives way between ingredients whenever a priority job waits.
+fn should_yield(background: bool, urgent_waiting: usize) -> bool {
+    background && urgent_waiting > 0
 }
 
 /// The background queue. `pending` lets responses say "Consultando…".
@@ -350,6 +367,8 @@ pub struct AiChecker {
     pending: std::sync::Mutex<HashSet<String>>,
     /// Pending only in the background queue: opening the product moves it ahead.
     in_background: std::sync::Mutex<HashSet<String>>,
+    /// Priority jobs sent and not yet taken by the worker.
+    urgent: AtomicUsize,
 }
 
 impl AiChecker {
@@ -366,7 +385,27 @@ impl AiChecker {
             background_receiver: std::sync::Mutex::new(Some(background_receiver)),
             pending: std::sync::Mutex::new(HashSet::new()),
             in_background: std::sync::Mutex::new(HashSet::new()),
+            urgent: AtomicUsize::new(0),
         }
+    }
+
+    /// Send a job to its queue (priority or background), keeping the counters right.
+    fn send(&self, job: AiJob) -> Result<(), AiJob> {
+        let id = job.product_id.clone();
+        if job.background {
+            self.background.try_send(job).map_err(|e| e.into_inner())?;
+            self.in_background
+                .lock()
+                .expect("background lock")
+                .insert(id);
+        } else {
+            self.urgent.fetch_add(1, Ordering::SeqCst);
+            if let Err(error) = self.sender.try_send(job) {
+                self.urgent.fetch_sub(1, Ordering::SeqCst);
+                return Err(error.into_inner());
+            }
+        }
+        Ok(())
     }
 
     fn is_pending(&self, product_id: &str) -> bool {
@@ -446,9 +485,10 @@ pub async fn enqueue(state: &AppState, item: &Product, items: Vec<String>) {
         key,
         items,
         attempts: 0,
+        background: false,
     };
     let (key, items) = (job.key.clone(), job.items.clone());
-    if ai.sender.try_send(job).is_err() {
+    if ai.send(job).is_err() {
         // Queue full: try again the next time the product is fetched.
         ai.pending.lock().expect("pending lock").remove(&item.id);
         return;
@@ -491,15 +531,12 @@ pub async fn enqueue_background(state: &AppState, item: &Product, items: Vec<Str
         key,
         items,
         attempts: 0,
+        background: true,
     };
-    if ai.background.try_send(job).is_err() {
+    if ai.send(job).is_err() {
         ai.pending.lock().expect("pending lock").remove(&item.id);
         return false;
     }
-    ai.in_background
-        .lock()
-        .expect("background lock")
-        .insert(item.id.clone());
     true
 }
 
@@ -546,10 +583,13 @@ async fn restore_queue(state: &AppState, ai: &AiChecker) {
             key,
             items,
             attempts: 0,
+            background: false,
         };
-        if let Err(error) = ai.sender.try_send(job) {
-            let id = &error.into_inner().product_id;
-            ai.pending.lock().expect("pending lock").remove(id);
+        if let Err(job) = ai.send(job) {
+            ai.pending
+                .lock()
+                .expect("pending lock")
+                .remove(&job.product_id);
             break;
         }
         restored += 1;
@@ -710,7 +750,7 @@ async fn store(
     Ok(result)
 }
 
-async fn run(state: &AppState, ai: &AiChecker, job: &AiJob) -> anyhow::Result<()> {
+async fn run(state: &AppState, ai: &AiChecker, job: &AiJob) -> anyhow::Result<Ran> {
     let mut evidence = Vec::with_capacity(job.items.len());
     for item in &job.items {
         let key = item_key(item, &ai.model);
@@ -718,6 +758,10 @@ async fn run(state: &AppState, ai: &AiChecker, job: &AiJob) -> anyhow::Result<()
             Some(hit) => {
                 metrics::record_ai_cache_hit();
                 hit
+            }
+            None if should_yield(job.background, ai.urgent.load(Ordering::SeqCst)) => {
+                metrics::record_ai_yield();
+                return Ok(Ran::Yielded);
             }
             None => {
                 let answer = match ask(ai, item).await {
@@ -757,7 +801,22 @@ async fn run(state: &AppState, ai: &AiChecker, job: &AiJob) -> anyhow::Result<()
     }
     let result = store(state, ai, job, &evidence).await?;
     tracing::info!(product = %job.product_id, outcome = %wire(result), items = job.items.len(), "AI review stored");
-    Ok(())
+    Ok(Ran::Stored)
+}
+
+/// The job still matches the stored product: same analysis (ingredients, rules, model)
+/// and still a product the AI may review. Otherwise it is obsolete and dropped.
+async fn still_current(state: &AppState, ai: &AiChecker, job: &AiJob) -> bool {
+    let Ok(Some(data)) = sqlx::query_scalar::<_, Value>("SELECT data FROM products WHERE id=$1")
+        .bind(&job.product_id)
+        .fetch_optional(&state.db)
+        .await
+    else {
+        // Database unavailable: keep the job (the run itself will fail and retry).
+        return true;
+    };
+    serde_json::from_value::<Product>(data)
+        .is_ok_and(|p| reviewable(&p) && analysis_key(&p, &ai.model) == job.key)
 }
 
 /// Background worker: one job at a time so the shared server stays responsive.
@@ -782,7 +841,10 @@ pub fn spawn_worker(state: AppState) {
             // Products she opened always go first; search results fill the gaps.
             let mut job = tokio::select! {
                 biased;
-                Some(job) = receiver.recv() => job,
+                Some(job) = receiver.recv() => {
+                    ai.urgent.fetch_sub(1, Ordering::SeqCst);
+                    job
+                }
                 Some(job) = background.recv() => job,
                 else => break,
             };
@@ -791,17 +853,33 @@ pub fn spawn_worker(state: AppState) {
                 .expect("background lock")
                 .remove(&job.product_id);
             // A promoted job runs twice in the queues: the second copy has nothing to do.
-            if already_checked(&state, &job.product_id, &job.key).await {
+            // A job whose product changed since (new ingredients, rules) is obsolete.
+            if already_checked(&state, &job.product_id, &job.key).await
+                || !still_current(&state, ai, &job).await
+            {
+                forget(&state, &job).await;
                 ai.pending
                     .lock()
                     .expect("pending lock")
                     .remove(&job.product_id);
                 continue;
             }
+            let started = Instant::now();
             let result = match tokio::time::timeout(JOB_TIMEOUT, run(&state, ai, &job)).await {
                 Ok(result) => result,
                 Err(_) => Err(anyhow::anyhow!("AI review took too long")),
             };
+            metrics::record_ai_job(started.elapsed(), job.background);
+            if let Ok(Ran::Yielded) = result {
+                // Back to the end of the background queue; nothing is lost.
+                if let Err(job) = ai.send(job) {
+                    ai.pending
+                        .lock()
+                        .expect("pending lock")
+                        .remove(&job.product_id);
+                }
+                continue;
+            }
             if let Err(error) = result {
                 job.attempts += 1;
                 tracing::warn!(product = %job.product_id, attempts = job.attempts, %error, "AI review failed");
@@ -812,9 +890,12 @@ pub fn spawn_worker(state: AppState) {
                     tokio::spawn(async move {
                         tokio::time::sleep(delay).await;
                         let ai = state.ai_check.as_ref().expect("checked above");
-                        if let Err(error) = ai.sender.try_send(job) {
-                            let id = &error.into_inner().product_id;
-                            ai.pending.lock().expect("pending lock").remove(id);
+                        // Retried in its own queue: a search result never jumps ahead.
+                        if let Err(job) = ai.send(job) {
+                            ai.pending
+                                .lock()
+                                .expect("pending lock")
+                                .remove(&job.product_id);
                         }
                     });
                     continue;
@@ -1011,6 +1092,38 @@ pub async fn attach(state: &AppState, items: Vec<Product>) -> Vec<Product> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_background_jobs_yield_and_only_to_waiting_priority_jobs() {
+        assert!(!should_yield(false, 0));
+        assert!(!should_yield(false, 3));
+        assert!(!should_yield(true, 0));
+        assert!(should_yield(true, 1));
+    }
+
+    #[test]
+    fn queue_counters_follow_sends() {
+        let ai = AiChecker::new(reqwest::Client::new(), "http://x".into(), "m".into());
+        let job = |background| AiJob {
+            product_id: format!("p{background}"),
+            key: "k".into(),
+            items: vec!["a".into()],
+            attempts: 0,
+            background,
+        };
+        ai.send(job(false)).unwrap();
+        assert_eq!(ai.urgent.load(Ordering::SeqCst), 1);
+        ai.send(job(true)).unwrap();
+        assert_eq!(ai.urgent.load(Ordering::SeqCst), 1);
+        assert!(ai.in_background.lock().unwrap().contains("ptrue"));
+        // A full priority queue leaves the counter as it was.
+        for _ in 0..QUEUE {
+            let _ = ai.send(job(false));
+        }
+        assert_eq!(ai.urgent.load(Ordering::SeqCst), QUEUE);
+        assert!(ai.send(job(false)).is_err());
+        assert_eq!(ai.urgent.load(Ordering::SeqCst), QUEUE);
+    }
     use crate::providers::ParsedIngredient;
     use safeeat_contracts::{Assessment, NutritionInput, NutritionScore};
 

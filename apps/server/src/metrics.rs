@@ -28,6 +28,9 @@ struct Counters {
     ai_cache_hits: u64,
     ai_ms: VecDeque<u64>,
     ai_verdicts: BTreeMap<String, u64>,
+    ai_yields: u64,
+    ai_job_ms: VecDeque<u64>,
+    ai_background_job_ms: VecDeque<u64>,
 }
 
 static METRICS: Lazy<Mutex<Counters>> = Lazy::new(|| Mutex::new(Counters::default()));
@@ -72,6 +75,23 @@ pub fn record_ai_call(elapsed: Duration, ok: bool) {
             m.ai_errors += 1;
         }
         push(&mut m.ai_ms, elapsed.as_millis() as u64);
+    });
+}
+
+/// A background review gave way to a product she opened.
+pub fn record_ai_yield() {
+    with(|m| m.ai_yields += 1);
+}
+
+/// Time a review job ran (one product, or the part of it done before yielding).
+pub fn record_ai_job(elapsed: Duration, background: bool) {
+    with(|m| {
+        let ms = elapsed.as_millis() as u64;
+        if background {
+            push(&mut m.ai_background_job_ms, ms);
+        } else {
+            push(&mut m.ai_job_ms, ms);
+        }
     });
 }
 
@@ -128,6 +148,17 @@ pub fn snapshot() -> Value {
                 "samples": m.ai_ms.len(),
             },
             "aiVerdicts": m.ai_verdicts,
+            "aiYields": m.ai_yields,
+            "aiPriorityJobMillis": {
+                "p50": percentile(&m.ai_job_ms, 0.5),
+                "p95": percentile(&m.ai_job_ms, 0.95),
+                "samples": m.ai_job_ms.len(),
+            },
+            "aiBackgroundJobMillis": {
+                "p50": percentile(&m.ai_background_job_ms, 0.5),
+                "p95": percentile(&m.ai_background_job_ms, 0.95),
+                "samples": m.ai_background_job_ms.len(),
+            },
         })
     })
 }
