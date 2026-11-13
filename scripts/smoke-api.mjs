@@ -14,7 +14,17 @@ const check = (name, ok, extra) => {
   );
   if (!ok) failures++;
 };
-async function call(method, path, { token, body } = {}) {
+// The server's limits stay as they are: on 429 the test waits as an app would.
+async function call(method, path, options = {}) {
+  let res = await once(method, path, options);
+  if (res.status === 429 && (res.json?.error?.retryAfter ?? 99) <= 65) {
+    console.log(`   (429 on ${path}: waiting ${res.json.error.retryAfter}s)`);
+    await new Promise((ok) => setTimeout(ok, (res.json.error.retryAfter + 1) * 1000));
+    res = await once(method, path, options);
+  }
+  return res;
+}
+async function once(method, path, { token, body } = {}) {
   const res = await fetch(BASE + path, {
     method,
     headers: {
@@ -322,10 +332,11 @@ check('revoke by non-admin → 403', revokeByNormal.status === 403, revokeByNorm
 const revoked = await call('DELETE', `/admin/users/${trustedId}/authorized`, { token: A });
 check('admin revokes trust', revoked.status === 200 && revoked.json.authorized === false, revoked);
 const afterRevoke = await call('GET', '/restaurants/osm_n_2/reviews', { token: N });
+const sameReview = afterRevoke.json.items?.find((r) => r.id === auto?.id);
 check(
   'revoked trust → review no longer verified',
-  !afterRevoke.json.items?.some((r) => r.verificationMethod === 'authorized' && r.verifiedAt),
-  afterRevoke.json.items,
+  !!sameReview && !sameReview.verifiedAt && sameReview.verificationMethod == null,
+  sameReview,
 );
 const regrant = await call('PUT', `/admin/users/${trustedId}/authorized`, { token: A });
 check('admin grants trust', regrant.status === 200 && regrant.json.authorized === true, regrant);
