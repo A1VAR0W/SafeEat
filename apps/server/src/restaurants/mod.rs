@@ -935,7 +935,10 @@ pub fn routes(state: &AppState) -> Router<AppState> {
         )
         .route(
             "/api/v1/restaurants/area",
-            get(area).route_layer(limit(state, AREA_LIMIT)),
+            // About 250 kB of JSON for a busy city, a fifth of that compressed.
+            get(area)
+                .route_layer(tower_http::compression::CompressionLayer::new())
+                .route_layer(limit(state, AREA_LIMIT)),
         )
         .route(
             "/api/v1/restaurants/chains",

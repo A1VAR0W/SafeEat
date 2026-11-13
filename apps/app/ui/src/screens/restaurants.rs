@@ -297,8 +297,11 @@ pub fn RestaurantsScreen() -> impl IntoView {
             // A failure loads nothing: the next move asks again.
             if let Ok(found) = result {
                 map_add_area(&found["items"].to_string());
+                // A crowded area comes back cut (its farthest places missing): count
+                // only the part around the view as loaded, so the next move fills it.
+                let done = if found["truncated"].as_bool() == Some(true) { need } else { want };
                 loaded.update_value(|l| {
-                    l.push(want);
+                    l.push(done);
                     let extra = l.len().saturating_sub(24);
                     l.drain(..extra);
                 });
