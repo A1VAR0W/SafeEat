@@ -181,7 +181,7 @@ jobs:
           "$tools/aapt" dump badging "$out" > "$badging"
           grep -Fq "package: name='com.a1var0w.safeeat' versionCode='$VERSION_CODE' versionName='$version'" "$badging"
           grep -Fq "native-code: 'arm64-v8a'" "$badging"
-          for perm in INTERNET CAMERA ACCESS_FINE_LOCATION; do grep -Fq "android.permission.$perm" "$badging"; done
+          for perm in INTERNET CAMERA ACCESS_FINE_LOCATION REQUEST_INSTALL_PACKAGES; do grep -Fq "android.permission.$perm" "$badging"; done
           if grep -Fq application-debuggable "$badging"; then echo 'debuggable APK' >&2; exit 1; fi
           unzip -p "$out" 'lib/arm64-v8a/*.so' | grep -acF "$SAFEEAT_API_URL"
           ls -l "$out"
