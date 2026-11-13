@@ -199,11 +199,33 @@ check(
   analyzed.status === 201 && JSON.stringify(analyzed.json).includes('CONTAINS_GLUTEN'),
   analyzed,
 );
+// A photo reading she has not checked never reassures, and stays private to her.
+const unchecked = await call('POST', '/products/analyze-text', {
+  token: N,
+  body: { text: 'Arroz, aceite de girasol, sal.' },
+});
+check(
+  'unchecked label text → insufficient information',
+  unchecked.status === 201 &&
+    unchecked.json.assessment.status === 'UNKNOWN' &&
+    unchecked.json.assessment.finding === 'INSUFFICIENT_INFORMATION',
+  unchecked.json?.assessment,
+);
+if (unchecked.status === 201) {
+  const ownLabel = await call('GET', `/products/${unchecked.json.id}`, { token: N });
+  check('own label readable', ownLabel.status === 200, ownLabel);
+  const otherLabel = await call('GET', `/products/${unchecked.json.id}`, { token: T });
+  check('label private to its owner (404 for others)', otherLabel.status === 404, otherLabel);
+}
 const photo = await call('POST', '/products/analyze-photo', {
   token: N,
   body: { imageBase64: '/9j/' + 'A'.repeat(200) },
 });
-check('no paid AI endpoint (analyze-photo removed)', photo.status === 404 || photo.status === 405, photo);
+check(
+  'no paid AI endpoint (analyze-photo removed)',
+  photo.status === 404 || photo.status === 405,
+  photo,
+);
 const product = await call('GET', '/products/barcode/3017620422003', { token: N });
 check('barcode lookup (OFF network)', product.status === 200 && product.json.id, product);
 if (product.status === 200) {
@@ -274,6 +296,95 @@ const adminReviews = await call('GET', '/admin/reviews?kind=restaurants', {
   token: admin.json.accessToken,
 });
 check('admin reviews', adminReviews.status === 200, adminReviews);
+
+// Trusted reviews are verified by the role in the database, never by what the app says.
+const A = admin.json.accessToken;
+const trustedId = trusted.json.user.id;
+const trustedReviewOf = async () => {
+  const list = await call('GET', '/restaurants/osm_n_2/reviews', { token: N });
+  return list.json.items?.find((r) => r.verificationMethod === 'authorized');
+};
+const auto = await trustedReviewOf();
+check('trusted review verified automatically', !!auto?.verifiedAt, auto);
+const normalReviews = await call('GET', '/restaurants/osm_n_3/reviews', { token: T });
+const plain = normalReviews.json.items?.find((r) => r.note === 'En este local no tienen nada');
+check(
+  'normal review not verified',
+  !!plain && !plain.verifiedAt && plain.verificationMethod == null,
+  plain,
+);
+const selfGrant = await call('PUT', `/admin/users/${normal.json.user.id}/authorized`, {
+  token: N,
+});
+check('grant by non-admin → 403', selfGrant.status === 403, selfGrant);
+const revokeByNormal = await call('DELETE', `/admin/users/${trustedId}/authorized`, { token: N });
+check('revoke by non-admin → 403', revokeByNormal.status === 403, revokeByNormal);
+const revoked = await call('DELETE', `/admin/users/${trustedId}/authorized`, { token: A });
+check('admin revokes trust', revoked.status === 200 && revoked.json.authorized === false, revoked);
+const afterRevoke = await call('GET', '/restaurants/osm_n_2/reviews', { token: N });
+check(
+  'revoked trust → review no longer verified',
+  !afterRevoke.json.items?.some((r) => r.verificationMethod === 'authorized' && r.verifiedAt),
+  afterRevoke.json.items,
+);
+const regrant = await call('PUT', `/admin/users/${trustedId}/authorized`, { token: A });
+check('admin grants trust', regrant.status === 200 && regrant.json.authorized === true, regrant);
+const audit = await call('GET', '/admin/audit-log', { token: A });
+check(
+  'audit log lists role changes',
+  audit.status === 200 &&
+    audit.json.items.some(
+      (e) =>
+        e.action === 'authorized_removed' &&
+        e.targetEmail === `trusted${stamp}@example.test` &&
+        e.actorEmail === `admin${stamp}@example.test`,
+    ),
+  audit.json?.items?.slice(0, 3),
+);
+check(
+  'audit log newest first',
+  audit.json.items?.[0]?.action === 'authorized_granted',
+  audit.json?.items?.slice(0, 2),
+);
+const auditNormal = await call('GET', '/admin/audit-log', { token: N });
+check('audit log forbidden for normal', auditNormal.status === 403, auditNormal);
+
+// Account deletion: password and the typed word, checked by the server.
+const leaving = await register('leaving');
+const L = leaving.json.accessToken;
+const noWord = await call('DELETE', '/auth/me', {
+  token: L,
+  body: { currentPassword: 'contraseña-larga-1', confirmation: 'eliminar' },
+});
+check(
+  'delete without the exact word → 400',
+  noWord.status === 400 && noWord.json.error.code === 'CONFIRMATION_REQUIRED',
+  noWord,
+);
+const noBody = await call('DELETE', '/auth/me', { token: L });
+check('delete without body → 400', noBody.status === 400, noBody);
+const wrongPw = await call('DELETE', '/auth/me', {
+  token: L,
+  body: { currentPassword: 'otra-contraseña', confirmation: 'ELIMINAR' },
+});
+check(
+  'delete with wrong password refused',
+  wrongPw.status === 401 || wrongPw.status === 403,
+  wrongPw,
+);
+const stillThere = await call('POST', '/auth/login', {
+  body: { email: `leaving${stamp}@example.test`, password: 'contraseña-larga-1' },
+});
+check('account intact after refused deletion', stillThere.status === 200, stillThere);
+const deleted = await call('DELETE', '/auth/me', {
+  token: stillThere.json.accessToken,
+  body: { currentPassword: 'contraseña-larga-1', confirmation: 'ELIMINAR' },
+});
+check('delete with password and word → 204', deleted.status === 204, deleted);
+const gone = await call('POST', '/auth/login', {
+  body: { email: `leaving${stamp}@example.test`, password: 'contraseña-larga-1' },
+});
+check('deleted account cannot log in', gone.status === 401, gone);
 
 console.log(failures ? `\n${failures} FAILED` : '\nALL PASSED');
 process.exit(failures ? 1 : 0);

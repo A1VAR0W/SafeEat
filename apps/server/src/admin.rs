@@ -363,6 +363,34 @@ async fn moderate(
     Ok(Json(json!({"revoked": revoke, "revision": updated})))
 }
 
+/// What administrators did, newest first. `after` is the id of the last entry seen.
+/// For role changes the affected account's email is included; nothing else is joined.
+async fn audit_log(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    QueryMap(query): QueryMap,
+) -> ApiResult<Json<Value>> {
+    require_admin(&state, &auth).await?;
+    let after = after_param(query.get("after"))?;
+    let sql = format!(
+        r#"SELECT to_jsonb(x) FROM (SELECT l.id,l.action,l.target_id AS "targetId",l.details,
+          {created} AS "createdAt",a.email AS "actorEmail",
+          CASE WHEN l.action LIKE 'authorized_%' THEN t.email END AS "targetEmail"
+         FROM admin_audit_log l
+         LEFT JOIN users a ON a.id=l.actor_id
+         LEFT JOIN users t ON l.action LIKE 'authorized_%' AND t.id::text=l.target_id
+         WHERE $1::uuid IS NULL
+            OR (l.created_at,l.id) < (SELECT created_at,id FROM admin_audit_log WHERE id=$1)
+         ORDER BY l.created_at DESC,l.id DESC LIMIT 21) x"#,
+        created = sql_iso("l.created_at"),
+    );
+    let rows = sqlx::query_scalar::<_, Value>(&sql)
+        .bind(after)
+        .fetch_all(&state.db)
+        .await?;
+    Ok(page(rows))
+}
+
 /// Gluten analysis and on-server AI counters since the last restart (no personal data).
 async fn analysis_metrics(State(state): State<AppState>, auth: AuthUser) -> ApiResult<Json<Value>> {
     require_admin(&state, &auth).await?;
@@ -373,6 +401,7 @@ pub fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/api/v1/admin/analysis-metrics", get(analysis_metrics))
         .route("/api/v1/admin/users", get(users))
+        .route("/api/v1/admin/audit-log", get(audit_log))
         .route(
             "/api/v1/admin/users/{id}/authorized",
             put(grant).delete(revoke),
