@@ -540,13 +540,6 @@ async fn save(state: &AppState, external: &ExternalProduct, opened: bool) -> Api
     let translation = translate::spanish_ingredients(state, &external.language).await;
     let (mut item, candidates) = from_external(external, translation.as_ref());
     note_formulation_change(state, &mut item).await;
-    if let Some(items) = ai_check::eligible(&item, &candidates, &external.language) {
-        if opened {
-            ai_check::enqueue(state, &item, items).await;
-        } else {
-            ai_check::enqueue_background(state, &item, items).await;
-        }
-    }
     sqlx::query(
         "INSERT INTO products(id,barcode,provider,data,expires_at) VALUES($1,$2,'openfoodfacts',$3,now()+interval '24 hours')
          ON CONFLICT(id) DO UPDATE SET provider='openfoodfacts',data=$3,fetched_at=now(),expires_at=now()+interval '24 hours'",
@@ -556,6 +549,14 @@ async fn save(state: &AppState, external: &ExternalProduct, opened: bool) -> Api
     .bind(to_json(&item)?)
     .execute(&state.db)
     .await?;
+    // After the product row exists: the stored AI queue references it.
+    if let Some(items) = ai_check::eligible(&item, &candidates, &external.language) {
+        if opened {
+            ai_check::enqueue(state, &item, items).await;
+        } else {
+            ai_check::enqueue_background(state, &item, items).await;
+        }
+    }
     Ok(item)
 }
 
