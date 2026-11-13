@@ -3,7 +3,7 @@
 
 use safeeat_contracts::{
     ChainRef, Evidence, EvidenceKind, GlutenSupport, Restaurant, RestaurantSuggestion,
-    SuggestionKind,
+    SuggestionKind, SupportSource,
 };
 
 use crate::error::ApiResult;
@@ -76,6 +76,11 @@ pub fn restaurant(row: CatalogRow) -> Restaurant {
         phone: row.phone.filter(|v| !v.is_empty()),
         maps_url: format!("https://www.openstreetmap.org/{kind}/{osm_id}"),
         gluten_support: support,
+        support_source: Some(if support == GlutenSupport::Unknown {
+            SupportSource::Insufficient
+        } else {
+            SupportSource::OpenStreetMap
+        }),
         community_created: None,
         review_group: None,
         rating: None,
@@ -102,16 +107,39 @@ pub async fn ready(state: &AppState) -> ApiResult<bool> {
     )
 }
 
-/// Whether the catalog covers this area at all (if it does, Overpass is never needed).
+/// Whether an imported region covers this point (migration 016: grid of cells with
+/// data). Outside it the catalog has no data, which is not the same as no restaurants.
 pub async fn covers(state: &AppState, latitude: f64, longitude: f64) -> ApiResult<bool> {
     Ok(sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM restaurant_catalog WHERE ST_DWithin(location,ST_SetSRID(ST_MakePoint($1,$2),4326)::geography,15000))",
+        "SELECT EXISTS(SELECT 1 FROM restaurant_catalog_coverage WHERE ST_Intersects(cell,ST_SetSRID(ST_MakePoint($1,$2),4326)))",
     )
     .bind(longitude)
     .bind(latitude)
     .fetch_one(&state.db)
     .await?)
 }
+
+/// Share (0..=1) of a bounding box inside the imported regions.
+pub async fn coverage(state: &AppState, bbox: (f64, f64, f64, f64)) -> ApiResult<f64> {
+    let (west, south, east, north) = bbox;
+    Ok(sqlx::query_scalar::<_, Option<f64>>(
+        "WITH env AS (SELECT ST_MakeEnvelope($1,$2,$3,$4,4326) AS g)
+         SELECT ST_Area(ST_Intersection(ST_Union(c.cell),env.g))/NULLIF(ST_Area(env.g),0)
+         FROM restaurant_catalog_coverage c, env WHERE c.cell && env.g GROUP BY env.g",
+    )
+    .bind(west)
+    .bind(south)
+    .bind(east)
+    .bind(north)
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    .unwrap_or(0.0)
+    .clamp(0.0, 1.0))
+}
+
+/// Coverage at or above which a view counts as covered (the app notes the rest).
+pub const COVERED_SHARE: f64 = 0.5;
 
 pub async fn get(state: &AppState, id: &str) -> ApiResult<Option<Restaurant>> {
     Ok(sqlx::query_as::<_, CatalogRow>(&format!(

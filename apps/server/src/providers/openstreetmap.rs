@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use safeeat_contracts::{
     ChainRef, Evidence, EvidenceKind, GlutenSupport, Restaurant, RestaurantSuggestion,
-    SuggestionKind,
+    SuggestionKind, SupportSource,
 };
 use serde_json::Value;
 
@@ -192,6 +192,11 @@ fn restaurant(input: Input) -> Restaurant {
             .map(str::to_string),
         maps_url: format!("https://www.openstreetmap.org/{}/{}", input.kind, input.id),
         gluten_support: support,
+        support_source: Some(if support == GlutenSupport::Unknown {
+            SupportSource::Insufficient
+        } else {
+            SupportSource::OpenStreetMap
+        }),
         community_created: None,
         review_group: None,
         rating: None,

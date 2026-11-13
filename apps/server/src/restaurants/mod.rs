@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use safeeat_contracts::{
     ChainDetail, ChainSummary, GlutenSupport, Items, Restaurant, RestaurantReportCounts,
-    RestaurantSuggestion, SuggestionKind,
+    RestaurantSuggestion, SuggestionKind, SupportSource,
 };
 use safeeat_text_norm::search_key;
 use serde_json::{json, Value};
@@ -71,6 +71,7 @@ fn community(row: CommunityRow) -> Restaurant {
         website: None,
         phone: None,
         gluten_support: GlutenSupport::Unknown,
+        support_source: Some(SupportSource::Insufficient),
         community_created: Some(true),
         chain: None,
         review_group: None,
@@ -366,9 +367,14 @@ async fn area(State(state): State<AppState>, QueryMap(query): QueryMap) -> ApiRe
     {
         return Err(ApiError::invalid_input());
     }
-    let (lat, lng) = ((south + north) / 2.0, (west + east) / 2.0);
-    let covered = catalog::ready(&state).await? && catalog::covers(&state, lat, lng).await?;
-    let catalog_items = if covered {
+    // How much of the view the imported regions cover, not whether its centre does.
+    let share = if catalog::ready(&state).await? {
+        catalog::coverage(&state, (west, south, east, north)).await?
+    } else {
+        0.0
+    };
+    let covered = share >= catalog::COVERED_SHARE;
+    let catalog_items = if share > 0.0 {
         catalog::area(&state, (west, south, east, north), AREA_MAX_PLACES).await?
     } else {
         vec![]
@@ -423,7 +429,14 @@ async fn area(State(state): State<AppState>, QueryMap(query): QueryMap) -> ApiRe
         })
         .collect();
     Ok(Json(
-        json!({ "items": items, "covered": covered, "truncated": truncated }),
+        // `coverage`: share of the view with catalog data (2.0.5+); below 0.95 the app
+        // says part of the view has no data, which is not "no restaurants".
+        json!({
+            "items": items,
+            "covered": covered,
+            "coverage": (share * 100.0).round() / 100.0,
+            "truncated": truncated,
+        }),
     ))
 }
 

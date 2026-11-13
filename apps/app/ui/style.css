@@ -360,6 +360,12 @@ button {
   line-height: 1.25;
   font-weight: 800;
 }
+.verdict-source {
+  margin-top: var(--space-1, 4px);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
 
 .notice {
   display: flex;

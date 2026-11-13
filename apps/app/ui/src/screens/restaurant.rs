@@ -54,7 +54,10 @@ fn RestaurantDetail(
         <article class="stack">
             <section class=format!("verdict {}", support_tone(support))>
                 <span class="verdict-icon" inner_html=if support.is_positive() { icons::CHECK } else if support == GlutenSupport::NoGlutenFreeOptions { icons::X_CIRCLE } else { icons::HELP }></span>
-                <p class="verdict-text">{support.label()}</p>
+                <div>
+                    <p class="verdict-text">{support.label()}</p>
+                    {item.support_source.map(|s| view! { <p class="verdict-source">{s.explanation()}</p> })}
+                </div>
             </section>
             <section class="card">
                 <div class="card-head">

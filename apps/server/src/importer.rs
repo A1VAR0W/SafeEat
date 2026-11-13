@@ -244,6 +244,11 @@ pub async fn import(db: &PgPool, region: &str, file: &Path) -> Result<()> {
     .bind(count as i32)
     .execute(&mut *tx)
     .await?;
+    // Where this region has data (docs: migration 016).
+    sqlx::query("SELECT refresh_restaurant_coverage($1)")
+        .bind(region)
+        .execute(&mut *tx)
+        .await?;
     // Recompute chains (aliases, assignments, branch counts) and re-key chain reviews.
     sqlx::query("SELECT refresh_restaurant_chains()")
         .execute(&mut *tx)

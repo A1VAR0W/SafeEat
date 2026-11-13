@@ -269,6 +269,9 @@ pub fn RestaurantsScreen() -> impl IntoView {
     let loaded = StoredValue::new(Vec::<Bounds>::new());
     let in_flight = StoredValue::new(None::<Bounds>);
     let covered = RwSignal::new(None::<bool>);
+    // Share of the last area with catalog data: below 95 % part of the map has no data,
+    // which is not the same as having no restaurants.
+    let coverage = RwSignal::new(None::<f64>);
     let area_loading = RwSignal::new(false);
 
     let load_area = move |view: Bounds, zoom: f64| {
@@ -290,7 +293,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
                 want[0], want[1], want[2], want[3]
             );
             let result = api::get::<serde_json::Value>(&path).await;
-            if in_flight.get_value() == Some(want) {
+            // Only the latest area decides coverage: an older answer arriving late
+            // must not describe the view she has moved to.
+            let latest = in_flight.get_value() == Some(want);
+            if latest {
                 in_flight.set_value(None);
                 area_loading.set(false);
             }
@@ -309,7 +315,10 @@ pub fn RestaurantsScreen() -> impl IntoView {
                     let extra = l.len().saturating_sub(24);
                     l.drain(..extra);
                 });
-                covered.set(found["covered"].as_bool());
+                if latest {
+                    covered.set(found["covered"].as_bool());
+                    coverage.set(found["coverage"].as_f64());
+                }
             }
         });
     };
@@ -518,6 +527,19 @@ pub fn RestaurantsScreen() -> impl IntoView {
             </div>
             <Show when=move || too_far.get() && selected.with(Option::is_none)>
                 <p class="map-hint raised" role="status">"Acerca el mapa para ver restaurantes"</p>
+            </Show>
+            <Show when=move || {
+                !too_far.get()
+                    && selected.with(Option::is_none)
+                    && coverage.get().is_some_and(|c| c < 0.95)
+            }>
+                <p class="map-hint raised" role="status">
+                    {move || if coverage.get().unwrap_or(0.0) < 0.05 {
+                        "No tenemos datos de restaurantes en esta zona"
+                    } else {
+                        "Parte de esta zona no tiene datos: puede haber restaurantes que no aparecen"
+                    }}
+                </p>
             </Show>
             {move || selected.get().map(|r| {
                 let id = r.id.clone();

@@ -551,6 +551,44 @@ pub struct Restaurant {
     /// Whether this branch has its own (local) review that overrides the chain verdict.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub has_local_review: Option<bool>,
+    /// Who stands behind `gluten_support`. None of these is an audit of the kitchen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_source: Option<SupportSource>,
+}
+
+/// Provenance of a restaurant's gluten information. New variants read as `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SupportSource {
+    /// An OpenStreetMap tag (`diet:gluten_free`), added by a map contributor.
+    OpenStreetMap,
+    /// SafeEat users' experiences.
+    Community,
+    /// At least one review by an account SafeEat trusts (authorized coeliac or admin).
+    /// Still an experience, not an inspection.
+    TrustedCommunity,
+    /// Nothing reliable, or sources that contradict each other.
+    Insufficient,
+    #[serde(other)]
+    Other,
+}
+
+impl SupportSource {
+    /// "Según …" line shown under the restaurant's gluten label.
+    pub fn explanation(self) -> &'static str {
+        match self {
+            SupportSource::OpenStreetMap => {
+                "Según OpenStreetMap (dato de colaboradores del mapa, no del local)"
+            }
+            SupportSource::Community => "Según experiencias de usuarios de SafeEat",
+            SupportSource::TrustedCommunity => {
+                "Según usuarios de SafeEat, entre ellos una cuenta de confianza"
+            }
+            SupportSource::Insufficient | SupportSource::Other => {
+                "Sin información suficiente o contradictoria"
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
