@@ -114,36 +114,10 @@
     return g.getImageData(0, 0, W, H);
   }
 
-  // Places without data: a small dot, like the minor places on Google Maps.
-  function dotImage(color) {
-    const S = 34;
-    const c = document.createElement('canvas');
-    c.width = S;
-    c.height = S;
-    const g = c.getContext('2d');
-    g.shadowColor = 'rgba(0,0,0,0.3)';
-    g.shadowBlur = 3;
-    g.shadowOffsetY = 1;
-    g.beginPath();
-    g.arc(S / 2, S / 2, 11, 0, Math.PI * 2);
-    g.fillStyle = color;
-    g.fill();
-    g.shadowColor = 'transparent';
-    g.lineWidth = 3;
-    g.strokeStyle = '#FFFFFF';
-    g.stroke();
-    g.beginPath();
-    g.arc(S / 2, S / 2, 3.5, 0, Math.PI * 2);
-    g.fillStyle = '#FFFFFF';
-    g.fill();
-    return g.getImageData(0, 0, S, S);
-  }
-
   function addImages() {
     Object.keys(COLORS).forEach(function (k) {
       map.addImage('pin-' + k, pinImage(COLORS[k]), { pixelRatio: 2 });
     });
-    map.addImage('dot-UNKNOWN', dotImage(COLORS.UNKNOWN), { pixelRatio: 2 });
   }
 
   // ---------- data ----------
@@ -163,7 +137,7 @@
         id: p.id,
         name: p.name,
         support: support,
-        icon: support === 'UNKNOWN' ? 'dot-UNKNOWN' : 'pin-' + support,
+        icon: 'pin-' + support,
       },
     };
   }
@@ -226,8 +200,8 @@
       type: 'geojson',
       data: empty,
       cluster: true,
-      clusterRadius: 42,
-      clusterMaxZoom: 14,
+      clusterRadius: 52,
+      clusterMaxZoom: 13,
     });
     // Places with gluten-free options are never hidden inside a cluster.
     map.addSource('good', { type: 'geojson', data: empty });
@@ -240,9 +214,10 @@
       filter: ['has', 'point_count'],
       paint: {
         'circle-color': '#FFFFFF',
-        'circle-radius': ['step', ['get', 'point_count'], 14, 10, 17, 50, 21, 200, 25],
-        'circle-stroke-width': 2.5,
-        'circle-stroke-color': '#6B6248',
+        'circle-radius': ['step', ['get', 'point_count'], 12, 10, 15, 50, 18, 200, 22],
+        'circle-opacity': 0.92,
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#857A5C',
       },
     });
     map.addLayer({
@@ -283,9 +258,10 @@
       layout: Object.assign(
         {
           'icon-image': ['get', 'icon'],
-          'icon-anchor': ['case', unknown, 'center', 'bottom'],
+          'icon-anchor': 'bottom',
           'icon-allow-overlap': true,
-          'icon-size': ['case', unknown, 1, 0.85],
+          // Places without data: small pins, like minor places on Google Maps.
+          'icon-size': ['case', unknown, 0.62, 0.85],
         },
         label(16),
       ),
@@ -313,9 +289,9 @@
       source: 'sel',
       layout: {
         'icon-image': ['get', 'icon'],
-        'icon-anchor': ['case', unknown, 'center', 'bottom'],
+        'icon-anchor': 'bottom',
         'icon-allow-overlap': true,
-        'icon-size': 1.35,
+        'icon-size': 1.3,
         'text-field': ['get', 'name'],
         'text-font': ['Noto Sans Bold'],
         'text-size': 13,
@@ -378,6 +354,13 @@
           camera = null;
           map.touchZoomRotate.disableRotation();
           map.on('load', function () {
+            // The base map's own shops and restaurants would duplicate SafeEat's pins
+            // (with no gluten information): only stations stay.
+            map.getStyle().layers.forEach(function (layer) {
+              if (/^poi/.test(layer.id) && !/transit|station/.test(layer.id)) {
+                map.setLayoutProperty(layer.id, 'visibility', 'none');
+              }
+            });
             addImages();
             addLayers();
             ready = true;
