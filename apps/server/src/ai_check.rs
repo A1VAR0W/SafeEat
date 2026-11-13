@@ -54,9 +54,10 @@ const QUEUE: usize = 64;
 /// Room for checks nobody is waiting for (search results enriched in the background):
 /// they only run when no product she opened is queued.
 const BACKGROUND_QUEUE: usize = 24;
-/// The first request reads the whole prompt (~1 min on the home server); later ones
-/// reuse llama.cpp's prompt cache and take a few seconds.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(150);
+/// The first request reads the whole prompt: about 750 tokens (estimated from its
+/// length, not measured), so about 2 minutes at ~6 tokens/s on the home server. Later
+/// ones reuse llama.cpp's prompt cache and only read the new ingredient.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 /// A whole product never holds the worker longer than this.
 const JOB_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// `{"verdict":"INSUFFICIENT_INFORMATION","cereal":"TRITICALE"}` is ~20 tokens.
@@ -140,16 +141,81 @@ const SHOTS: &[(&str, &str, &str)] = &[
     ("aceite de girasol", "KNOWN_SAFE_INGREDIENT", "NONE"),
 ];
 
-fn schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "verdict": {"type": "string", "enum": ["KNOWN_GLUTEN", "KNOWN_SAFE_INGREDIENT", "CONTEXT_DEPENDENT", "INSUFFICIENT_INFORMATION"]},
-            "cereal": {"type": "string", "enum": ["WHEAT", "BARLEY", "RYE", "OATS", "SPELT", "TRITICALE", "KAMUT", "NONE"]}
-        },
-        "required": ["verdict", "cereal"],
-        "additionalProperties": false
-    })
+const VERDICTS: &[&str] = &[
+    "KNOWN_GLUTEN",
+    "KNOWN_SAFE_INGREDIENT",
+    "CONTEXT_DEPENDENT",
+    "INSUFFICIENT_INFORMATION",
+];
+const CEREALS: &[&str] = &[
+    "WHEAT",
+    "BARLEY",
+    "RYE",
+    "OATS",
+    "SPELT",
+    "TRITICALE",
+    "KAMUT",
+    "NONE",
+];
+
+// The request is built from structs so the keys keep this order (`json!` sorts them):
+// llama.cpp turns the schema into a grammar in property order, and the model should
+// write the verdict before the cereal, as the system prompt and the examples show.
+
+#[derive(Serialize)]
+pub struct RequestBody {
+    messages: Vec<Message>,
+    temperature: u8,
+    max_tokens: u32,
+    cache_prompt: bool,
+    response_format: ResponseFormat,
+}
+
+#[derive(Serialize)]
+struct Message {
+    role: &'static str,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    schema: Schema,
+}
+
+#[derive(Serialize)]
+struct Schema {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    properties: Properties,
+    required: [&'static str; 2],
+    #[serde(rename = "additionalProperties")]
+    additional_properties: bool,
+}
+
+#[derive(Serialize)]
+struct Properties {
+    verdict: EnumProperty,
+    cereal: EnumProperty,
+}
+
+#[derive(Serialize)]
+struct EnumProperty {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(rename = "enum")]
+    values: &'static [&'static str],
+}
+
+#[derive(Serialize)]
+struct ShotAnswer<'a> {
+    verdict: &'a str,
+    cereal: &'a str,
+}
+
+fn shot_answer(verdict: &str, cereal: &str) -> String {
+    serde_json::to_string(&ShotAnswer { verdict, cereal }).expect("plain strings")
 }
 
 // ---------- answer validation ----------
@@ -504,20 +570,38 @@ async fn forget(state: &AppState, job: &AiJob) {
 
 // ---------- the model ----------
 
-pub fn request_body(item: &str) -> Value {
-    let mut messages = vec![json!({"role": "system", "content": SYSTEM})];
+pub fn request_body(item: &str) -> RequestBody {
+    let message = |role, content: String| Message { role, content };
+    let mut messages = vec![message("system", SYSTEM.to_string())];
     for (ingredient, verdict, cereal) in SHOTS {
-        messages.push(json!({"role": "user", "content": format!("Ingrediente: {ingredient}")}));
-        messages.push(json!({"role": "assistant", "content": json!({"verdict": verdict, "cereal": cereal}).to_string()}));
+        messages.push(message("user", format!("Ingrediente: {ingredient}")));
+        messages.push(message("assistant", shot_answer(verdict, cereal)));
     }
-    messages.push(json!({"role": "user", "content": format!("Ingrediente: {item}")}));
-    json!({
-        "messages": messages,
-        "temperature": 0,
-        "max_tokens": MAX_TOKENS,
-        "cache_prompt": true,
-        "response_format": {"type": "json_object", "schema": schema()},
-    })
+    messages.push(message("user", format!("Ingrediente: {item}")));
+    RequestBody {
+        messages,
+        temperature: 0,
+        max_tokens: MAX_TOKENS,
+        cache_prompt: true,
+        response_format: ResponseFormat {
+            kind: "json_object",
+            schema: Schema {
+                kind: "object",
+                properties: Properties {
+                    verdict: EnumProperty {
+                        kind: "string",
+                        values: VERDICTS,
+                    },
+                    cereal: EnumProperty {
+                        kind: "string",
+                        values: CEREALS,
+                    },
+                },
+                required: ["verdict", "cereal"],
+                additional_properties: false,
+            },
+        },
+    }
 }
 
 /// `Err` = the model could not be reached (retried later); `Ok(Err)` = it answered
@@ -1077,7 +1161,11 @@ mod tests {
 
     #[test]
     fn the_request_asks_for_the_closed_schema() {
-        let body = request_body("garrofín");
+        let text = serde_json::to_string(&request_body("garrofín")).unwrap();
+        // The verdict comes before the cereal, in the schema and in every example.
+        assert!(text.find("\"verdict\":{").unwrap() < text.find("\"cereal\":{").unwrap());
+        assert!(text.contains(r#"{\"verdict\":\"KNOWN_GLUTEN\",\"cereal\":\"WHEAT\"}"#));
+        let body: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(body["response_format"]["type"], "json_object");
         assert_eq!(
             body["response_format"]["schema"]["additionalProperties"],
@@ -1086,7 +1174,7 @@ mod tests {
         assert_eq!(body["temperature"], 0);
         // Every example answer is itself valid under the schema.
         for (_, verdict, cereal) in SHOTS {
-            let answer = json!({"verdict": verdict, "cereal": cereal}).to_string();
+            let answer = shot_answer(verdict, cereal);
             assert!(parse_answer(&answer).is_ok(), "{answer}");
         }
         let last = body["messages"].as_array().unwrap().last().unwrap();

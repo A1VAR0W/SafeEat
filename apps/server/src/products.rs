@@ -421,8 +421,15 @@ fn from_external(
 ) -> (Product, Vec<String>) {
     let analysis = analyse_external(external, translation);
     let mut assessment = analysis.assessment;
-    assessment.certification = external.certification;
-    if !external.manufacturer_data && assessment.status == GlutenStatus::GlutenFree {
+    // A seal or claim is shown only on a product the analysis accepts as gluten-free:
+    // on an UNKNOWN one (old data, no list, an exempt derivative...) or a warning it
+    // would read as a green badge. The reasons say why the claim was not accepted.
+    assessment.certification = external
+        .certification
+        .filter(|_| assessment.status == GlutenStatus::GlutenFree);
+    let community =
+        !external.manufacturer_data && external.gluten.source.starts_with("Open Food Facts");
+    if community && assessment.status == GlutenStatus::GlutenFree {
         // A label tag added by the community (often from a front photo) is a
         // declaration someone read, not a verified certification.
         if assessment.certification == Some(Certification::CertifiedSeal) {
@@ -1475,6 +1482,29 @@ mod tests {
             item.assessment.certification,
             Some(Certification::CertifiedSeal)
         );
+        // A claim that is not accepted shows no seal (no green box, no "sin gluten" filter).
+        ext.manufacturer_data = false;
+        ext.last_modified = Some(chrono::Utc::now().timestamp() - 6 * 366 * 86_400);
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::Unknown);
+        assert!(item.assessment.certification.is_none());
+        assert!(!is_gluten_free_choice(&item));
+        ext.last_modified = None;
+        ext.ingredients = None;
+        ext.gluten.ingredients = None;
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::Unknown);
+        assert!(item.assessment.certification.is_none());
+        // USDA data is not "community data of Open Food Facts".
+        let mut usda = french("Rice, sugar.");
+        usda.gluten.source = "USDA FoodData Central".into();
+        usda.gluten.declaration = Some("gluten free".into());
+        let item = from_external(&usda, None).0;
+        assert!(!item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "COMMUNITY_DATA"));
     }
 
     #[test]

@@ -4,8 +4,8 @@
 -- made with free-text answers and without the rule catalog).
 
 -- What the on-server model said about one ingredient (validated against a closed
--- schema). `cache_key` = sha256(normalized ingredient | language | model | prompt
--- version | rules version): new rules, prompt or model never reuse an old answer.
+-- schema). `cache_key` = sha256(normalized ingredient | model | prompt version | rules
+-- version): new rules, prompt or model never reuse an old answer.
 CREATE TABLE IF NOT EXISTS ingredient_ai_verdicts (
   cache_key text PRIMARY KEY,
   ingredient text NOT NULL,
