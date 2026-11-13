@@ -878,7 +878,7 @@ mod tests {
         let json = serde_json::to_value(&share).unwrap();
         assert_eq!(json["type"], "restaurant");
         assert!(json["item"].get("latitude").is_none());
-        // Added in 2.0.5: omitted when unknown, so older clients see the same shape.
+        // Added in the 2.0 audit: omitted when unknown, so older clients see the same shape.
         assert!(json["item"].get("supportSource").is_none());
     }
 

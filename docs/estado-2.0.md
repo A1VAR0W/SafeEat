@@ -55,6 +55,9 @@ Todo lo siguiente ha pasado sin errores ni avisos:
 - **`npm audit`:** vulnerabilidades en dependencias de la API TypeScript 1.x (fast-jwt, fast-uri, decode-uri-component, deepmerge). No se han tocado; revisar si producción sigue usando esa API.
 - **Copia externa cifrada:** preparada pero no activada. Necesita una clave y un destino que solo puede elegir el propietario.
 - **Restaurantes en zonas sin catálogo:** la parte sin datos se avisa, pero no se rellena con un proveedor externo (se evita cargar Overpass).
+- **Listas con caché caducada:** un favorito cuyo periodo de 24 h ha caducado se muestra como actual, sea cual sea su antigüedad, si se analizó con las reglas vigentes. Solo se marca como antiguo cuando la fuente falla al abrirlo. Es una decisión consciente para que la caché de 24 h no saque productos del filtro, pero un dato viejo de una lista no avisa.
+- **Al desplegar la 1.2.1:** todos los productos guardados analizados con la 1.2.0 salen como «reglas anteriores» (neutros, fuera del filtro). Las listas de favoritos y veredictos los vuelven a consultar en segundo plano (5 por lista, dentro del presupuesto de Open Food Facts), así que se corrigen poco a poco al abrir esas listas.
+- **Commits intermedios:** del `833c174` al `3cfdc06` no compilan los tests de `contracts` (faltaba `support_source` en un literal). Solo la punta de la rama pasa todo.
 - **Clientes antiguos:** la app 2.0.4 y la Expo 1.x ignoran `provenance` y `freshness`. Siguen mostrando en verde un «sin gluten» de la comunidad, y su filtro «sin gluten declarado» lo incluye. Solo se corrige al instalar una versión nueva.
 - **Cola de IA:** un trabajo de fondo cede el turno entre ingredientes, pero un trabajo prioritario sigue esperando a que termine la petición que ya está en curso (hasta 300 s).
 - **CI remoto:** sigue en rojo en GitHub hasta que se suba esta rama; las correcciones solo están comprobadas en local.

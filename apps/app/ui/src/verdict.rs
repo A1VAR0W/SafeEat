@@ -710,10 +710,24 @@ mod tests {
         p.freshness = Some(Freshness::Outdated);
         assert_eq!(analysis_tone(&p), Tone::Info);
         assert!(analysis_heading(&p).contains("antiguos"));
-        // Warnings keep their colour whatever the freshness.
-        let mut p = product("CONTAINS_GLUTEN");
-        p.freshness = Some(Freshness::Outdated);
-        assert_eq!(analysis_tone(&p), Tone::Danger);
+        // Warnings keep their colour and title whatever the freshness or provenance.
+        for (status, tone) in [
+            ("CONTAINS_GLUTEN", Tone::Danger),
+            ("MAY_CONTAIN_TRACES", Tone::Caution),
+        ] {
+            let mut p = product(status);
+            p.freshness = Some(Freshness::Outdated);
+            p.assessment.provenance = Some(EvidenceSource::Community);
+            assert_eq!(analysis_tone(&p), tone, "{status}");
+            assert_eq!(
+                analysis_heading(&p),
+                analysis_title(&p.assessment),
+                "{status}"
+            );
+        }
+        let mut p = product("UNKNOWN");
+        p.assessment.provenance = Some(EvidenceSource::Community);
+        assert_eq!(analysis_heading(&p), analysis_title(&p.assessment));
     }
 
     /// Regression (audit 2.5): a cached product kept a plain green badge while the

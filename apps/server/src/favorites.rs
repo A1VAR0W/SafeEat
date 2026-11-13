@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, JsonBody, QueryMap};
-use crate::products::{get_product, hydrate_stored, with_verdicts};
+use crate::products::{get_product, hydrate_stored, refresh_outdated, with_verdicts};
 use crate::restaurants::get_restaurant;
 use crate::state::AppState;
 use crate::util;
@@ -30,6 +30,7 @@ async fn hydrate_all(
     for (data, expired) in rows {
         items.push(hydrate_stored(state, data, expired).await?);
     }
+    refresh_outdated(state, &items);
     with_verdicts(state, items, Some(user)).await
 }
 

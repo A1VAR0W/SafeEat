@@ -407,18 +407,18 @@ fn cache_freshness(fetched_at: &str) -> Freshness {
 /// also means "the 24 h cache period expired", which says nothing about the source:
 /// opening the product refreshes it). Older rules are `OldRules`.
 fn freshness(item: &Product) -> Freshness {
-    if let Some(f @ (Freshness::Cached | Freshness::Outdated)) = item.freshness {
-        return f;
-    }
     let preview = item
         .assessment
         .reasons
         .iter()
         .any(|r| r.code == "SEARCH_PREVIEW");
+    // Older rules first: a cache served during an outage is no reason to trust them.
     if !item.user_created && !preview && outdated(item) {
-        Freshness::OldRules
-    } else {
-        Freshness::Current
+        return Freshness::OldRules;
+    }
+    match item.freshness {
+        Some(f @ (Freshness::Cached | Freshness::Outdated)) => f,
+        _ => Freshness::Current,
     }
 }
 
@@ -809,6 +809,29 @@ fn enrich_previews(state: &AppState, items: &[Product]) {
         .filter_map(|p| p.barcode.clone())
         .take(ENRICH_PER_SEARCH)
         .collect();
+    load_in_background(state, codes, "search preview not enriched");
+}
+
+/// Saved products refreshed per list when they were analysed by older rules.
+const REFRESH_PER_LIST: usize = 5;
+
+/// Saved products (favourites, verdicts) analysed by older rules, e.g. after an engine
+/// update: they are shown as old data (never green), so fetch them again in the
+/// background, within the provider budget, and the next list shows the new analysis.
+pub fn refresh_outdated(state: &AppState, items: &[Product]) {
+    load_in_background(state, outdated_codes(items), "saved product not refreshed");
+}
+
+fn outdated_codes(items: &[Product]) -> Vec<String> {
+    items
+        .iter()
+        .filter(|p| !p.user_created && p.source != COMMUNITY_SOURCE && outdated(p))
+        .filter_map(|p| p.barcode.clone())
+        .take(REFRESH_PER_LIST)
+        .collect()
+}
+
+fn load_in_background(state: &AppState, codes: Vec<String>, failure: &'static str) {
     if codes.is_empty() {
         return;
     }
@@ -819,7 +842,7 @@ fn enrich_previews(state: &AppState, items: &[Product]) {
                 break;
             }
             if let Err(error) = load(&state, &code, false).await {
-                tracing::debug!(code, status = %error.status, "search preview not enriched");
+                tracing::debug!(code, status = %error.status, "{failure}");
             }
         }
     });
@@ -1350,6 +1373,7 @@ async fn my_verdicts(
     for (data, expired) in rows {
         items.push(hydrate_stored(&state, data, expired).await?);
     }
+    refresh_outdated(&state, &items);
     Ok(Json(Items {
         items: with_verdicts(&state, items, Some(auth.id)).await?,
     }))
@@ -1847,6 +1871,23 @@ mod tests {
     }
 
     #[test]
+    fn saved_products_by_older_rules_are_refreshed() {
+        let mut old = with_status("Riz, sucre.", Some("sin gluten"));
+        old.barcode = Some("8410000000001".into());
+        old.assessment.engine_version = "1.2.0+rules.2026.11.13".into();
+        let mut current = old.clone();
+        current.barcode = Some("8410000000002".into());
+        current.assessment.engine_version = safeeat_gluten_engine::ENGINE_VERSION.into();
+        let mut mine = old.clone();
+        mine.barcode = Some("8410000000003".into());
+        mine.user_created = true;
+        let codes = outdated_codes(&[old.clone(), current, mine]);
+        assert_eq!(codes, vec!["8410000000001".to_string()]);
+        let many: Vec<Product> = (0..20).map(|_| old.clone()).collect();
+        assert_eq!(outdated_codes(&many).len(), REFRESH_PER_LIST);
+    }
+
+    #[test]
     fn freshness_is_independent_of_the_status() {
         let mut item = with_status("Riz, sucre.", Some("sin gluten"));
         assert_eq!(freshness(&item), Freshness::Current);
@@ -1865,6 +1906,12 @@ mod tests {
         assert_eq!(cache_freshness("not a date"), Freshness::Outdated);
         item.freshness = Some(cache_freshness(&days_ago(10)));
         assert_eq!(freshness(&item), Freshness::Outdated);
+        item.freshness = Some(Freshness::Cached);
+        assert_eq!(freshness(&item), Freshness::Cached);
+        // Older rules win over a recent cache: never green again during an outage.
+        item.assessment.engine_version = "1.1.0".into();
+        assert_eq!(freshness(&item), Freshness::OldRules);
+        item.assessment.engine_version = safeeat_gluten_engine::ENGINE_VERSION.into();
         // Still GLUTEN_FREE: an old cache never turns into a warning by itself.
         assert_eq!(item.assessment.status, GlutenStatus::GlutenFree);
         item.freshness = Some(Freshness::Current);
