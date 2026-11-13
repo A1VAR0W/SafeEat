@@ -5,6 +5,21 @@ Rama: `claude/safeeat-2.0-rust` (subida a GitHub, sin fusionar con `main`).
 Tampoco se ha publicado `latest.json` ni los manifiestos de SideStore.
 HallowFest ha devuelto 200 antes y después de cada despliegue.
 
+## Análisis de gluten 1.2.0 (13-11-2026, en la rama; sin desplegar)
+
+- **Error corregido:** Kimbo «Patatas fritas sabor a Toreras» (8410044005008) salía en
+  ámbar con «La IA ve posible gluten». Ahora sale como **No verificado**, en gris, y explica
+  que la dextrosa y los aromas naturales no son motivo de alerta.
+- **Catálogo de reglas:** versionado, en memoria y con fuentes legales. Cada ingrediente
+  se clasifica y el producto indica su caso (`assessment.finding`).
+- **IA:** pasa a ser un clasificador con un esquema JSON cerrado. Solo se le consultan
+  ingredientes que las reglas no conocen y nunca cambia el estado. Una sospecha de la IA
+  se muestra en gris como «sin confirmar».
+- **App:** los textos dicen el caso concreto, y la evidencia se describe con palabras en
+  lugar de «Confianza X %».
+- **Base de datos:** migración `014_ai_reviews.sql`, que solo añade tablas.
+- **Detalles, evaluación y límites:** [GLUTEN-ANALYSIS.md](GLUTEN-ANALYSIS.md).
+
 ## Auditoría y correcciones (12-11-2026, segunda tanda)
 
 Esta sección manda sobre lo que diga el resto del documento donde no coincidan.

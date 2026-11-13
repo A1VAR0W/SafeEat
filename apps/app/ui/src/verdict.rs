@@ -2,11 +2,18 @@
 //! personal verdict → certified seal → automatic analysis → community.
 //! Pure functions, unit-tested on the host (`cargo test -p safeeat-ui`).
 //!
-//! Green (`Tone::Safe`) is reserved for a declaration by the manufacturer or the
-//! user's own verdict. An AI result or a community review that found nothing is
-//! `Tone::Info`: useful, clearly labelled, never a food-safety badge.
+//! Colours: red = gluten declared, amber = traces declared (by the source, never by the
+//! AI), green = a reliable "sin gluten" declaration or the user's own verdict, neutral =
+//! not verified. An AI result or a community review that found nothing is
+//! `Tone::Info`: useful, clearly labelled, never a food-safety badge. An AI suspicion is
+//! neutral and "sin confirmar".
+//!
+//! No percentages: the strength of the evidence is a word with its explanation.
 
-use safeeat_contracts::{AiCheckStatus, Certification, GlutenStatus, Product, VerdictValue};
+use safeeat_contracts::{
+    AiCheckStatus, AiItemVerdict, AiOutcome, Assessment, Certification, GlutenFinding,
+    GlutenStatus, IngredientClass, Product, VerdictValue,
+};
 
 /// Visual tone of a badge. Every tone also carries an icon and words, never colour alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,25 +159,31 @@ pub fn summary(p: &Product) -> Summary {
                 warning: None,
             };
         }
-        if let Some(ai) = &p.ai_check {
-            return match ai.status {
-                // Orientative only: the AI never certifies and cannot see traces.
-                AiCheckStatus::Verified => Summary {
+        match ai_note(p).map(|n| n.outcome) {
+            // Orientative only: the AI never certifies and cannot see traces.
+            Some(AiOutcome::NoGlutenSeen) => {
+                return Summary {
                     tone: Tone::Info,
-                    text: "La IA no ve gluten en los ingredientes".into(),
+                    text: "La IA no relaciona con gluten los ingredientes dudosos".into(),
                     warning: Some("Análisis orientativo: no es una certificación"),
-                },
-                AiCheckStatus::Suspected => Summary {
-                    tone: Tone::Caution,
-                    text: "La IA ve posible gluten".into(),
-                    warning: None,
-                },
-                AiCheckStatus::Pending => Summary {
+                }
+            }
+            Some(AiOutcome::Pending) => {
+                return Summary {
                     tone: Tone::Unknown,
-                    text: "La IA está revisando los ingredientes…".into(),
+                    text: "Consultando a la IA los ingredientes dudosos…".into(),
                     warning: None,
-                },
-            };
+                }
+            }
+            // A suspicion stays "not verified": neutral, never a traces-like warning.
+            Some(AiOutcome::GlutenSuspected) => {
+                return Summary {
+                    tone: Tone::Unknown,
+                    text: "No se ha podido determinar la presencia de gluten".into(),
+                    warning: Some("La IA sospecha de un ingrediente · sin confirmar"),
+                }
+            }
+            _ => {}
         }
     }
     // A search preview has no ingredients yet: say what to do instead of a bare "unknown".
@@ -198,9 +211,172 @@ pub fn summary(p: &Product) -> Summary {
     }
     Summary {
         tone: status_tone(status),
-        text: status_title(status).into(),
+        text: short_title(&p.assessment).into(),
         warning: None,
     }
+}
+
+/// One line for lists: what the analysis found, not just the status.
+fn short_title(a: &Assessment) -> &'static str {
+    use GlutenFinding as F;
+    match (a.status, a.finding) {
+        (GlutenStatus::ContainsGluten, Some(F::Contradictory)) => {
+            "Contiene gluten · las fuentes no coinciden"
+        }
+        (GlutenStatus::ContainsGluten, Some(_)) => "Contiene gluten declarado",
+        (GlutenStatus::MayContainTraces, Some(F::Contradictory)) => {
+            "Puede contener trazas · las fuentes no coinciden"
+        }
+        (GlutenStatus::MayContainTraces, Some(_)) => "Trazas de gluten declaradas",
+        (GlutenStatus::Unknown, Some(F::NoGlutenIdentified)) => {
+            "No se identifican ingredientes con gluten · falta confirmar la etiqueta"
+        }
+        (GlutenStatus::Unknown, Some(F::AmbiguousIngredient)) => {
+            "Ingrediente de origen dudoso · revisa la etiqueta"
+        }
+        (GlutenStatus::Unknown, Some(F::Contradictory)) => {
+            "Las fuentes no coinciden · revisa la etiqueta"
+        }
+        (GlutenStatus::Unknown, Some(F::InsufficientInformation)) => {
+            "No se ha podido determinar la presencia de gluten"
+        }
+        (status, _) => status_title(status),
+    }
+}
+
+/// Title of the analysis card: the case the product falls in, in a full sentence.
+pub fn analysis_title(a: &Assessment) -> &'static str {
+    use GlutenFinding as F;
+    match (a.status, a.finding) {
+        (GlutenStatus::ContainsGluten, Some(F::Contradictory)) => {
+            "Contiene gluten según una de las fuentes"
+        }
+        (GlutenStatus::ContainsGluten, _) => "Contiene gluten declarado",
+        (GlutenStatus::MayContainTraces, Some(F::Contradictory)) => {
+            "Puede contener trazas según una de las fuentes"
+        }
+        (GlutenStatus::MayContainTraces, _) => "La fuente declara que puede contener trazas",
+        (GlutenStatus::GlutenFree, _) => "Sin gluten declarado",
+        (GlutenStatus::Unknown, Some(F::NoGlutenIdentified)) => {
+            "No se identifican ingredientes con gluten, pero falta confirmar la etiqueta"
+        }
+        (GlutenStatus::Unknown, Some(F::AmbiguousIngredient)) => {
+            "Hay ingredientes cuyo origen no podemos confirmar"
+        }
+        (GlutenStatus::Unknown, Some(F::Contradictory)) => "Las fuentes no coinciden",
+        (GlutenStatus::Unknown, _) => "No se ha podido determinar la presencia de gluten",
+    }
+}
+
+/// How strong the evidence is, as a word and its explanation (never a percentage).
+pub fn evidence_level(a: &Assessment) -> (&'static str, &'static str) {
+    use GlutenFinding as F;
+    match (a.status, a.finding) {
+        (_, Some(F::Contradictory)) => (
+            "Contradictoria",
+            "Los datos no coinciden entre sí; mostramos lo más prudente.",
+        ),
+        (GlutenStatus::ContainsGluten, _) => (
+            "Clara",
+            "La fuente declara un ingrediente o un alérgeno con gluten.",
+        ),
+        (GlutenStatus::MayContainTraces, _) => (
+            "Clara",
+            "La fuente declara una advertencia de posibles trazas.",
+        ),
+        (GlutenStatus::GlutenFree, _) if a.certification == Some(Certification::CertifiedSeal) => (
+            "Declaración con sello",
+            "Se declara «sin gluten» con el símbolo de la espiga barrada y ningún ingrediente lo contradice.",
+        ),
+        (GlutenStatus::GlutenFree, _) => (
+            "Declaración sin contradicciones",
+            "Se declara «sin gluten» y ningún ingrediente lo contradice. No es una certificación.",
+        ),
+        (GlutenStatus::Unknown, Some(F::NoGlutenIdentified)) => (
+            "Incompleta",
+            "Ningún ingrediente declara gluten, pero tampoco hay una declaración «sin gluten».",
+        ),
+        (GlutenStatus::Unknown, Some(F::AmbiguousIngredient)) => (
+            "Insuficiente",
+            "Algún ingrediente puede llevar gluten o no según su origen.",
+        ),
+        (GlutenStatus::Unknown, _) => (
+            "Insuficiente",
+            "Faltan datos o hay ingredientes que no reconocemos.",
+        ),
+    }
+}
+
+/// How the rules classified an ingredient, for the detail list.
+pub fn class_label(class: IngredientClass) -> &'static str {
+    match class {
+        IngredientClass::GlutenSource => "Fuente de gluten",
+        IngredientClass::LikelyGluten => "Suele llevar gluten",
+        IngredientClass::Oats => "Avena: solo apta si se declara sin gluten",
+        IngredientClass::NeedsOrigin => "Depende de su origen",
+        IngredientClass::ContextDependent => "No indica gluten por sí solo",
+        IngredientClass::LegalExemption => "Derivado exento por ley",
+        IngredientClass::GenerallyCompatible => "Compatible en general",
+        IngredientClass::NaturallyGlutenFree => "No procede de cereales con gluten",
+        IngredientClass::Unrecognized => "No reconocido",
+        IngredientClass::Other => "Sin clasificar",
+    }
+}
+
+/// What the on-server AI said, from `ai_review` (server 2.0.3+) or the legacy `ai_check`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AiNote {
+    pub outcome: AiOutcome,
+    pub tone: Tone,
+    pub title: &'static str,
+    pub message: String,
+    pub items: Vec<AiItemVerdict>,
+    pub model: String,
+}
+
+/// Only for products the analysis left UNKNOWN; never green, never amber.
+pub fn ai_note(p: &Product) -> Option<AiNote> {
+    if p.assessment.status != GlutenStatus::Unknown || p.user_created {
+        return None;
+    }
+    let (outcome, message, items, model) = match (&p.ai_review, &p.ai_check) {
+        (Some(r), _) => (
+            r.outcome,
+            r.message.clone(),
+            r.items.clone(),
+            r.model.clone(),
+        ),
+        (None, Some(c)) => (
+            match c.status {
+                AiCheckStatus::Verified => AiOutcome::NoGlutenSeen,
+                AiCheckStatus::Suspected => AiOutcome::GlutenSuspected,
+                AiCheckStatus::Pending => AiOutcome::Pending,
+            },
+            c.message.clone(),
+            Vec::new(),
+            c.model.clone(),
+        ),
+        (None, None) => return None,
+    };
+    let (tone, title) = match outcome {
+        AiOutcome::NoGlutenSeen => (Tone::Info, "Análisis orientativo por IA"),
+        AiOutcome::GlutenSuspected => (
+            Tone::Unknown,
+            "La IA sospecha de un ingrediente · sin confirmar",
+        ),
+        AiOutcome::Undetermined => (Tone::Unknown, "La IA tampoco ha podido clasificarlo"),
+        AiOutcome::ModelError => (Tone::Unknown, "No se ha podido consultar a la IA"),
+        AiOutcome::Pending => (Tone::Unknown, "Consultando a la IA…"),
+        AiOutcome::Other => return None,
+    };
+    Some(AiNote {
+        outcome,
+        tone,
+        title,
+        message,
+        items,
+        model,
+    })
 }
 
 /// "fr" → "francés" for the «ver original» toggle.
@@ -221,7 +397,7 @@ pub fn language_name(code: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use safeeat_contracts::{AiCheck, PersonalVerdict, ProductReportCounts};
+    use safeeat_contracts::{AiCheck, AiReview, PersonalVerdict, ProductReportCounts};
 
     fn product(status: &str) -> Product {
         serde_json::from_value(serde_json::json!({
@@ -240,6 +416,98 @@ mod tests {
             model: "m".into(),
             checked_at: None,
         })
+    }
+
+    fn with_finding(status: &str, finding: GlutenFinding) -> Product {
+        let mut p = product(status);
+        p.assessment.finding = Some(finding);
+        p
+    }
+
+    fn review(outcome: AiOutcome) -> Option<AiReview> {
+        Some(AiReview {
+            outcome,
+            message: "m".into(),
+            items: vec![],
+            model: "m".into(),
+            rules_version: "r".into(),
+            prompt_version: "p".into(),
+            checked_at: None,
+        })
+    }
+
+    /// Regression 8410044005008: no gluten warning, no "sin gluten", neutral.
+    #[test]
+    fn no_gluten_identified_is_neutral_and_says_what_is_missing() {
+        let p = with_finding("UNKNOWN", GlutenFinding::NoGlutenIdentified);
+        let s = summary(&p);
+        assert_eq!(s.tone, Tone::Unknown);
+        assert_eq!(
+            s.text,
+            "No se identifican ingredientes con gluten · falta confirmar la etiqueta"
+        );
+        let (level, why) = evidence_level(&p.assessment);
+        assert_eq!(level, "Incompleta");
+        assert!(!why.contains('%'));
+        assert!(analysis_title(&p.assessment).contains("falta confirmar la etiqueta"));
+    }
+
+    #[test]
+    fn texts_say_which_case_it_is() {
+        assert_eq!(
+            summary(&with_finding(
+                "UNKNOWN",
+                GlutenFinding::InsufficientInformation
+            ))
+            .text,
+            "No se ha podido determinar la presencia de gluten"
+        );
+        assert_eq!(
+            summary(&with_finding(
+                "CONTAINS_GLUTEN",
+                GlutenFinding::DeclaredGluten
+            ))
+            .text,
+            "Contiene gluten declarado"
+        );
+        let traces = with_finding("MAY_CONTAIN_TRACES", GlutenFinding::DeclaredTraces);
+        assert_eq!(summary(&traces).tone, Tone::Caution);
+        assert_eq!(summary(&traces).text, "Trazas de gluten declaradas");
+        let both = with_finding("CONTAINS_GLUTEN", GlutenFinding::Contradictory);
+        assert_eq!(summary(&both).tone, Tone::Danger);
+        assert_eq!(evidence_level(&both.assessment).0, "Contradictoria");
+        // A 2.0.2 server sends no finding: the old titles still work.
+        assert_eq!(summary(&product("UNKNOWN")).text, "No verificado");
+    }
+
+    #[test]
+    fn an_ai_suspicion_is_never_amber_nor_red() {
+        let mut p = with_finding("UNKNOWN", GlutenFinding::InsufficientInformation);
+        p.ai_review = review(AiOutcome::GlutenSuspected);
+        let s = summary(&p);
+        assert_eq!(s.tone, Tone::Unknown);
+        assert_eq!(s.text, "No se ha podido determinar la presencia de gluten");
+        assert!(s.warning.is_some_and(|w| w.contains("sin confirmar")));
+        assert_eq!(ai_note(&p).unwrap().tone, Tone::Unknown);
+        // The legacy field of an older server too.
+        let mut p = product("UNKNOWN");
+        p.ai_check = ai(AiCheckStatus::Suspected);
+        assert_eq!(summary(&p).tone, Tone::Unknown);
+        assert!(!summary(&p).text.contains("posible gluten"));
+        // Errors and doubts fall back to what the rules say.
+        for outcome in [
+            AiOutcome::ModelError,
+            AiOutcome::Undetermined,
+            AiOutcome::Other,
+        ] {
+            let mut p = with_finding("UNKNOWN", GlutenFinding::InsufficientInformation);
+            p.ai_review = review(outcome);
+            assert_eq!(summary(&p).tone, Tone::Unknown);
+            assert_eq!(
+                summary(&p).text,
+                "No se ha podido determinar la presencia de gluten"
+            );
+        }
     }
 
     #[test]

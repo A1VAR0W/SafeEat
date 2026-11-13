@@ -2,14 +2,15 @@
 //!
 //! Safety rules (docs/SAFETY.md):
 //! - The extracted text always goes through the deterministic gluten engine as well.
-//! - The final verdict is the MOST CONSERVATIVE of engine and AI.
 //! - The AI alone can never produce "sin gluten": a gluten-free result needs the engine to agree.
+//! - The AI's own estimate can stop a green result but never shows a gluten or traces
+//!   warning the text it read does not support (the product stays UNKNOWN, with why).
 
 use std::time::Duration;
 
 use base64::Engine as _;
-use safeeat_contracts::{Assessment, Certification, GlutenStatus, LabelAnalysis, Reason};
-use safeeat_gluten_engine::{assess_gluten, most_conservative, GlutenInput, Origin};
+use safeeat_contracts::{Certification, GlutenStatus, LabelAnalysis, Reason};
+use safeeat_gluten_engine::{analyze, Context, GlutenInput, Origin};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -212,33 +213,64 @@ fn non_empty(v: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
-/// Combine the AI reading with the deterministic engine and keep the most conservative result.
+/// Combine the AI reading with the deterministic engine.
+///
+/// The text the model read (ingredients, allergens, traces, a "sin gluten" mention) is
+/// analysed by the rules: that is the evidence. The model's own estimate is a
+/// hypothesis: it can stop a green result, but on its own it never shows a gluten or
+/// traces warning (that would be an AI guess dressed as a declared warning); the
+/// product stays UNKNOWN and says why.
 pub fn combine(extraction: LabelExtraction) -> LabelAnalysis {
     let declaration = extraction.gluten_free_claim || extraction.certified_seal;
-    let engine = assess_gluten(&GlutenInput {
-        ingredients: non_empty(&extraction.ingredients),
-        allergens: (!extraction.allergens.is_empty()).then(|| extraction.allergens.join(", ")),
-        traces: (!extraction.traces.is_empty()).then(|| extraction.traces.join(", ")),
-        declaration: declaration.then(|| "sin gluten".to_string()),
-        source: "Foto de la etiqueta (lectura con IA)".into(),
-        origin: Some(Origin::Ocr),
-        ..Default::default()
-    });
+    let engine = analyze(
+        &GlutenInput {
+            ingredients: non_empty(&extraction.ingredients),
+            allergens: (!extraction.allergens.is_empty()).then(|| extraction.allergens.join(", ")),
+            traces: (!extraction.traces.is_empty()).then(|| extraction.traces.join(", ")),
+            declaration: declaration.then(|| "sin gluten".to_string()),
+            source: "Foto de la etiqueta (lectura con IA)".into(),
+            origin: Some(Origin::Ocr),
+            ..Default::default()
+        },
+        Context::default(),
+    );
     let ai_status = extraction.gluten_estimate.status();
-    let ai = Assessment {
-        status: ai_status,
-        confidence: engine.confidence.min(0.6),
-        reasons: vec![Reason {
-            code: "AI_LABEL_READING".into(),
-            message: format!(
-                "Lectura de la etiqueta con IA: {}",
-                extraction.explanation.trim()
-            ),
-        }],
-        ..engine.clone()
+    let reading = Reason {
+        code: "AI_LABEL_READING".into(),
+        message: format!(
+            "Lectura de la etiqueta con IA: {}",
+            extraction.explanation.trim()
+        ),
     };
-    // GLUTEN_FREE survives only when both agree (most_conservative turns GF vs UNKNOWN into UNKNOWN).
-    let assessment = most_conservative(engine, ai);
+    let engine_status = engine.assessment.status;
+    let mut assessment = match (engine_status, ai_status) {
+        // The model doubts a "sin gluten" the rules accepted: not green.
+        (GlutenStatus::GlutenFree, other) if other != GlutenStatus::GlutenFree => engine
+            .without_claim(
+                "AI_ESTIMATE_DISAGREES",
+                "La lectura con IA no confirma que sea apto aunque la etiqueta diga «sin gluten». Compruébalo en el envase.",
+            )
+            .assessment,
+        // A warning only the model sees: not shown as a declared warning.
+        (engine_status, GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces)
+            if ai_status.risk() > engine_status.risk() =>
+        {
+            let mut a = engine.assessment;
+            if a.status == GlutenStatus::GlutenFree {
+                a.status = GlutenStatus::Unknown;
+            }
+            a.reasons.push(Reason {
+                code: "AI_ESTIMATE_UNCONFIRMED".into(),
+                message: "La lectura con IA sospecha gluten o trazas, pero el texto leído no lo confirma. No se ha podido determinar la presencia de gluten: revisa la etiqueta.".into(),
+            });
+            a
+        }
+        _ => engine.assessment,
+    };
+    if assessment.status != GlutenStatus::GlutenFree {
+        assessment.confidence = assessment.confidence.min(0.6);
+    }
+    assessment.reasons.push(reading);
     let certification = if extraction.certified_seal {
         Some(Certification::CertifiedSeal)
     } else if extraction.gluten_free_claim {
@@ -296,13 +328,41 @@ mod tests {
     }
 
     #[test]
-    fn ai_wins_when_more_conservative() {
+    fn ai_estimate_stops_green_but_never_invents_a_warning() {
+        // The model guesses traces the label text does not show: not amber.
+        for claim in [false, true] {
+            let r = combine(extraction(
+                "harina de arroz",
+                GlutenEstimate::MayContain,
+                claim,
+            ));
+            assert_eq!(r.assessment.status, GlutenStatus::Unknown);
+            assert!(r
+                .assessment
+                .reasons
+                .iter()
+                .any(|x| x.code == "AI_ESTIMATE_UNCONFIRMED"));
+        }
         let r = combine(extraction(
-            "harina de arroz",
-            GlutenEstimate::MayContain,
+            "arroz, sal",
+            GlutenEstimate::ContainsGluten,
+            false,
+        ));
+        assert_eq!(r.assessment.status, GlutenStatus::Unknown);
+        // Traces the model actually read on the label are a declared warning.
+        let mut read = extraction("arroz", GlutenEstimate::MayContain, false);
+        read.traces = vec!["gluten".into()];
+        assert_eq!(
+            combine(read).assessment.status,
+            GlutenStatus::MayContainTraces
+        );
+        // An unreviewed photo reading is never green, even when both agree.
+        let r = combine(extraction(
+            "harina de arroz, azúcar",
+            GlutenEstimate::NoGlutenIngredients,
             true,
         ));
-        assert_eq!(r.assessment.status, GlutenStatus::MayContainTraces);
+        assert_eq!(r.assessment.status, GlutenStatus::Unknown);
     }
 
     #[test]

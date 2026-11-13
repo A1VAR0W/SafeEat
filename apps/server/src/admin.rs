@@ -363,8 +363,15 @@ async fn moderate(
     Ok(Json(json!({"revoked": revoke, "revision": updated})))
 }
 
+/// Gluten analysis and on-server AI counters since the last restart (no personal data).
+async fn analysis_metrics(State(state): State<AppState>, auth: AuthUser) -> ApiResult<Json<Value>> {
+    require_admin(&state, &auth).await?;
+    Ok(Json(crate::metrics::snapshot()))
+}
+
 pub fn routes(state: &AppState) -> Router<AppState> {
     Router::new()
+        .route("/api/v1/admin/analysis-metrics", get(analysis_metrics))
         .route("/api/v1/admin/users", get(users))
         .route(
             "/api/v1/admin/users/{id}/authorized",

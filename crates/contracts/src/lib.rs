@@ -92,12 +92,92 @@ impl Certification {
 #[serde(rename_all = "camelCase")]
 pub struct Assessment {
     pub status: GlutenStatus,
+    /// Kept on the wire for app 1.0.x. It is not a calibrated probability: the 2.0 app
+    /// shows the qualitative `finding` instead of a percentage.
     pub confidence: f64,
     pub reasons: Vec<Reason>,
     pub evidence: Vec<Evidence>,
     pub engine_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certification: Option<Certification>,
+    /// Which of the evidence cases of docs/GLUTEN-ANALYSIS.md produced `status`.
+    /// Finer than the four public statuses; absent in analyses older than engine 1.2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding: Option<GlutenFinding>,
+    /// Version of the ingredient rule catalog used for `items`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_version: Option<String>,
+    /// How each ingredient was classified by the rule catalog.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<IngredientFinding>,
+}
+
+/// The evidence case behind an assessment. New variants may be added: older apps read
+/// them as `Other` instead of failing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GlutenFinding {
+    /// Gluten or a cereal with gluten is declared in the ingredients or allergens.
+    DeclaredGluten,
+    /// A precautionary statement ("puede contener trazas de trigo") is declared.
+    DeclaredTraces,
+    /// An ingredient whose gluten content depends on an origin the label does not give.
+    AmbiguousIngredient,
+    /// Every ingredient was recognised and none declares gluten. Still not "apto":
+    /// cross-contamination and traces are only known from the label.
+    NoGlutenIdentified,
+    /// A "sin gluten" declaration attributed to the label, without contradictions.
+    GlutenFreeClaim,
+    /// A certification checked against the certifier. No current source can do this,
+    /// so it is never produced; kept so the case is explicit.
+    VerifiedCertification,
+    /// No ingredient list, or ingredients the rules do not recognise.
+    InsufficientInformation,
+    /// Sources or statements disagree; precaution prevails.
+    Contradictory,
+    #[serde(other)]
+    Other,
+}
+
+/// Rule-catalog class of one ingredient (see `safeeat_gluten_engine::catalog`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum IngredientClass {
+    /// Wheat, barley, rye, spelt, triticale... and their derivatives.
+    GlutenSource,
+    /// Usually made with wheat but the cereal is not given ("pan rallado", "cerveza").
+    LikelyGluten,
+    /// Oats: only safe with a reliable gluten-free declaration.
+    Oats,
+    /// Gluten depends on an origin the label does not give ("almidón", "harina").
+    NeedsOrigin,
+    /// Context-dependent, but EU labelling would have to name a gluten cereal
+    /// ("aromas naturales"): no alert by itself.
+    ContextDependent,
+    /// Derived from a gluten cereal but exempt by Regulation (EU) 1169/2011 Annex II.
+    LegalExemption,
+    /// Ingredient or additive generally compatible ("dextrosa", "goma xantana").
+    GenerallyCompatible,
+    /// Naturally gluten-free food ("patata", "arroz", "sal").
+    NaturallyGlutenFree,
+    /// Not in the catalog.
+    Unrecognized,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngredientFinding {
+    /// The ingredient as written in the list (percentages removed).
+    pub text: String,
+    pub class: IngredientClass,
+    /// Canonical id of the catalog rule that matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule: Option<String>,
+    /// Explanation for the user, from the catalog.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -225,6 +305,67 @@ pub struct Product {
     /// `assessment`. Lets the app show both without losing the original.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_assessment: Option<Assessment>,
+    /// Structured result of the on-server model for the ingredients the rules could not
+    /// classify. Replaces `ai_check` in app 2.0.3+; never changes `assessment`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_review: Option<AiReview>,
+}
+
+/// Outcome of the AI review of a product. New variants read as `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AiOutcome {
+    /// Every ingredient left by the rules was classified as gluten-free by the model.
+    NoGlutenSeen,
+    /// The model named a gluten cereal for an ingredient. Unconfirmed: stays UNKNOWN.
+    GlutenSuspected,
+    /// The model could not decide for some ingredient.
+    Undetermined,
+    /// The model failed, timed out or answered outside the schema.
+    ModelError,
+    /// Queued.
+    Pending,
+    #[serde(other)]
+    Other,
+}
+
+/// What the model said about one ingredient, validated against a closed schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AiVerdict {
+    KnownGluten,
+    KnownSafeIngredient,
+    ContextDependent,
+    InsufficientInformation,
+    ModelError,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiItemVerdict {
+    pub ingredient: String,
+    pub verdict: AiVerdict,
+    /// Gluten cereal named by the model ("trigo"), only with `KnownGluten`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cereal: Option<String>,
+    /// Written by SafeEat from the validated verdict, never free text from the model.
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiReview {
+    pub outcome: AiOutcome,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<AiItemVerdict>,
+    pub model: String,
+    pub rules_version: String,
+    pub prompt_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -646,5 +787,29 @@ mod tests {
         let json = serde_json::to_value(&share).unwrap();
         assert_eq!(json["type"], "restaurant");
         assert!(json["item"].get("latitude").is_none());
+    }
+
+    /// Installed apps must keep reading products when the server adds new cases.
+    #[test]
+    fn new_analysis_values_read_as_other_and_old_products_still_parse() {
+        let finding: GlutenFinding = serde_json::from_str("\"SOMETHING_NEW\"").unwrap();
+        assert_eq!(finding, GlutenFinding::Other);
+        let class: IngredientClass = serde_json::from_str("\"NEW_CLASS\"").unwrap();
+        assert_eq!(class, IngredientClass::Other);
+        let outcome: AiOutcome = serde_json::from_str("\"NEW\"").unwrap();
+        assert_eq!(outcome, AiOutcome::Other);
+        let verdict: AiVerdict = serde_json::from_str("\"NEW\"").unwrap();
+        assert_eq!(verdict, AiVerdict::Other);
+        // A 2.0.2 assessment (no finding, items or rules version) still parses...
+        let old: Assessment = serde_json::from_value(serde_json::json!({
+            "status": "UNKNOWN", "confidence": 0.0, "reasons": [], "evidence": [],
+            "engineVersion": "1.1.0"
+        }))
+        .unwrap();
+        assert!(old.finding.is_none() && old.items.is_empty());
+        // ...and an assessment without the new fields serializes exactly as before.
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("finding").is_none() && json.get("items").is_none());
+        assert!(json.get("rulesVersion").is_none());
     }
 }

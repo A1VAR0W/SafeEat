@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use safeeat_contracts::{AiCheckStatus, GlutenStatus, Items, Product};
+use safeeat_contracts::{AiOutcome, GlutenStatus, Items, Product};
 use serde::{Deserialize, Serialize};
 
 use crate::api;
@@ -232,10 +232,7 @@ const REFRESH_SECS: u64 = 12;
 
 fn still_checking(p: &Product) -> bool {
     p.assessment.status == GlutenStatus::Unknown
-        && (p
-            .ai_check
-            .as_ref()
-            .is_some_and(|a| a.status == AiCheckStatus::Pending)
+        && (crate::verdict::ai_note(p).is_some_and(|a| a.outcome == AiOutcome::Pending)
             || p.assessment
                 .reasons
                 .iter()

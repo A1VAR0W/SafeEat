@@ -1,12 +1,22 @@
 //! Deterministic gluten evidence engine.
 //!
 //! Explicit evidence only: a missing hazard is never evidence of absence.
-//! This is a faithful port of `packages/gluten-engine/src/index.ts`; the golden
-//! cases in `tests/golden.json` were produced by the TypeScript engine and must
-//! keep producing identical output.
+//!
+//! Two layers:
+//! - `assess_gluten` (core, version `CORE_VERSION`): a faithful port of
+//!   `packages/gluten-engine/src/index.ts`; the golden cases in `tests/golden.json`
+//!   were produced by the TypeScript engine and must keep producing identical output.
+//! - `analyze` (version `ENGINE_VERSION`): the core plus the versioned rule catalog
+//!   (`catalog`), which explains every ingredient, applies the legal exemptions and
+//!   tells the evidence cases apart. This is what the server serves.
 
+mod analysis;
+pub mod catalog;
+mod items;
 mod nutrition;
 
+pub use analysis::{analyze, Analysis, ClassifiedItem, Context, ENGINE_VERSION};
+pub use catalog::RULES_VERSION;
 pub use nutrition::score_nutrition;
 
 use fancy_regex::Regex as FancyRegex;
@@ -16,7 +26,8 @@ use safeeat_contracts::{Assessment, Evidence, EvidenceKind, GlutenStatus, Reason
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
-pub const ENGINE_VERSION: &str = "1.1.0";
+/// Version of the core engine (`assess_gluten`), locked by the golden cases.
+pub const CORE_VERSION: &str = "1.1.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -353,8 +364,11 @@ pub fn assess_gluten(input: &GlutenInput) -> Assessment {
         confidence,
         reasons,
         evidence,
-        engine_version: ENGINE_VERSION.into(),
+        engine_version: CORE_VERSION.into(),
         certification: None,
+        finding: None,
+        rules_version: None,
+        items: Vec::new(),
     }
 }
 
@@ -425,6 +439,9 @@ mod tests {
             evidence: vec![],
             engine_version: "x".into(),
             certification: None,
+            finding: None,
+            rules_version: None,
+            items: vec![],
         };
         let unknown = Assessment {
             status: GlutenStatus::Unknown,

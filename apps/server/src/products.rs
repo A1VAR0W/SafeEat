@@ -12,10 +12,10 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::Engine as _;
 use safeeat_contracts::{
-    GlutenStatus, InformationSource, Items, LabelAnalysis, NutritionInput, PersonalVerdict,
-    Product, ProductReportCounts, Reason, VerdictValue,
+    Certification, GlutenStatus, InformationSource, Items, LabelAnalysis, NutritionInput,
+    PersonalVerdict, Product, ProductReportCounts, Reason, VerdictValue,
 };
-use safeeat_gluten_engine::{assess_gluten, score_nutrition, GlutenInput, Origin};
+use safeeat_gluten_engine::{analyze, score_nutrition, Analysis, Context, GlutenInput, Origin};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -23,6 +23,7 @@ use uuid::Uuid;
 use crate::ai_check;
 use crate::error::{ApiError, ApiResult};
 use crate::extract::{AuthUser, JsonBody, MaybeUser, QueryMap};
+use crate::metrics;
 use crate::permissions::review_note;
 use crate::providers::food_data_central::enriched_barcode;
 use crate::providers::ExternalProduct;
@@ -64,30 +65,88 @@ fn photo_url(state: &AppState, code: &str, contribution: Uuid) -> String {
 /// never say "gluten free": one person's reading of a label is not a declaration by
 /// the manufacturer. A "sin gluten" found there stays UNKNOWN with its own reason.
 fn community_assessment(ingredients: &str) -> safeeat_contracts::Assessment {
-    let mut assessment = assess_gluten(&GlutenInput {
-        ingredients: Some(ingredients.into()),
-        source: "Etiqueta revisada por un usuario".into(),
-        origin: Some(Origin::Ocr),
-        reviewed: Some(true),
-        ..Default::default()
-    });
-    if assessment.status == GlutenStatus::GlutenFree {
-        assessment.status = GlutenStatus::Unknown;
-        assessment.confidence = 0.0;
-        assessment.reasons = vec![
-            Reason {
-                code: "INSUFFICIENT_EVIDENCE".into(),
-                message: "No disponemos de información suficiente para confirmar que sea seguro."
-                    .into(),
+    timed(|| {
+        analyze(
+            &GlutenInput {
+                ingredients: Some(ingredients.into()),
+                source: "Etiqueta revisada por un usuario".into(),
+                origin: Some(Origin::Ocr),
+                reviewed: Some(true),
+                ..Default::default()
             },
-            Reason {
-                code: "COMMUNITY_CLAIM_UNVERIFIED".into(),
-                message: "Un usuario ha aportado una etiqueta que dice «sin gluten», pero no está confirmado por el fabricante. Compruébalo en el envase."
-                    .into(),
-            },
-        ];
-    }
-    assessment
+            Context::default(),
+        )
+        .without_claim(
+            "COMMUNITY_CLAIM_UNVERIFIED",
+            "Un usuario ha aportado una etiqueta que dice «sin gluten», pero no está confirmado por el fabricante. Compruébalo en el envase.",
+        )
+    })
+    .assessment
+}
+
+/// Deterministic analysis, measured (latency, items resolved by the rules).
+fn timed(run: impl FnOnce() -> Analysis) -> Analysis {
+    let start = std::time::Instant::now();
+    let analysis = run();
+    metrics::record_analysis(start.elapsed(), &analysis);
+    analysis
+}
+
+/// Years after which a source's data is called old, and after which its "sin gluten"
+/// is no longer accepted (recipes change; the label in the shop is what counts).
+const OLD_DATA_YEARS: i64 = 3;
+const OLD_CLAIM_YEARS: i64 = 5;
+
+/// Analysis of a provider product. The list shown is analysed first; the record's
+/// other texts (original language, English, the Spanish translation) only add caution.
+fn analyse_external(external: &ExternalProduct, translation: Option<&Translation>) -> Analysis {
+    timed(|| {
+        let context = external.context();
+        let other = |text: &str| {
+            analyze(
+                &GlutenInput {
+                    ingredients: Some(text.to_string()),
+                    ..external.gluten.clone()
+                },
+                context,
+            )
+        };
+        let mut alternatives: Vec<(String, Analysis)> = external
+            .alternate_ingredients
+            .iter()
+            .map(|(label, text)| (label.clone(), other(text)))
+            .collect();
+        if let Some(t) = translation {
+            alternatives.push(("traducida al español".into(), other(&t.text)));
+        }
+        let mut analysis = analyze(&external.gluten, context).with_alternatives(alternatives);
+        if let Some(modified) = external
+            .last_modified
+            .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+        {
+            let years = (chrono::Utc::now() - modified).num_days() / 365;
+            if years >= OLD_CLAIM_YEARS {
+                analysis = analysis.without_claim(
+                    "OLD_CLAIM",
+                    "La mención «sin gluten» procede de datos de hace más de cinco años: no se tiene en cuenta. Compruébalo en el envase.",
+                );
+            }
+            if years >= OLD_DATA_YEARS {
+                analysis.assessment.reasons.push(Reason {
+                    code: "OLD_DATA".into(),
+                    message: format!(
+                        "Los datos de la fuente no se actualizan desde {}. La receta puede haber cambiado: revisa la etiqueta.",
+                        modified.format("%Y")
+                    ),
+                });
+            }
+        }
+        analysis
+            .assessment
+            .reasons
+            .extend(external.provider_reasons.iter().cloned());
+        analysis
+    })
 }
 
 pub async fn latest(state: &AppState, code: &str) -> ApiResult<Option<Contribution>> {
@@ -204,6 +263,7 @@ pub fn community_product(state: &AppState, code: &str, c: &Contribution) -> Prod
         ai_check: None,
         community_ingredients: Some(c.ingredients.clone()),
         provider_assessment: None,
+        ai_review: None,
     }
 }
 
@@ -325,9 +385,11 @@ pub async fn decorate(state: &AppState, item: Product, user: Option<Uuid>) -> Ap
 
 /// Stored product → current view (contribution overlay + reports).
 pub async fn hydrate_stored(state: &AppState, data: Value, expired: bool) -> ApiResult<Product> {
+    let item = parse(data)?;
+    // Analysed by older rules: shown as old data until the product is opened again.
     let item = Product {
-        stale: expired,
-        ..parse(data)?
+        stale: expired || (outdated(&item) && !item.user_created),
+        ..item
     };
     let Some(code) = item.barcode.clone() else {
         return Ok(item);
@@ -350,24 +412,31 @@ fn risk(status: GlutenStatus) -> u8 {
 }
 
 /// `translation` is the Spanish view of the ingredients. The analysis runs on the
-/// original; the translation is analysed too and wins only when it finds gluten or
-/// traces the original missed (e.g. "farine de blé" → "harina de trigo").
-fn from_external(external: &ExternalProduct, translation: Option<&Translation>) -> Product {
-    let mut assessment = assess_gluten(&external.gluten);
-    if let Some(t) = translation {
-        let translated = assess_gluten(&GlutenInput {
-            ingredients: Some(t.text.clone()),
-            ..external.gluten.clone()
-        });
-        if matches!(
-            translated.status,
-            GlutenStatus::ContainsGluten | GlutenStatus::MayContainTraces
-        ) && risk(translated.status) > risk(assessment.status)
-        {
-            assessment = translated;
-        }
-    }
+/// original; the translation is analysed too and wins only when it is more cautious
+/// (e.g. "farine de blé" → "harina de trigo"). Returns the ingredients left for the
+/// AI too (only those the rules could not classify).
+fn from_external(
+    external: &ExternalProduct,
+    translation: Option<&Translation>,
+) -> (Product, Vec<String>) {
+    let analysis = analyse_external(external, translation);
+    let mut assessment = analysis.assessment;
     assessment.certification = external.certification;
+    if !external.manufacturer_data && assessment.status == GlutenStatus::GlutenFree {
+        // A label tag added by the community (often from a front photo) is a
+        // declaration someone read, not a verified certification.
+        if assessment.certification == Some(Certification::CertifiedSeal) {
+            assessment.certification = Some(Certification::GlutenFreeClaim);
+            assessment.reasons.push(Reason {
+                code: "SEAL_NOT_VERIFIED".into(),
+                message: "La fuente indica el símbolo de la espiga barrada, pero es un dato de la comunidad que SafeEat no ha verificado.".into(),
+            });
+        }
+        assessment.reasons.push(Reason {
+            code: "COMMUNITY_DATA".into(),
+            message: "Dato recogido por la comunidad de Open Food Facts, no por el fabricante. Compruébalo en tu envase.".into(),
+        });
+    }
     if external.summary_only {
         assessment.reasons.push(Reason {
             code: "SEARCH_PREVIEW".into(),
@@ -375,7 +444,7 @@ fn from_external(external: &ExternalProduct, translation: Option<&Translation>) 
                 .into(),
         });
     }
-    Product {
+    let product = Product {
         id: format!("off-{}", external.barcode),
         barcode: Some(external.barcode.clone()),
         name: external.name.clone(),
@@ -404,17 +473,67 @@ fn from_external(external: &ExternalProduct, translation: Option<&Translation>) 
         ai_check: None,
         community_ingredients: None,
         provider_assessment: None,
-    }
+        ai_review: None,
+    };
+    let candidates = if external.summary_only {
+        Vec::new()
+    } else {
+        analysis.ai_candidates
+    };
+    (product, candidates)
+}
+
+/// The analysis stored for a product was made by other rules or another engine.
+fn outdated(item: &Product) -> bool {
+    item.assessment.engine_version != safeeat_gluten_engine::ENGINE_VERSION
 }
 
 fn to_json(item: &Product) -> ApiResult<Value> {
     serde_json::to_value(item).map_err(|_| ApiError::internal())
 }
 
+/// Ingredient list compared across fetches, ignoring case, accents and punctuation
+/// (so a fixed typo in Open Food Facts is not a new recipe).
+fn formulation(product: &Product) -> Option<String> {
+    let text = product
+        .ingredients_original
+        .as_deref()
+        .or(product.ingredients.as_deref())?;
+    let key: String = safeeat_gluten_engine::normalize(text)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
+    (!key.is_empty()).then_some(key)
+}
+
+/// The source's list changed since the last full fetch: warn that the recipe may have
+/// changed (an old package in the cupboard may not match).
+async fn note_formulation_change(state: &AppState, item: &mut Product) {
+    let Ok(Some(data)) = sqlx::query_scalar::<_, Value>("SELECT data FROM products WHERE id=$1")
+        .bind(&item.id)
+        .fetch_optional(&state.db)
+        .await
+    else {
+        return;
+    };
+    let Ok(previous) = serde_json::from_value::<Product>(data) else {
+        return;
+    };
+    if let (Some(before), Some(now)) = (formulation(&previous), formulation(item)) {
+        if before != now {
+            item.assessment.reasons.push(Reason {
+                code: "INGREDIENTS_CHANGED".into(),
+                message: "La lista de ingredientes de la fuente ha cambiado recientemente: puede ser una receta nueva. Comprueba que coincide con tu envase.".into(),
+            });
+        }
+    }
+}
+
 async fn save(state: &AppState, external: &ExternalProduct, opened: bool) -> ApiResult<Product> {
     let translation = translate::spanish_ingredients(state, &external.language).await;
-    let item = from_external(external, translation.as_ref());
-    if let Some(items) = ai_check::eligible(&item, &external.language) {
+    let (mut item, candidates) = from_external(external, translation.as_ref());
+    note_formulation_change(state, &mut item).await;
+    if let Some(items) = ai_check::eligible(&item, &candidates, &external.language) {
         if opened {
             ai_check::enqueue(state, &item, items).await;
         } else {
@@ -433,12 +552,11 @@ async fn save(state: &AppState, external: &ExternalProduct, opened: bool) -> Api
     Ok(item)
 }
 
-/// Search previews never overwrite a full product: insert-if-absent, then read back what is stored.
-async fn save_previews(
-    state: &AppState,
-    externals: &[ExternalProduct],
-) -> ApiResult<Vec<(Value, bool)>> {
-    let items: Vec<Product> = externals.iter().map(|e| from_external(e, None)).collect();
+/// Search previews never overwrite a full product: insert-if-absent, then read back what
+/// is stored. A stored analysis made by older rules is not shown: the fresh preview is,
+/// and the product is enriched again.
+async fn save_previews(state: &AppState, externals: &[ExternalProduct]) -> ApiResult<Vec<Product>> {
+    let items: Vec<Product> = externals.iter().map(|e| from_external(e, None).0).collect();
     let ids: Vec<String> = items.iter().map(|p| p.id.clone()).collect();
     let codes: Vec<String> = items
         .iter()
@@ -463,7 +581,22 @@ async fn save_previews(
     .await?;
     let mut by_id: HashMap<String, (Value, bool)> =
         rows.into_iter().map(|(id, d, e)| (id, (d, e))).collect();
-    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+    let mut out = Vec::with_capacity(items.len());
+    for preview in items {
+        let Some((data, expired)) = by_id.remove(&preview.id) else {
+            continue;
+        };
+        let stored = Product {
+            stale: expired,
+            ..parse(data)?
+        };
+        out.push(if outdated(&stored) && stored.source != COMMUNITY_SOURCE {
+            preview
+        } else {
+            stored
+        });
+    }
+    Ok(out)
 }
 
 fn not_found_product() -> ApiError {
@@ -509,7 +642,7 @@ async fn from_cache(state: &AppState, code: &str) -> ApiResult<Option<Product>> 
             let item = parse(row.data)?;
             // An analysis made by an older engine is not served as fresh: the product
             // is fetched again so a corrected rule reaches cached products at once.
-            if item.assessment.engine_version != safeeat_gluten_engine::ENGINE_VERSION {
+            if outdated(&item) {
                 return Ok(None);
             }
             Ok(Some(contributed(state, item, contribution.as_ref())))
@@ -673,14 +806,7 @@ async fn search(
     )?;
     let gluten_free = util::query_bool(query.get("glutenFree"))?.unwrap_or(false);
     let externals = state.off.search(&q).await?;
-    let stored = save_previews(&state, &externals).await?;
-    let mut items = Vec::with_capacity(stored.len());
-    for (data, expired) in stored {
-        items.push(Product {
-            stale: expired,
-            ..parse(data)?
-        });
-    }
+    let items = save_previews(&state, &externals).await?;
     enrich_previews(&state, &items);
     let mut codes: Vec<String> = items.iter().filter_map(|p| p.barcode.clone()).collect();
     let pattern = format!("%{}%", util::like_escape(&q));
@@ -751,13 +877,19 @@ async fn analyze_text(
         community_contribution: false,
         gluten_reports: None,
         verified_gluten_reports: None,
-        assessment: assess_gluten(&GlutenInput {
-            ingredients: Some(text.clone()),
-            source: "Etiqueta revisada por el usuario".into(),
-            origin: Some(Origin::Ocr),
-            reviewed: Some(reviewed),
-            ..Default::default()
-        }),
+        assessment: timed(|| {
+            analyze(
+                &GlutenInput {
+                    ingredients: Some(text.clone()),
+                    source: "Etiqueta revisada por el usuario".into(),
+                    origin: Some(Origin::Ocr),
+                    reviewed: Some(reviewed),
+                    ..Default::default()
+                },
+                Context::default(),
+            )
+        })
+        .assessment,
         ingredients: Some(text),
         nutrition: NutritionInput::default(),
         quality: score_nutrition(&NutritionInput::default()),
@@ -773,6 +905,7 @@ async fn analyze_text(
         ai_check: None,
         community_ingredients: None,
         provider_assessment: None,
+        ai_review: None,
     };
     sqlx::query("INSERT INTO products(id,provider,owner_id,data,expires_at) VALUES($1,'user',$2,$3,now()+interval '30 days')")
         .bind(&item.id)
@@ -1170,6 +1303,11 @@ mod tests {
                 code: Some("fr".into()),
                 ..Default::default()
             },
+            alternate_ingredients: vec![],
+            eu_labelling: true,
+            manufacturer_data: false,
+            last_modified: None,
+            provider_reasons: vec![],
         }
     }
 
@@ -1188,7 +1326,7 @@ mod tests {
             ext.gluten.ingredients = None;
         }
         overlay_contribution(
-            from_external(&ext, None),
+            from_external(&ext, None).0,
             &label(user_label),
             "photo".into(),
         )
@@ -1251,14 +1389,14 @@ mod tests {
         // The engine has no Polish vocabulary: "mąka pszenna" alone is UNKNOWN.
         let ext = french("Mąka pszenna, cukier, masło.");
         assert_eq!(
-            from_external(&ext, None).assessment.status,
+            from_external(&ext, None).0.assessment.status,
             GlutenStatus::Unknown
         );
         let t = Translation {
             text: "Harina de trigo, azúcar, mantequilla.".into(),
             language: "fr".into(),
         };
-        let item = from_external(&ext, Some(&t));
+        let item = from_external(&ext, Some(&t)).0;
         assert_eq!(item.assessment.status, GlutenStatus::ContainsGluten);
         assert_eq!(item.ingredients.as_deref(), Some(t.text.as_str()));
         assert_eq!(
@@ -1269,7 +1407,7 @@ mod tests {
         // The verdict hash follows the original, not the rendering.
         assert_eq!(
             ingredients_hash(&item),
-            ingredients_hash(&from_external(&ext, None))
+            ingredients_hash(&from_external(&ext, None).0)
         );
 
         // A translated "sin gluten" never upgrades an UNKNOWN original.
@@ -1279,8 +1417,111 @@ mod tests {
         };
         let ext = french("Farine de riz.");
         assert_eq!(
-            from_external(&ext, Some(&claim)).assessment.status,
+            from_external(&ext, Some(&claim)).0.assessment.status,
             GlutenStatus::Unknown
         );
+    }
+
+    /// Regression (PRE, 2.0.2): Kimbo «Patatas fritas sabor a Toreras» was shown as
+    /// "La IA ve posible gluten". Real Open Food Facts record, end to end.
+    #[test]
+    fn kimbo_8410044005008_end_to_end() {
+        let raw: Value =
+            serde_json::from_str(include_str!("../tests/fixtures/off-8410044005008.json")).unwrap();
+        let ext = crate::providers::open_food_facts::normalize_off(&raw["product"]).unwrap();
+        let (item, candidates) = from_external(&ext, None);
+        let a = &item.assessment;
+        assert_eq!(a.status, GlutenStatus::Unknown);
+        assert_eq!(
+            a.finding,
+            Some(safeeat_contracts::GlutenFinding::NoGlutenIdentified)
+        );
+        assert_eq!(
+            a.reasons[0].message,
+            "No se han identificado ingredientes que declaren gluten. Sin embargo, no disponemos de información suficiente para confirmar que el producto sea apto para celíacos."
+        );
+        assert_eq!(
+            a.reasons[1].message,
+            "La dextrosa no representa por sí misma un motivo de alerta por gluten. Los aromas naturales tampoco demuestran la presencia de gluten. Comprueba la información de alérgenos y posibles trazas del envase."
+        );
+        assert!(a.certification.is_none());
+        assert_eq!(a.engine_version, safeeat_gluten_engine::ENGINE_VERSION);
+        // Nothing is left for the AI, so it is never asked and shows nothing.
+        assert!(candidates.is_empty());
+        assert!(ai_check::eligible(&item, &candidates, &ext.language).is_none());
+        let text = serde_json::to_string(&item).unwrap().to_lowercase();
+        assert!(!text.contains("posible gluten") && !text.contains("\"sin gluten\""));
+    }
+
+    #[test]
+    fn community_data_is_a_declaration_not_a_verified_seal() {
+        let mut ext = french("Riz, sucre.");
+        ext.gluten.declaration = Some("sin gluten".into());
+        ext.certification = Some(Certification::CertifiedSeal);
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::GlutenFree);
+        assert_eq!(
+            item.assessment.certification,
+            Some(Certification::GlutenFreeClaim)
+        );
+        assert!(item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "SEAL_NOT_VERIFIED"));
+        ext.manufacturer_data = true;
+        let item = from_external(&ext, None).0;
+        assert_eq!(
+            item.assessment.certification,
+            Some(Certification::CertifiedSeal)
+        );
+    }
+
+    #[test]
+    fn old_data_is_flagged_and_an_old_claim_is_not_accepted() {
+        let mut ext = french("Riz, sucre.");
+        ext.gluten.declaration = Some("sin gluten".into());
+        let years_ago = |y: i64| Some(chrono::Utc::now().timestamp() - y * 366 * 86_400);
+        ext.last_modified = years_ago(4);
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::GlutenFree);
+        assert!(item.assessment.reasons.iter().any(|r| r.code == "OLD_DATA"));
+        ext.last_modified = years_ago(6);
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::Unknown);
+        assert!(item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "OLD_CLAIM"));
+    }
+
+    #[test]
+    fn the_original_language_text_can_only_add_caution() {
+        // Spanish list shown; the French original mentions wheat the translation lost.
+        let mut ext = french("Galleta de arroz, azúcar.");
+        ext.alternate_ingredients = vec![(
+            "en el idioma original (fr)".into(),
+            "Galette de riz, sucre, farine de blé.".into(),
+        )];
+        let item = from_external(&ext, None).0;
+        assert_eq!(item.assessment.status, GlutenStatus::ContainsGluten);
+        assert_eq!(
+            item.assessment.finding,
+            Some(safeeat_contracts::GlutenFinding::Contradictory)
+        );
+        assert!(item
+            .assessment
+            .reasons
+            .iter()
+            .any(|r| r.code == "TEXTS_DISAGREE"));
+    }
+
+    #[test]
+    fn analyses_by_older_rules_are_outdated() {
+        let mut item = from_external(&french("Riz."), None).0;
+        assert!(!outdated(&item));
+        item.assessment.engine_version = "1.1.0".into();
+        assert!(outdated(&item));
     }
 }

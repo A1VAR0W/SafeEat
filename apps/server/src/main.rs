@@ -17,6 +17,7 @@ mod error;
 mod extract;
 mod favorites;
 mod importer;
+mod metrics;
 mod migrate;
 mod permissions;
 mod products;
@@ -72,6 +73,7 @@ async fn serve_api() -> Result<()> {
     let port = config.port;
     let state = state::Inner::new(config, db)?;
     ai_check::spawn_worker(state.clone());
+    metrics::spawn_logger();
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
     tracing::info!(port, ai = state.ai_check.is_some(), "SafeEat API listening");
     axum::serve(

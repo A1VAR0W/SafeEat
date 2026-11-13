@@ -1,8 +1,6 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use safeeat_contracts::{
-    AiCheck, AiCheckStatus, GlutenStatus, InformationSource, Product, VerdictValue,
-};
+use safeeat_contracts::{AiOutcome, AiVerdict, InformationSource, Product, VerdictValue};
 use serde_json::json;
 
 use crate::api::{self, Failure};
@@ -10,7 +8,7 @@ use crate::icons;
 use crate::nav::{use_nav, use_session, Route};
 use crate::screens::community::{CommunityReviews, ProductReviewForm, ShareButton};
 use crate::ui::{ErrorBox, Header, Icon, Loading};
-use crate::verdict::{self, status_title, status_tone};
+use crate::verdict::{self, status_title, status_tone, AiNote};
 
 fn path_for(id: &str) -> String {
     if id.bytes().all(|b| b.is_ascii_digit()) {
@@ -46,7 +44,7 @@ pub fn ProductScreen(id: String) -> impl IntoView {
     let polls = StoredValue::new(0u8);
     Effect::new(move |_| {
         let pending = state.with(|s| {
-            matches!(s, Some(Ok(p)) if p.ai_check.as_ref().is_some_and(|a| a.status == AiCheckStatus::Pending))
+            matches!(s, Some(Ok(p)) if verdict::ai_note(p).is_some_and(|a| a.outcome == AiOutcome::Pending))
         });
         if pending && polls.get_value() < 12 {
             polls.update_value(|n| *n += 1);
@@ -245,6 +243,8 @@ fn AnalysisPart(product: Product) -> impl IntoView {
     let p = product;
     let status = p.assessment.status;
     let tone = status_tone(status);
+    let (level, level_why) = verdict::evidence_level(&p.assessment);
+    let items = p.assessment.items.clone();
     view! {
         <div class="stack">
             // Certified seal / declaration, with where it comes from.
@@ -260,7 +260,7 @@ fn AnalysisPart(product: Product) -> impl IntoView {
             <section class=format!("card analysis {}", tone.class())>
                 <h3 class="card-title">
                     <span class="icon" inner_html=tone.icon()></span>
-                    {status_title(status)}
+                    {verdict::analysis_title(&p.assessment)}
                 </h3>
                 <ul class="reasons">
                     {p.assessment.reasons.iter().map(|r| view! { <li>{r.message.clone()}</li> }).collect_view()}
@@ -273,46 +273,62 @@ fn AnalysisPart(product: Product) -> impl IntoView {
                         </ul>
                     </details>
                 })}
+                {(!items.is_empty()).then(|| view! {
+                    <details class="evidence">
+                        <summary>"¿Cómo se ha clasificado cada ingrediente?"</summary>
+                        <ul>
+                            {items.iter().map(|i| view! {
+                                <li>{i.text.clone()} " · " <span class="muted">{verdict::class_label(i.class)}</span></li>
+                            }).collect_view()}
+                        </ul>
+                    </details>
+                })}
                 <p class="muted small">
-                    "Confianza en la evidencia: " {format!("{:.0} %", p.assessment.confidence * 100.0)}
+                    "Evidencia: " <strong>{level}</strong> ". " {level_why}
                 </p>
             </section>
-            // On-server AI second opinion (only when the analysis found nothing).
-            {(status == GlutenStatus::Unknown).then(|| p.ai_check.clone()).flatten().map(|ai| view! { <AiCard ai=ai /> })}
+            // On-server AI second opinion (only when the analysis left it UNKNOWN).
+            {verdict::ai_note(&p).map(|ai| view! { <AiCard ai=ai /> })}
         </div>
     }
 }
 
 #[component]
-fn AiCard(ai: AiCheck) -> impl IntoView {
-    match ai.status {
-        AiCheckStatus::Verified => view! {
-            <section class="card ai tone-info">
-                <h3 class="card-title"><span class="icon" inner_html=icons::SPARKLES></span>"Análisis orientativo por IA"</h3>
-                <p>"La IA no ha visto ingredientes con gluten en esta lista."</p>
-                <div class="ai-warning">
-                    <span class="icon" inner_html=icons::ALERT></span>
-                    <p>"No es una certificación. La IA puede equivocarse y no detecta trazas ni contaminación cruzada. Revisa siempre la etiqueta."</p>
-                </div>
-                <p class="muted small">{ai.model.clone()}</p>
-            </section>
-        }
-        .into_any(),
-        AiCheckStatus::Suspected => view! {
-            <section class="card ai tone-caution">
-                <h3 class="card-title"><span class="icon" inner_html=icons::SPARKLES></span>"La IA ve posible gluten"</h3>
-                <p>{ai.message.clone()}</p>
-            </section>
-        }
-        .into_any(),
-        AiCheckStatus::Pending => view! {
+fn AiCard(ai: AiNote) -> impl IntoView {
+    if ai.outcome == AiOutcome::Pending {
+        return view! {
             <section class="card ai tone-unknown" role="status">
-                <h3 class="card-title"><span class="spinner" aria-hidden="true"></span>"Comprobando con IA…"</h3>
+                <h3 class="card-title"><span class="spinner" aria-hidden="true"></span>{ai.title}</h3>
                 <p class="muted">{ai.message.clone()}</p>
             </section>
         }
-        .into_any(),
+        .into_any();
     }
+    let icon = if ai.outcome == AiOutcome::NoGlutenSeen {
+        icons::SPARKLES
+    } else {
+        icons::HELP
+    };
+    view! {
+        <section class=format!("card ai {}", ai.tone.class())>
+            <h3 class="card-title"><span class="icon" inner_html=icon></span>{ai.title}</h3>
+            <p>{ai.message.clone()}</p>
+            {(!ai.items.is_empty()).then(|| view! {
+                <ul class="reasons">
+                    {ai.items.iter().map(|i| view! { <li>{i.explanation.clone()}</li> }).collect_view()}
+                </ul>
+            })}
+            {ai.items.iter().any(|i| i.verdict == AiVerdict::KnownGluten).then(|| view! {
+                <p class="muted small">"Una sospecha de la IA no es una advertencia del fabricante: compruébalo en el envase."</p>
+            })}
+            <div class="ai-warning">
+                <span class="icon" inner_html=icons::ALERT></span>
+                <p>"No es una certificación. La IA puede equivocarse y no detecta trazas ni contaminación cruzada. Revisa siempre la etiqueta."</p>
+            </div>
+            <p class="muted small">{ai.model.clone()}</p>
+        </section>
+    }
+    .into_any()
 }
 
 #[component]

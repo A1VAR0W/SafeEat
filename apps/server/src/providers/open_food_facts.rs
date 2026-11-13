@@ -11,8 +11,39 @@ use super::{ExternalProduct, IngredientLanguage, ParsedIngredient};
 use crate::error::ApiError;
 use crate::util::safe_http_url;
 
-const FIELDS: &str = "code,product_name,product_name_es,generic_name_es,lang,brands,ingredients,ingredients_lc,unknown_ingredients_n,ingredients_text,ingredients_text_es,ingredients_text_en,allergens_tags,traces_tags,labels_tags,image_front_small_url,image_front_thumb_url,nutriments,nutrition_grades";
-const SEARCH_FIELDS: &str = "code,product_name,product_name_es,brands,image_front_thumb_url,image_front_small_url,allergens_tags,traces_tags,labels_tags";
+const FIELDS: &str = "code,product_name,product_name_es,generic_name_es,lang,brands,ingredients,ingredients_lc,unknown_ingredients_n,ingredients_text,ingredients_text_es,ingredients_text_en,allergens_tags,traces_tags,labels_tags,image_front_small_url,image_front_thumb_url,nutriments,nutrition_grades,countries_tags,last_modified_t,data_sources_tags,owner";
+const SEARCH_FIELDS: &str = "code,product_name,product_name_es,brands,image_front_thumb_url,image_front_small_url,allergens_tags,traces_tags,labels_tags,countries_tags";
+
+/// EU member states, as Open Food Facts country tags.
+const EU_COUNTRIES: &[&str] = &[
+    "en:austria",
+    "en:belgium",
+    "en:bulgaria",
+    "en:croatia",
+    "en:cyprus",
+    "en:czech-republic",
+    "en:denmark",
+    "en:estonia",
+    "en:finland",
+    "en:france",
+    "en:germany",
+    "en:greece",
+    "en:hungary",
+    "en:ireland",
+    "en:italy",
+    "en:latvia",
+    "en:lithuania",
+    "en:luxembourg",
+    "en:malta",
+    "en:netherlands",
+    "en:poland",
+    "en:portugal",
+    "en:romania",
+    "en:slovakia",
+    "en:slovenia",
+    "en:spain",
+    "en:sweden",
+];
 
 /// OFF label tags. `en:crossed-grain-trademark` is the Espiga Barrada / AOECS symbol.
 const SEAL_TAGS: &[&str] = &[
@@ -157,6 +188,35 @@ pub fn normalize_off(value: &Value) -> Option<ExternalProduct> {
         _ => None,
     };
     let labels_list = labels.clone().unwrap_or_default();
+    // The list analysed first is the one shown (Spanish when OFF has it). The record's
+    // other texts are analysed too and can only add caution.
+    let mut alternate_ingredients: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<String> = ingredients
+        .as_deref()
+        .map(safeeat_gluten_engine::normalize)
+        .into_iter()
+        .collect();
+    let main_language = first(&[text(p, "ingredients_lc"), text(p, "lang")]).unwrap_or("?");
+    for (key, label) in [
+        (
+            "ingredients_text",
+            format!("en el idioma original ({main_language})"),
+        ),
+        ("ingredients_text_en", "en inglés".to_string()),
+    ] {
+        let Some(other) = text(p, key).filter(|v| !v.trim().is_empty()) else {
+            continue;
+        };
+        let normalized = safeeat_gluten_engine::normalize(other);
+        if !seen.contains(&normalized) {
+            seen.push(normalized);
+            alternate_ingredients.push((label, other.to_string()));
+        }
+    }
+    let countries = tags(p, "countries_tags").unwrap_or_default();
+    let sources = tags(p, "data_sources_tags").unwrap_or_default();
+    let manufacturer_data = sources.iter().any(|s| s.starts_with("producer"))
+        || text(p, "owner").is_some_and(|o| o.starts_with("org-"));
     Some(ExternalProduct {
         summary_only: false,
         name: first(&[
@@ -188,7 +248,11 @@ pub fn normalize_off(value: &Value) -> Option<ExternalProduct> {
                 .iter()
                 .any(|t| CLAIM_TAGS.contains(&t.as_str()) || SEAL_TAGS.contains(&t.as_str()))
                 .then(|| "sin gluten".to_string()),
-            source: "Open Food Facts (datos comunitarios)".into(),
+            source: if manufacturer_data {
+                "Open Food Facts (datos del fabricante)".into()
+            } else {
+                "Open Food Facts (datos comunitarios)".into()
+            },
             source_url: Some(source_url.clone()),
             origin: Some(Origin::Provider),
             reviewed: None,
@@ -208,8 +272,19 @@ pub fn normalize_off(value: &Value) -> Option<ExternalProduct> {
         source_url,
         certification: certification(&labels_list),
         language: ingredient_language(p),
+        alternate_ingredients,
+        // Without countries we cannot tell: the stricter reading (not EU) applies.
+        eu_labelling: countries.iter().any(|c| EU_COUNTRIES.contains(&c.as_str())),
+        manufacturer_data,
+        last_modified: p.get("last_modified_t").and_then(Value::as_i64),
+        provider_reasons: Vec::new(),
         barcode: code,
     })
+}
+
+/// Same GTIN, ignoring leading zeros (UPC-A with 12 digits vs EAN-13 with a leading 0).
+pub fn same_code(a: &str, b: &str) -> bool {
+    a.trim_start_matches('0') == b.trim_start_matches('0')
 }
 
 pub fn normalize_search_hit(value: &Value) -> Option<ExternalProduct> {
@@ -268,13 +343,19 @@ impl OpenFoodFacts {
             Some(_) => return Err(invalid()),
         }
         let product = envelope.get("product").unwrap_or(&Value::Null);
-        normalize_off(product).map(Some).ok_or_else(|| {
+        let item = normalize_off(product).ok_or_else(|| {
             ApiError::new(
                 503,
                 "PROVIDER_INVALID",
                 "La fuente ha enviado información incompleta.",
             )
-        })
+        })?;
+        // Never show another product's ingredients under this barcode.
+        if !same_code(&item.barcode, barcode) {
+            tracing::warn!(requested = barcode, returned = %item.barcode, "OFF returned another barcode");
+            return Err(invalid());
+        }
+        Ok(Some(item))
     }
 
     /// Spanish names for taxonomy ids (`None` when OFF has no Spanish name).
@@ -370,6 +451,64 @@ mod tests {
         assert_eq!(p.nutrition.salt, Some(1.0));
         assert_eq!(p.nutri_score.as_deref(), Some("D"));
         assert_eq!(p.information_source, InformationSource::Api);
+    }
+
+    /// The real record of the regression product, as fetched on 2026-11-13.
+    #[test]
+    fn kimbo_record() {
+        let raw: Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/off-8410044005008.json"))
+                .unwrap();
+        let p = normalize_off(&raw["product"]).unwrap();
+        assert_eq!(p.barcode, "8410044005008");
+        assert_eq!(p.brand.as_deref(), Some("Kimbo"));
+        assert_eq!(p.name, "Patatas fritas sabor a Toreras");
+        assert!(p.eu_labelling);
+        assert!(!p.manufacturer_data);
+        assert_eq!(p.gluten.source, "Open Food Facts (datos comunitarios)");
+        // The Spanish and the main text are the same list: nothing else to analyse.
+        assert!(p.alternate_ingredients.is_empty());
+        // Empty tags are not evidence of absence: they reach the engine as empty text.
+        assert_eq!(p.gluten.allergens.as_deref(), Some(""));
+        assert_eq!(p.gluten.traces.as_deref(), Some(""));
+        assert!(p.last_modified.is_some());
+        let a = safeeat_gluten_engine::analyze(&p.gluten, p.context()).assessment;
+        assert_eq!(a.status, safeeat_contracts::GlutenStatus::Unknown);
+        assert_eq!(
+            a.finding,
+            Some(safeeat_contracts::GlutenFinding::NoGlutenIdentified)
+        );
+    }
+
+    #[test]
+    fn original_language_text_is_kept_for_analysis() {
+        let p = normalize_off(&json!({
+            "code": "3000000000001",
+            "lang": "fr",
+            "ingredients_lc": "fr",
+            "ingredients_text": "Farine de blé, sucre.",
+            "ingredients_text_es": "Harina de arroz, azúcar.",
+            "countries_tags": ["en:france"],
+            "data_sources_tags": ["producers", "producer-x"]
+        }))
+        .unwrap();
+        assert_eq!(p.ingredients.as_deref(), Some("Harina de arroz, azúcar."));
+        assert_eq!(p.alternate_ingredients.len(), 1);
+        assert_eq!(p.alternate_ingredients[0].1, "Farine de blé, sucre.");
+        assert!(p.manufacturer_data);
+        assert_eq!(p.gluten.source, "Open Food Facts (datos del fabricante)");
+        // No countries: the stricter, non-EU reading.
+        assert!(
+            !normalize_off(&json!({"code": "12345678"}))
+                .unwrap()
+                .eu_labelling
+        );
+    }
+
+    #[test]
+    fn barcodes_compare_without_leading_zeros() {
+        assert!(same_code("0012345678905", "012345678905"));
+        assert!(!same_code("8410044005008", "8410044005015"));
     }
 
     #[test]
